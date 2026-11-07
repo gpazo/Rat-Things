@@ -31,3 +31,11 @@ The following are measurement boundaries, not invented zero-cost components.
 ## Verification model
 
 Model the Domain led to typed measured components with explicit unknown values. Boundary Discipline kept file I/O in the CLI and parsing/calculation pure. Explain the Number led to REPORT-based compute, capacity coverage, retry uncertainty and a required measured zero-viewer baseline for marginal pricing. Prove It Works led to execution of the actual CLI from exported synthetic logs, alongside unit conversion and ambiguity tests. Synthetic fixtures verify arithmetic and parsing; they are not a load measurement.
+
+## Coverage follow-up
+
+A read-only comparison with integrated main `15019c31a9501a42e3f94954754aaf9d28ffe52e` found two coverage gaps in the calculator. A START-only invocation was ignored, and a REPORT without a performance scope made compute partial while leaving measured storage components labeled observed. A completed request plus a second START-only request could therefore produce an incorrect complete listed-component flag.
+
+The follow-up recognizes text START and JSON `platform.start`, counts unmatched in-window starts, and propagates invocation gaps to every component. Observed dollars are unchanged; unknown invocation usage is never fabricated. Out-of-window starts are not invented. Existing `StartedAt` checks still mark completed crossing-window scopes partial. Nineteen focused cost tests passed, including the actual CLI and new START/REPORT coverage regressions. No AWS calls, live benchmarks or full-suite work ran during this follow-up.
+
+The [export guide](export-guide.md) describes matrix/scenario boundaries, all three function log groups, completion reconciliation and why client first-byte/stream occupancy cannot establish billed duration or a marginal viewer price.

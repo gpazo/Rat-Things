@@ -35,6 +35,7 @@ type Metric = typeof metricNames[number];
 type Metrics = Partial<Record<Metric, number>>;
 type Observation =
   | { kind: 'performance'; operation: string; outcome: string; metrics: Metrics; emfSeries: string[]; requestId?: string; startedAt?: number }
+  | { kind: 'start'; requestId: string }
   | { kind: 'report'; requestId: string; billedMs: number; memoryMb: number }
   | { kind: 'invalid' }
   | { kind: 'other' };
@@ -107,6 +108,8 @@ export function parseLogExport(text: string): LogEvent[] {
 }
 function observation(message: string, inheritedRequestId?: string, depth = 0): Observation {
   if (depth > 3) return { kind: 'invalid' };
+  const start = /\bSTART RequestId:\s+(\S+)/.exec(message);
+  if (start) return { kind: 'start', requestId: start[1]! };
   const report = /\bREPORT RequestId:\s+(\S+).*?Billed Duration:\s+([\d.]+)\s+ms.*?Memory Size:\s+([\d.]+)\s+MB/.exec(message);
   if (report) {
     const billedMs = Number(report[2]), memoryMb = Number(report[3]);
@@ -138,6 +141,10 @@ function observation(message: string, inheritedRequestId?: string, depth = 0): O
     return typeof record?.requestId === 'string' && nonnegative(metrics?.billedDurationMs) && nonnegative(metrics?.memorySizeMB) && metrics.memorySizeMB > 0
       ? { kind: 'report', requestId: record.requestId, billedMs: metrics.billedDurationMs, memoryMb: metrics.memorySizeMB }
       : { kind: 'invalid' };
+  }
+  if (p.type === 'platform.start') {
+    const record = object(p.record);
+    return typeof record?.requestId === 'string' && record.requestId ? { kind: 'start', requestId: record.requestId } : { kind: 'invalid' };
   }
   if (typeof p.message === 'string') return observation(p.message, requestId, depth + 1);
   if (object(p.message)) return observation(JSON.stringify(p.message), requestId, depth + 1);
@@ -181,7 +188,7 @@ export function estimateCost(manifest: Manifest, card: RateCard, inputs: SourceL
   const sources = inputs.map(({ source, events }) => {
     const metrics: Metrics = {};
     const operationsSeen: Record<string, number> = {}, outcomesSeen: Record<string, number> = {};
-    const seenEvents = new Set<string>(), reports = new Map<string, { billedMs: number; memoryMb: number }>();
+    const seenEvents = new Set<string>(), starts = new Set<string>(), reports = new Map<string, { billedMs: number; memoryMb: number }>();
     const scopeIds = new Set<string>();
     let performanceRecords = 0, invocationScopes = 0, unidentifiedScopes = 0, invalidRecords = 0, duplicates = 0, outsideWindow = 0, crossingWindow = 0, unknownStart = 0;
     for (const event of events) {
@@ -191,6 +198,10 @@ export function estimateCost(manifest: Manifest, card: RateCard, inputs: SourceL
       const obs = observation(event.message);
       if (obs.kind === 'invalid') { invalidRecords++; continue; }
       if (obs.kind === 'other') continue;
+      if (obs.kind === 'start') {
+        if (starts.has(obs.requestId)) duplicates++;
+        starts.add(obs.requestId); continue;
+      }
       if (obs.kind === 'report') {
         if (reports.has(obs.requestId)) { duplicates++; continue; }
         reports.set(obs.requestId, obs); continue;
@@ -209,29 +220,30 @@ export function estimateCost(manifest: Manifest, card: RateCard, inputs: SourceL
     }
     const missingReports = [...scopeIds].filter(id => !reports.has(id)).length;
     const reportsWithoutScope = [...reports.keys()].filter(id => !scopeIds.has(id)).length;
+    const startsWithoutReport = [...starts].filter(id => !reports.has(id)).length;
     const boundaryIncomplete = !manifest.completeWindowExport || !manifest.isolatedPhase || invalidRecords > 0 || crossingWindow > 0 || unknownStart > 0;
-    const computePartial = boundaryIncomplete || missingReports > 0 || unidentifiedScopes > 0 || reportsWithoutScope > 0;
+    const measurementIncomplete = boundaryIncomplete || missingReports > 0 || unidentifiedScopes > 0 || reportsWithoutScope > 0 || startsWithoutReport > 0;
     const gbSeconds = reports.size ? [...reports.values()].reduce((sum, r) => sum + r.billedMs / 1000 * r.memoryMb / 1024, 0) : null;
     const capacityReports = metrics.DynamoCapacityReports ?? 0, capacityMissing = metrics.DynamoCapacityMissing ?? 0;
     const capacityUnclassified = metrics.DynamoUnclassifiedCapacity ?? 0;
     const dynamoExtraAttempts = Math.max(0, (metrics.DynamoAttempts ?? 0) - capacityReports - capacityMissing);
-    const dynamoPartial = boundaryIncomplete || !performanceRecords || metrics.DynamoCapacityReports === undefined || capacityMissing > 0 || capacityUnclassified > 0 || dynamoExtraAttempts > 0;
+    const dynamoPartial = measurementIncomplete || !performanceRecords || metrics.DynamoCapacityReports === undefined || capacityMissing > 0 || capacityUnclassified > 0 || dynamoExtraAttempts > 0;
     const s3Logical = (metrics.S3GetCount ?? 0) + (metrics.S3PutCount ?? 0);
     const s3ExtraAttempts = Math.max(0, (metrics.S3Attempts ?? 0) - s3Logical);
-    const s3Partial = boundaryIncomplete || !performanceRecords || metrics.S3Attempts === undefined || metrics.S3Attempts < s3Logical || s3ExtraAttempts > 0 || (metrics.S3Errors ?? 0) > 0;
+    const s3Partial = measurementIncomplete || !performanceRecords || metrics.S3Attempts === undefined || metrics.S3Attempts < s3Logical || s3ExtraAttempts > 0 || (metrics.S3Errors ?? 0) > 0;
     const observedMetric = (name: Metric) => metrics[name] ?? null;
     const components = {
-      lambdaCompute: component(gbSeconds, card.rates[source.architecture === 'arm64' ? 'lambdaArmGbSecond' : 'lambdaX86GbSecond'], computePartial, 'REPORT billed duration milliseconds / 1000 × memory MB / 1024; no wall-duration substitute'),
-      lambdaRequests: component(reports.size || null, card.rates.lambdaRequest, computePartial, 'One invocation request per unique REPORT; extra asynchronous payload request units excluded'),
+      lambdaCompute: component(gbSeconds, card.rates[source.architecture === 'arm64' ? 'lambdaArmGbSecond' : 'lambdaX86GbSecond'], measurementIncomplete, 'REPORT billed duration milliseconds / 1000 × memory MB / 1024; no wall-duration substitute'),
+      lambdaRequests: component(reports.size || null, card.rates.lambdaRequest, measurementIncomplete, 'One invocation request per unique REPORT; extra asynchronous payload request units excluded'),
       dynamoRead: component(observedMetric('DynamoReadCapacity'), card.rates.dynamoRead, dynamoPartial, 'Actual classified ReturnConsumedCapacity read units; no additional transaction multiplier'),
       dynamoWrite: component(observedMetric('DynamoWriteCapacity'), card.rates.dynamoWrite, dynamoPartial, 'Actual classified ReturnConsumedCapacity write units; no additional transaction multiplier'),
       s3Get: component(observedMetric('S3GetCount'), card.rates.s3Get, s3Partial, 'Logical measuredS3 GET calls; retry billing/status classification unavailable'),
       s3Put: component(observedMetric('S3PutCount'), card.rates.s3Put, s3Partial, 'Logical measuredS3 PUT calls; retry billing/status classification unavailable'),
     };
     return { function: source.function, architecture: source.architecture, components, metrics, operations: operationsSeen, outcomes: outcomesSeen,
-      coverage: { performanceRecords, invocationScopes, reports: reports.size, missingReports, unidentifiedScopes, reportsWithoutScope,
+      coverage: { performanceRecords, invocationScopes, starts: starts.size, startsWithoutReport, reports: reports.size, missingReports, unidentifiedScopes, reportsWithoutScope,
         invalidRecords, duplicates, outsideWindow, crossingWindow, unknownStart, capacityReports, capacityMissing, capacityUnclassified,
-        dynamoExtraAttempts, s3ExtraAttempts, requestIdCorrelationComplete: invocationScopes > 0 && !missingReports && !unidentifiedScopes && !reportsWithoutScope } };
+        dynamoExtraAttempts, s3ExtraAttempts, requestIdCorrelationComplete: invocationScopes > 0 && !missingReports && !unidentifiedScopes && !reportsWithoutScope && !startsWithoutReport } };
   });
   const all = sources.flatMap(s => Object.values(s.components));
   const priced = all.filter(c => c.usd !== null);
@@ -254,7 +266,8 @@ export function estimateCost(manifest: Manifest, card: RateCard, inputs: SourceL
     warnings: [
       ...(!manifest.isolatedPhase ? ['Window is not asserted isolated; unrelated work may be included.'] : []),
       ...(!manifest.completeWindowExport ? ['Export completeness is not asserted; missing pages or log groups can undercount.'] : []),
-      'Missing REPORTs, invalid records, unresolved request IDs and crossing-window scopes make coverage partial. Export all pages after streams finish and REPORTs arrive.',
+      'Unmatched STARTs, missing REPORTs, invalid records, unresolved request IDs and crossing-window scopes make all component coverage partial. Export all pages after streams finish and REPORTs arrive.',
+      'START records and controller completion counts are required for an independent completeness check. The estimator cannot detect invocations absent from all supplied logs; a client disconnect does not prove server completion.',
       'S3 logical request dollars are an estimate, not charged attempts. Failed calls and aggregated SDK retries cannot be assigned an exact dollar amount.',
       'An absent metric is unknown, not zero. A reported zero is retained. Unclassified capacity is never priced as reads or writes.',
       'API, outbox and local share scopes must be exported separately. Never add a nested scope to its parent if they measure the same work.',

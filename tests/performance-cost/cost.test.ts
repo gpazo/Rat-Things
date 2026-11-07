@@ -23,6 +23,9 @@ function perf(metrics: Record<string, unknown> = {}, requestId = 'request-1'): L
 function report(requestId = 'request-1', billed = 1000, memory = 512): LogEvent {
   return { timestamp: start + 2001, message: `REPORT RequestId: ${requestId}\tDuration: 997.51 ms\tBilled Duration: ${billed} ms\tMemory Size: ${memory} MB\tMax Memory Used: 129 MB` };
 }
+function invocationStart(requestId: string, timestamp = start + 1000): LogEvent {
+  return { timestamp, message: `START RequestId: ${requestId} Version: $LATEST` };
+}
 function run(events: LogEvent[], config = manifest) { return estimateCost(config, card, [{ source: config.sources[0]!, events }]); }
 const readMetrics = { DynamoAttempts: 1, DynamoCapacityReports: 1, DynamoReadCapacity: 2, S3GetCount: 3, S3Attempts: 3 };
 
@@ -58,6 +61,32 @@ describe('measured variable collaboration cost', () => {
     expect(estimate.sources[0]!.coverage.missingReports).toBe(1);
     expect(estimate.computeAndRead.completeForListedComponents).toBe(false);
     expect(run([]).subtotal.usd).toBeNull();
+  });
+  it('marks every component partial for an invocation with START but no final records', () => {
+    const complete = run([invocationStart('request-1'), perf(readMetrics), report()]);
+    const incomplete = run([invocationStart('request-1'), perf(readMetrics), report(), invocationStart('still-running')]);
+    expect(incomplete.subtotal.usd).toBe(complete.subtotal.usd);
+    expect(incomplete.sources[0]!.coverage).toMatchObject({ starts: 2, startsWithoutReport: 1, missingReports: 0, requestIdCorrelationComplete: false });
+    expect(incomplete.computeAndRead.completeForListedComponents).toBe(false);
+    for (const component of Object.values(incomplete.sources[0]!.components)) if (component.units !== null) expect(component.coverage).toBe('partial');
+    expect(compareViewerBaseline(incomplete, run([perf(readMetrics), report()], { ...manifest, viewerHours: 0 })).usdPerViewerHour).toBeNull();
+  });
+  it('matches structured STARTs and deduplicates repeat starts regardless of event order', () => {
+    const structured = { timestamp: start + 1000, message: JSON.stringify({ type: 'platform.start', record: { requestId: 'request-1', version: '$LATEST' } }) };
+    const estimate = run([report(), structured, perf(readMetrics), invocationStart('request-1', start + 1001)]);
+    expect(estimate.sources[0]!.coverage).toMatchObject({ starts: 1, startsWithoutReport: 0, duplicates: 1 });
+    expect(estimate.computeAndRead.completeForListedComponents).toBe(true);
+  });
+  it('does not invent missing starts when a start predates the export window', () => {
+    const estimate = run([invocationStart('request-1', start - 100), perf({ ...readMetrics, StartedAt: start - 100 }), report()]);
+    expect(estimate.sources[0]!.coverage).toMatchObject({ starts: 0, startsWithoutReport: 0, outsideWindow: 1, crossingWindow: 1 });
+    expect(estimate.computeAndRead.completeForListedComponents).toBe(false);
+  });
+  it('marks storage partial when a REPORT lacks its performance record', () => {
+    const estimate = run([perf(readMetrics), report(), report('no-performance-record')]);
+    expect(estimate.sources[0]!.coverage.reportsWithoutScope).toBe(1);
+    expect(estimate.sources[0]!.components.dynamoRead.coverage).toBe('partial');
+    expect(estimate.sources[0]!.components.s3Get.coverage).toBe('partial');
   });
   it('keeps reported zero distinct from absent metrics and marks old telemetry partial', () => {
     const source = run([perf({ DynamoReadCapacity: 0, S3GetCount: 0 }), report()]).sources[0]!;
