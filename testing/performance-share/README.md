@@ -79,9 +79,14 @@ not exported. Private source SQLite stores are temporary and removed after the
 Share service stops; an uncertain stop retains the directory and fails cleanup.
 
 Failure cleanup attempts an abort while Share remains abortable, then stops the
-coordinator. It attempts destination Session and Agent deletion independently,
-deletes uploaded Files only after destination Session retirement is confirmed,
-and removes all disposable Cognito users. Per-file cleanup outcomes remain in
+coordinator, then queries the destination Share record. A client-side fetch abort
+does not cancel an admitted remote Lambda. It attempts destination Session and
+Agent deletion independently, but a 404 while Share is still activating or
+unknown does not confirm retirement. Uploaded Files are deleted only after an
+authoritative aborted tombstone, or an active Share followed by successful
+Session retirement. Activating, staged, unknown, or unconfirmed local-stop
+states retain the Files and mark cleanup unconfirmed. The controller also
+removes all disposable Cognito users. Per-file cleanup outcomes remain in
 the artifact. An upload whose acknowledgement is lost may leave an unknown File
 ID; uploaded-file cleanup then remains unconfirmed even if all known IDs were
 deleted. Destination Share records and spaces still belong to deployment

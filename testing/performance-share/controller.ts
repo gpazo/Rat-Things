@@ -9,7 +9,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { unzipSync } from 'fflate';
 import { LocalShareService } from '../../src/app/local-share.js';
 import type { SessionActivity } from '../../src/core/session-activity.js';
-import type { SessionShareManifest, ShareStageRequest } from '../../src/core/session-share-types.js';
+import type { SessionShareManifest, ShareStageRequest, ShareStatus } from '../../src/core/session-share-types.js';
 import { createAgentsClient } from '../../src/agents-client.js';
 import { createTeamIdentities } from '../aws/team-identities.js';
 import { cleanupActions, liveConfiguration } from '../performance-aws/controller.js';
@@ -45,6 +45,8 @@ interface Cell {
   states: { state: string; atMs: number; atUtc: string }[];
   requests: RequestSpan[]; metrics: NonNullable<ReturnType<typeof shareMetric>>[];
   workspace?: SessionShareManifest['workspace']; uploadedFiles: { id: string; bytes: number }[];
+  destinationShare?: { status: ShareStatus['status'] | 'unknown'; checkedAtUtc: string; httpStatus?: number };
+  destinationSessionDeleteStatus?: number;
   verification?: { sameSession: true; sameAgent: true; sameHistory: true; sourceFenced: true; sourceExecutorClosed: true; archiveDownloaded: boolean; archiveBytes: number | null };
   cleanup: Record<string, string>; uploadedFileCleanup?: Record<string, string>; error?: string; failurePhase?: string;
 }
@@ -91,6 +93,7 @@ export async function run(options: Options, environment: NodeJS.ProcessEnv = pro
       let share: LocalShareService | undefined;
       let sourceAttempted = false;
       let transferStarted: number | undefined;
+      let shareDigest: string | undefined;
       const originalInfo = console.info;
       const request = async (path: string, method = 'GET', body?: unknown, requestSignal = signal) => fetch(`${config.baseURL}${path}`, {
         method, signal: AbortSignal.any([requestSignal, AbortSignal.timeout(120_000)]), redirect: 'error',
@@ -119,9 +122,11 @@ export async function run(options: Options, environment: NodeJS.ProcessEnv = pro
           const stage = url.pathname.endsWith('/rat/shares') && init?.method === 'POST';
           if (stage) {
             const staged = JSON.parse(String(init?.body)) as ShareStageRequest;
+            shareDigest = staged.digest;
             cell.workspace = staged.manifest.workspace;
             assert.deepEqual(staged.workspace_file_ids, cell.uploadedFiles.map(file => file.id));
           }
+          if (init?.method === 'DELETE' && url.pathname.includes('/rat/shares/')) shareDigest = (JSON.parse(String(init.body)) as { digest: string }).digest;
           const file = init?.body instanceof FormData ? init.body.get('file') : null;
           const span: RequestSpan = { phase: file instanceof Blob ? 'upload' : stage ? 'stage' : url.pathname.endsWith('/activate') ? 'activate' : 'other',
             startedMs: now(), requestBytes: file instanceof Blob ? file.size : typeof init?.body === 'string' ? Buffer.byteLength(init.body) : 0 };
@@ -202,20 +207,44 @@ export async function run(options: Options, environment: NodeJS.ProcessEnv = pro
         const local = await cleanupActions([['shareService', async () => { if (share) await bounded(share.close(), 30_000); }]]);
         console.info = originalInfo;
         Object.assign(cell.cleanup, local);
+        // Aborting fetch only closes the client. An already-admitted Lambda may still activate later.
+        // Only a terminal Share record makes a subsequent Session absence authoritative.
+        let destinationStatus: ShareStatus['status'] | 'unknown' = 'unknown';
+        if (cell.spaceId && cell.source && cell.shareId) {
+          cell.destinationShare = { status: 'unknown', checkedAtUtc: new Date().toISOString() };
+          try {
+            const response = await request(`/rat/shares/${cell.shareId}`, 'GET', undefined, AbortSignal.timeout(30_000));
+            cell.destinationShare.httpStatus = response.status;
+            if (response.ok) {
+              const state = await response.json() as ShareStatus;
+              assert.equal(state.id, cell.shareId); assert.equal(state.session_id, cell.source.sessionId);
+              assert(shareDigest !== undefined); assert.equal(state.digest, shareDigest);
+              assert(['staged', 'activating', 'active', 'aborted'].includes(state.status));
+              destinationStatus = state.status; cell.destinationShare.status = destinationStatus;
+            } else await response.body?.cancel();
+          } catch { /* Unknown is retained; never infer remote cancellation from a client abort. */ }
+          cell.cleanup.destinationActivation = ['active', 'aborted'].includes(destinationStatus) && local.shareService === 'complete' ? 'complete' : 'unconfirmed';
+        }
         const remote: (readonly [string, () => Promise<unknown>])[] = [];
         const remove = async (path: string) => { const response = await request(path, 'DELETE', undefined, AbortSignal.timeout(30_000));
-          await response.body?.cancel(); if (!response.ok && response.status !== 404) throw new Error('cleanup_failed'); };
+          await response.body?.cancel(); if (!response.ok && response.status !== 404) throw new Error('cleanup_failed'); return response.status; };
         if (cell.spaceId && cell.source) {
-          remote.push(['destinationSession', () => remove(`/agents/sessions/${cell.source!.sessionId}`)]);
+          remote.push(['destinationSession', async () => { cell.destinationSessionDeleteStatus = await remove(`/agents/sessions/${cell.source!.sessionId}`); }]);
           remote.push(['destinationAgent', () => remove(`/agents/${cell.source!.agentId}`)]);
         }
         Object.assign(cell.cleanup, await cleanupActions(remote));
-        if (cell.cleanup.destinationSession === 'complete') {
+        if (cell.cleanup.destinationActivation === 'unconfirmed') {
+          if (cell.cleanup.destinationSession === 'complete') cell.cleanup.destinationSession = 'unconfirmed';
+          if (cell.cleanup.destinationAgent === 'complete') cell.cleanup.destinationAgent = 'unconfirmed';
+        }
+        const filesRetired = local.shareService === 'complete' && (destinationStatus === 'aborted'
+          || destinationStatus === 'active' && cell.cleanup.destinationSession === 'complete');
+        if (filesRetired) {
           const files = await cleanupActions(cell.uploadedFiles.map(file => [file.id, () => remove(`/files/${file.id}`)] as const));
           cell.uploadedFileCleanup = files;
           cell.cleanup.uploadedFiles = cell.requests.some(span => span.phase === 'upload' && span.outcome !== 'success') ? 'unconfirmed'
             : Object.values(files).some(value => value !== 'complete') ? 'failed' : 'complete';
-        } else if (cell.uploadedFiles.length) cell.cleanup.uploadedFiles = 'retained_until_destination_retired';
+        } else if (cell.uploadedFiles.length || cell.requests.some(span => span.phase === 'upload')) cell.cleanup.uploadedFiles = 'unconfirmed';
         if (source && local.shareService === 'complete') Object.assign(cell.cleanup, await cleanupActions([['source', () => bounded(source!.close(), 30_000)]]));
         else cell.cleanup.source = sourceAttempted ? 'unconfirmed' : 'not_created';
         if (Object.values(cell.cleanup).some(value => !['complete', 'not_created'].includes(value))) cell.status = 'failed';
