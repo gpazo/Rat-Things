@@ -112,7 +112,7 @@ live('shares real execution and progress across verified team identities with re
     for (const { person, text } of contributions) {
       const receipts = newInputs.filter(input => input.actor.subject === person.subject);
       expect(receipts).toHaveLength(1);
-      const savedText = accepted.items.flatMap(item => item.type === 'message' && item.role === 'user' && receipts[0]!.message_ids.includes(item.id)
+      const savedText = accepted.items.flatMap(item => item.type === 'message' && item.role === 'user' && typeof item.id === 'string' && receipts[0]!.message_ids.includes(item.id)
         ? item.content.flatMap(part => part.type === 'input_text' ? [part.text] : []) : []).join('\n');
       expect(savedText).toBe(text);
     }
