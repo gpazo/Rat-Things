@@ -95,9 +95,11 @@ live('shares real execution and progress across verified team identities with re
     expect(forbidden.status).toBe(403);
     await forbidden.body?.cancel();
     const duplicateKey = `${proof}-same-client-key`;
+    const aliceMarker = `alice-${randomUUID()}`;
+    const bobMarker = `bob-${randomUUID()}`;
     const contributions = [
-      { person: alice, marker: `${proof}-alice`, text: `Alice contributes: prioritize correctness. Remember my contribution marker ${proof}-alice.` },
-      { person: bob, marker: `${proof}-bob`, text: `Bob contributes: consider the operational cost too. Remember my contribution marker ${proof}-bob.` },
+      { person: alice, marker: aliceMarker, text: `Alice contributes: prioritize correctness. Remember my contribution marker ${aliceMarker}.` },
+      { person: bob, marker: bobMarker, text: `Bob contributes: consider the operational cost too. Remember my contribution marker ${bobMarker}.` },
     ];
     const send = async (person: TestTeamIdentity, text: string) => fetch(`${baseURL}/agents/sessions/${session.id}/events`, {
       method: 'POST', redirect: 'error', signal: AbortSignal.timeout(180_000),
