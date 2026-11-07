@@ -15,6 +15,60 @@ runs the API and console canaries, terminates remaining MicroVMs and destroys th
 isolated stack from its exit trap. Deployment identity and Terraform state live
 under `.aws-e2e/DEPLOYMENT_ID/`; recovery verifies the original AWS account.
 
+## Shared Sessions and local Share
+
+Set `AWS_E2E_SHARED_SESSIONS=true` when deploying to add an isolated Cognito user
+pool, public PKCE client and application-authenticated streaming API. Test users
+are created without notifications and removed by the proof controller; their
+passwords and SDK tokens stay in memory. The normal stack destroy removes the
+identity provider too.
+
+```sh
+AWS_E2E_SHARED_SESSIONS=true AWS_E2E_REAL_CODEX=true \
+  AWS_E2E_CODEX_MODEL_ID=YOUR_ADMITTED_MODEL npm run aws:e2e:deploy -- DEPLOYMENT_ID
+set -a
+source .aws-e2e/DEPLOYMENT_ID/runtime.env
+set +a
+npx vitest run tests/aws/shared-sessions.test.ts --no-file-parallelism
+```
+
+The test uses Cognito-issued access JWTs for distinct manager, collaborator,
+viewer and outsider identities. It checks concurrent inputs with the same
+client key, two activity subscriptions, disconnected completion, replay,
+revocation and ID-token rejection. SDK password authentication tests API token
+verification; it does not establish browser login behavior.
+
+For browser login and local execution handoff, first run
+[installed subscription acceptance](../local-runtime/README.md#installed-live-subscription-acceptance)
+with a model supported by both providers, then use its evidence with the same
+app and private profile:
+
+```sh
+RAT_INSTALLED_SHARE_ACCEPTANCE=1 node --import tsx testing/local-runtime/installed-share.ts \
+  --app "/path/to/Rat Things.app" --directory "$HOME/rat-private-subscription" \
+  --evidence "$HOME/rat-private-subscription/installed-subscription-acceptance-RANDOM/evidence.json"
+```
+
+The controller signs a disposable collaborator in through the real Cognito
+browser flow and host PKCE helper, uses the installed local service's ordinary
+Share route, then requires the same Session/Agent, exact completed history and
+successful hosted command output verifying the source workspace hashes. It
+restarts the local service and confirms further local input and abort are denied
+after release. Hosted continuation runs with the local service stopped. The
+controller removes its saved login and test users; retained cloud resources are
+removed by deployment teardown. The source profile and evidence are retained.
+
+This live controller exercises normal handoff and completed retry. Deterministic
+Share tests separately inject lost acknowledgements, delayed staging, retirement
+and activation races. Browser login here exercises the host helper, while native
+control interactions have their own desktop tests.
+
+```sh
+npm run aws:e2e:destroy -- DEPLOYMENT_ID
+```
+
+## Other live canaries
+
 To configure the optional Pi proof, set `AWS_E2E_PI_BEDROCK_MODEL_IDS_JSON` and
 `AWS_E2E_PI_BEDROCK_INFERENCE_RESOURCE_ARNS_JSON` to JSON arrays. The module
 checks the model IDs and exact inference resource ARNs before it grants access.
