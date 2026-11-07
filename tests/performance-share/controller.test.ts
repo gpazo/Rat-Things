@@ -17,7 +17,7 @@ import { run, parseArguments } from '../../testing/performance-share/controller.
 
 const environment = { AWS_E2E: 'true', AWS_E2E_SHARED_SESSIONS: 'true', AWS_E2E_REAL_CODEX: 'true', AWS_REGION: 'us-west-2',
   SHARED_AGENTS_API_BASE_URL: 'https://fixture.lambda-url.us-west-2.on.aws/v1', RAT_THINGS_AGENTS_API_URL: 'https://operator.lambda-url.us-west-2.on.aws/v1',
-  AWS_E2E_CODEX_MODEL_ID: 'fixture-model', TEAM_OIDC_FIXTURE_JSON: '{}' };
+  AWS_E2E_CODEX_MODEL_ID: 'openai.gpt-5.6-luna', TEAM_OIDC_FIXTURE_JSON: '{}' };
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); fixture.source = undefined; fixture.cleaned = false; });
 
 it.each(['success', 'stage_failure', 'late_activation', 'upload_ack_lost', 'activation_ack_lost', 'activation_status_unknown'] as const)('retains evidence and cleans source/destination for %s', async outcome => {
