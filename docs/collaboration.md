@@ -86,6 +86,12 @@ Workspace transfer excludes the harness's sandbox lock directory and transfer
 staging files. These belong to each executor and are recreated there; they are
 not part of the team's working files.
 
+The first release accepts up to 10,000 workspace entries, 100 MiB of uncompressed
+content and a 50 MiB archive. The saved history and configuration manifest must
+fit within 3 MiB, and each saved artifact must be at most 3 MiB. Regular files,
+empty directories, executable permissions and internal relative symlinks are
+preserved. External symlinks and special files are rejected.
+
 Once local execution has been released, this computer cannot resume it. The
 hosted Session becomes the place to continue, even if an activation response is
 lost. Retry the same Share operation after an interruption; its saved receipt
