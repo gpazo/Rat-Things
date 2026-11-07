@@ -1,0 +1,84 @@
+import { mkdtemp, readFile, rm, access } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
+import { afterEach, expect, it, vi } from 'vitest';
+import type { createSource as CreateSource } from '../../testing/performance-share/source.js';
+import type { ShareStageRequest } from '../../src/core/session-share-types.js';
+
+const fixture = vi.hoisted(() => ({ source: undefined as Awaited<ReturnType<typeof CreateSource>> | undefined, cleaned: false }));
+vi.mock('../../testing/performance-share/source.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../testing/performance-share/source.js')>();
+  return { ...actual, createSource: async (model: string) => { fixture.source = await actual.createSource(model); return fixture.source; } };
+});
+vi.mock('../../testing/aws/team-identities.js', () => ({ createTeamIdentities: async () => ({ users: [{ issuer: 'fixture', subject: 'manager', accessTokenForRequest: async () => 'PRIVATE_TOKEN' }], close: async () => { fixture.cleaned = true; } }) }));
+vi.mock('../../src/agents-client.js', () => ({ createAgentsClient: () => ({ withOptions: () => ({ post: async () => ({ id: 'space_fixture' }) }) }) }));
+import { run, parseArguments } from '../../testing/performance-share/controller.js';
+
+const environment = { AWS_E2E: 'true', AWS_E2E_SHARED_SESSIONS: 'true', AWS_E2E_REAL_CODEX: 'true', AWS_REGION: 'us-west-2',
+  SHARED_AGENTS_API_BASE_URL: 'https://fixture.lambda-url.us-west-2.on.aws/v1', RAT_THINGS_AGENTS_API_URL: 'https://operator.lambda-url.us-west-2.on.aws/v1',
+  AWS_E2E_CODEX_MODEL_ID: 'fixture-model', TEAM_OIDC_FIXTURE_JSON: '{}' };
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); fixture.source = undefined; fixture.cleaned = false; });
+
+it.each(['success', 'stage_failure', 'late_activation', 'upload_ack_lost'] as const)('retains evidence and cleans source/destination for %s', async outcome => {
+  const failStage = outcome === 'stage_failure';
+  const directory = await mkdtemp(join(tmpdir(), 'share-controller-test-'));
+  const uploaded = new Map<string, Buffer>(); const removed: string[] = [];
+  let staged: ShareStageRequest | undefined;
+  vi.spyOn(console, 'info').mockImplementation(() => undefined);
+  vi.stubGlobal('fetch', vi.fn(async (input: string | Request, init: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (init.method === 'DELETE') {
+      removed.push(url.pathname);
+      if (url.pathname.includes('/rat/shares/')) {
+        const body = JSON.parse(String(init.body)) as { digest: string; session_id: string };
+        return Response.json({ id: url.pathname.split('/').at(-1), session_id: body.session_id, digest: body.digest, status: 'aborted' });
+      }
+      return new Response(null, { status: 204 });
+    }
+    if (url.pathname.endsWith('/execution-roles/portable')) return new Response(null, { status: 204 });
+    if (url.pathname.endsWith('/files')) {
+      const file = (init.body as FormData).get('file') as File;
+      const id = `file_fixture_${uploaded.size}`; uploaded.set(id, Buffer.from(await file.arrayBuffer()));
+      if (outcome === 'upload_ack_lost') throw new Error('PRIVATE_ACK_ERROR');
+      return Response.json({ id });
+    }
+    if (url.pathname.endsWith('/rat/shares')) {
+      staged = JSON.parse(String(init.body)) as ShareStageRequest;
+      if (failStage) return Response.json({ error: { message: 'PRIVATE_DESTINATION_ERROR' } }, { status: 503 });
+      return Response.json({ id: staged.manifest.operation_id, session_id: staged.manifest.session.id, digest: staged.digest, status: 'staged' });
+    }
+    if (url.pathname.endsWith('/activate')) {
+      if (outcome === 'late_activation') await delay(1100);
+      return Response.json({ id: staged!.manifest.operation_id, session_id: staged!.manifest.session.id, digest: staged!.digest, status: 'active' });
+    }
+    if (url.pathname.endsWith('/activity')) return Response.json(fixture.source!.history);
+    if (url.pathname.endsWith('/content')) return new Response(uploaded.get(url.pathname.split('/').at(-2)!)!);
+    throw new Error('No network is permitted in this test.');
+  }));
+  try {
+    const output = join(directory, 'evidence.json');
+    const result = await run(parseArguments(['--output', output, '--sizes-mib', '1', '--timeout-ms', outcome === 'late_activation' ? '1000' : '600000']), environment);
+    const cell = result.cells[0]!;
+    expect(result.status).toBe(outcome === 'success' ? 'passed' : 'failed');
+    expect(cell.payload?.bytes).toBe(1024 * 1024);
+    expect(cell.uploadedFiles).toHaveLength(outcome === 'upload_ack_lost' ? 0 : 1);
+    expect(fixture.cleaned).toBe(true);
+    expect(cell.cleanup).toMatchObject({ shareService: 'complete', source: 'complete', destinationSession: 'complete', destinationAgent: 'complete', uploadedFiles: outcome === 'upload_ack_lost' ? 'unconfirmed' : 'complete' });
+    if (outcome !== 'upload_ack_lost') expect(removed).toContain('/v1/files/file_fixture_0');
+    if (failStage || outcome === 'upload_ack_lost') {
+      expect(cell.error).toBe('share_failed'); expect(cell.transfer?.censoredMs).toBeGreaterThan(0);
+      expect(cell.cleanup.pendingShareAbort).toBe('complete'); expect(cell.verification).toBeUndefined();
+    } else if (outcome === 'late_activation') {
+      expect(cell.error).toBe('timeout');
+      expect(cell.transfer?.durationMs ?? cell.transfer?.censoredMs).toBeGreaterThanOrEqual(1000);
+      expect(cell.verification).toBeUndefined();
+    } else {
+      expect(cell.transfer?.durationMs).toBeGreaterThan(0);
+      expect(cell.verification).toMatchObject({ sameSession: true, sameAgent: true, sameHistory: true, sourceFenced: true, sourceExecutorClosed: true, archiveDownloaded: true });
+      expect(cell.metrics[0]?.outcome).toBe('success');
+    }
+    await expect(access(cell.source!.directory)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readFile(output, 'utf8')).not.toContain('PRIVATE_');
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 15_000);
