@@ -1,4 +1,4 @@
-import { OwnerRateLimiter } from '../core/owner-rate-limiter.js';
+import { DynamoOwnerRateLimit } from '../adapters/dynamo-owner-rate-limit.js';
 import { ownerRateLimits } from './owner-rate-limits.js';
 import { CloudWatchClient } from '@aws-sdk/client-cloudwatch';
 import { createAwsClients } from '../adapters/aws-runtime.js';
@@ -46,7 +46,7 @@ export function getWatchdogService(): WatchdogService {
   const clients = createAwsClients();
   const services = getAgentsApiServices();
   const policy = watchdogPolicyFromEnv(process.env);
-  const rateLimit = new OwnerRateLimiter(services.store, ownerRateLimits(process.env.OWNER_RATE_LIMITS_JSON));
+  const rateLimit = new DynamoOwnerRateLimit(clients.dynamodb, requiredEnv('AGENTS_TABLE_NAME'), ownerRateLimits(process.env.OWNER_RATE_LIMITS_JSON));
   const collector = new WatchdogCollector({ store: services.store, dynamodb: clients.dynamodb, cloudwatch: new CloudWatchClient({ region: requiredEnv('AWS_REGION') }),
     agentsTable: requiredEnv('AGENTS_TABLE_NAME'), runsTable: requiredEnv('RUNS_TABLE_NAME'), alarmNames: watchdogAlarmNamesFromEnv(process.env), operatorOwnerId: requiredEnv('WATCHDOG_OWNER_ID'), policy });
   const destinations = JSON.parse(process.env.WATCHDOG_DESTINATIONS_JSON ?? '[]') as RunDestination[];
