@@ -1,5 +1,20 @@
 # Contributor verification
 
+## Collaboration performance
+
+Keep latency and cost baselines separate from correctness proofs. The
+[local HTTP/SQLite harness](performance/README.md) measures concurrent submissions,
+peer visibility, history size and stream traffic with deterministic execution.
+The [disposable AWS controller](performance-aws/README.md) measures the deployed
+OIDC API and real model progress. Both retain rejected and missing observations;
+an observed-sample percentile alone is not a passing result.
+
+Start with 1, 5, 10, 20 and 50 viewers, concurrent contributor bursts, short and
+long histories, and separate persistent-stream and desktop-request modes. Keep
+rate limits unchanged and record the deployed revision. Local execution is a
+fixture, and desktop request playback is not native rendering performance.
+Run each load cell without other benchmarks competing for the same resources.
+
 ## Execution-command time travel
 
 Run `npm run sim:commands -- demo --out /tmp/command-demo` for a local,

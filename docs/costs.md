@@ -129,6 +129,20 @@ Track model usage by Session and Turn. Track worker runtime and storage at the
 private execution boundary. Keep high-cardinality owner, Session and Run IDs out
 of metric dimensions; use logs and durable records for individual investigations.
 
+Shared Session viewers also consume resources when they do not submit work.
+Each cloud activity stream holds a Lambda invocation open and polls durable
+Session state and permissions. More viewers increase those reads; longer histories
+increase snapshot and stream response sizes. Include connected viewer time and
+response traffic separately from model and worker usage. Disconnecting a viewer
+closes that viewer's stream but does not stop accepted agent work.
+
+The `rat.performance` logs expose request duration, response bytes and a subset of
+storage work. Combine them with Lambda billed-duration records and current regional
+rates when estimating costs. They do not cover every adapter, multipart upload,
+network charge or retained object version. Publishing the same observations as
+custom metrics is an explicit deployment option; see
+[collaboration telemetry](development-and-deployment.md#terraform-deployment).
+
 ## Operating controls
 
 - Optionally configure spending alerts before AWS deployment and use allocation tags for reporting.
