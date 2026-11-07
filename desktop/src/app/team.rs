@@ -558,6 +558,13 @@ mod tests {
             "turns":[],"inputs":[{"actor":{"id":"other-person","label":"Morgan"},"message_ids":["msg_1"]}],
             "cursor":format!("act_{id}_1"),"role":role,"permissions":if role == "viewer" {json!(["read"])} else {json!(["read","contribute","create_session"])}})
     }
+    #[test]
+    fn imported_actor_claims_are_labelled_as_imported() {
+        let mut value = activity("sess_shared", "viewer", "Past contribution");
+        value["inputs"][0]["provenance"] = json!({"kind":"imported","operation_id":"share"});
+        let snapshot = SessionSnapshot::from_activity(value).unwrap();
+        assert_eq!(snapshot.actor_labels["msg_1"], "Morgan (imported)");
+    }
     fn app(endpoint: String) -> ConsoleApp {
         let mut app = ConsoleApp::new(endpoint, "fixture".into()).unwrap();
         app.initialized = true;

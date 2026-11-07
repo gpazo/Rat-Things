@@ -297,13 +297,18 @@ impl SessionSnapshot {
                 .or(actor["subject"].as_str())
                 .or(actor["id"].as_str())
                 .unwrap_or("Participant");
+            let label = if input["provenance"]["kind"] == "imported" {
+                format!("{label} (imported)")
+            } else {
+                label.to_owned()
+            };
             for id in input["message_ids"]
                 .as_array()
                 .into_iter()
                 .flatten()
                 .filter_map(Value::as_str)
             {
-                actor_labels.insert(id.to_owned(), label.to_owned());
+                actor_labels.insert(id.to_owned(), label.clone());
             }
         }
         let mut turns: Vec<Resource> = parse("turns")?;

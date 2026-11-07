@@ -40,6 +40,7 @@ export interface AgentsApiServices extends AgentsAuditServices {
     stage(ownerId: string, raw: unknown, caller: SpaceAuthority): Promise<unknown>;
     retrieve(ownerId: string, id: string): Promise<unknown>;
     activate(ownerId: string, id: string, raw: unknown, caller: SpaceAuthority): Promise<unknown>;
+    abort(ownerId: string, id: string, raw: unknown, caller: SpaceAuthority): Promise<unknown>;
   };
   sessions?: SessionService;
   vaults?: VaultService;

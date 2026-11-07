@@ -85,10 +85,11 @@ reuses the original identity and snapshot. Restarting the local service never
 creates a second executor for a released Session.
 
 Before release, you can cancel an interrupted or incompatible Share and continue
-locally. Cancellation waits for the coordinator to stop, invalidates that Share
-operation and removes its source fence. A destination that was only staged stays
-nonrunnable. An automatic timeout or network error never returns execution to the
-source.
+locally. Cancellation waits for the coordinator to stop and, if staging began,
+for the destination to retire that transfer. It then invalidates the Share
+operation and removes its source fence. If the destination cannot be reached,
+retry cancellation when it is available. An automatic timeout or network error
+never returns execution to the source.
 
 The existing **Copy to AWS** workflow creates a separate Session and keeps the
 local original. Use Share when the team should continue the same work.
@@ -215,6 +216,8 @@ Rat Things extensions live under `/v1/rat`:
 
 Activity input records include actor, acceptance sequence, status and associated
 message and Turn IDs. Reconnect with the snapshot cursor in `Last-Event-ID`.
+Source history carried by Share is marked **imported**. Its reported identities
+provide context and are not treated as identities verified by the team deployment.
 If a cursor is no longer available, obtain a fresh snapshot before resubscribing.
 Use the same `Idempotency-Key` when retrying an ambiguous submission. Keys are
 scoped to the authenticated actor, so two participants using the same client key

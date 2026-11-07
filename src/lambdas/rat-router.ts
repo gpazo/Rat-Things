@@ -39,6 +39,7 @@ export async function routeRatRequest(request: Request, principal: ApiPrincipal,
   if (collection === 'shares' && services.shares) {
     if (parts.length === 3 && method === 'POST') return json(201, await services.shares.stage(authority.ownerId, await requestBody(request), authority), requestId);
     if (parts.length === 4 && id && method === 'GET') return json(200, await services.shares.retrieve(authority.ownerId, id), requestId);
+    if (parts.length === 4 && id && method === 'DELETE') return json(200, await services.shares.abort(authority.ownerId, id, await requestBody(request), authority), requestId);
     if (parts.length === 5 && id && child === 'activate' && method === 'POST') return json(200, await services.shares.activate(authority.ownerId, id, await requestBody(request), authority), requestId);
   }
   throw new AgentsApiError(404, 'Route not found.', 'resource_not_found');
