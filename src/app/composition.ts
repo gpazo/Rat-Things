@@ -1,6 +1,7 @@
 import { OidcAuthenticator } from '../adapters/oidc-authenticator.js';
 import { parseOidcProviders, oidcLoginDiscovery, type OidcProvider } from '../identity/oidc-provider.js';
-import { SpaceAccessService } from '../identity/space-access.js';
+import { SessionShareService } from '../core/session-share-service.js';
+import { SpaceAccessService, type SpaceAuthority } from '../identity/space-access.js';
 import { GuardedAgentsStore } from '../identity/guarded-agents-store.js';
 import { WorkloadAdmissionService } from '../identity/workload-admission.js';
 import { readSessionOutputSecrets } from '../credentials/session-output.js';
@@ -117,7 +118,8 @@ let connectionConsumerService: ConnectionConsumerService | undefined;
 let oauthAuthorizationService: OAuthAuthorizationService | undefined;
 let capabilityProfileRegistry: CapabilityProfileRegistry | undefined;
 let sourcePolicyResolver: StoredSourceSessionResolver | undefined;
-let agentsApiServices: { access: SpaceAccessService; admission: WorkloadAdmissionService; guardedStore: GuardedAgentsStore; history: ConfigurationHistory; authorizations: ToolAuthorizationService; store: SessionEventStore; tokens: ApiTokenService; agents: AgentService; vaults: VaultService; templates: EnvironmentTemplateService; environments: EnvironmentService; files: FileService; skills: SkillService; webhooks: WebhookService; tools: SessionToolService; models: ModelCatalog | undefined; piModels: ModelCatalog | undefined; readonly sessions: SessionService } | undefined;
+let sessionShareService: SessionShareService | undefined;
+let agentsApiServices: { readonly shares: SessionShareService; readonly activity: { snapshot: SessionService['activity']; follow: SessionService['activityEvents'] }; access: SpaceAccessService; admission: WorkloadAdmissionService; guardedStore: GuardedAgentsStore; history: ConfigurationHistory; authorizations: ToolAuthorizationService; store: SessionEventStore; tokens: ApiTokenService; agents: AgentService; vaults: VaultService; templates: EnvironmentTemplateService; environments: EnvironmentService; files: FileService; skills: SkillService; webhooks: WebhookService; tools: SessionToolService; models: ModelCatalog | undefined; piModels: ModelCatalog | undefined; readonly sessions: SessionService } | undefined;
 let sessionIntegrationService: SessionIntegrationService | undefined;
 let agentsSessionService: SessionService | undefined;
 let apiTokenService: ApiTokenService | undefined;
@@ -147,6 +149,20 @@ export function getAgentsApiServices() {
   const piCatalog = piCatalogFromConfig(process.env.PI_BEDROCK_MODEL_IDS_JSON, process.env.AWS_REGION);
   agentsApiServices = {
     store, guardedStore, access: new SpaceAccessService(store), admission: new WorkloadAdmissionService(store),
+    get activity(): { snapshot: SessionService['activity']; follow: SessionService['activityEvents'] } {
+      return { snapshot: (owner, id, caller) => this.sessions.activity(owner, id, caller),
+        follow: (owner, id, signal, options) => this.sessions.activityEvents(owner, id, signal, options) };
+    },
+    get shares(): SessionShareService {
+      sessionShareService ??= new SessionShareService({ store, sessions: this.sessions, files: this.files,
+        admit: async (owner, manifest, caller) => {
+          const authority = caller as SpaceAuthority | undefined;
+          if (!authority?.spaceId || authority.ownerId !== owner) throw new AgentsApiError(403, 'Space authority is required for Share.', 'insufficient_permissions');
+          return this.admission.admitShare(authority, manifest);
+        },
+      });
+      return sessionShareService;
+    },
     history: new ConfigurationHistory(store),
     authorizations: new ToolAuthorizationService(store),
     piModels: createPiModelCatalog(piCatalog, process.env.PI_BEDROCK_DEFAULT_MODEL),
@@ -533,7 +549,7 @@ export function getEventCandidateService(): EventCandidateService {
 let teamAuthentication: { providers: OidcProvider[]; verifier: OidcAuthenticator } | undefined;
 export function getTeamAuthentication() {
   if (process.env.AGENTS_AUTH_MODE !== 'oidc') return undefined;
-  teamAuthentication ??= (() => { const providers = parseOidcProviders(process.env.TEAM_OIDC_PROVIDERS_JSON); return { providers, verifier: new OidcAuthenticator(providers) }; })();
+  teamAuthentication ??= (() => { const providers = parseOidcProviders(process.env.TEAM_OIDC_PROVIDERS_JSON); if (!providers.length) throw new Error('OIDC authentication requires at least one provider.'); return { providers, verifier: new OidcAuthenticator(providers) }; })();
   return teamAuthentication;
 }
 export function agentsApiDiscovery() {

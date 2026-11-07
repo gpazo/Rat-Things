@@ -3,6 +3,8 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const fixture = vi.hoisted(() => ({ issue: vi.fn(), services: vi.fn(), metadata: {} as { statusCode?: number; headers?: Record<string, string> } }));
 vi.mock('../../src/app/composition.js', () => ({
+  getTeamAuthentication: () => undefined,
+  agentsApiDiscovery: () => ({}),
   getApiTokenService: () => ({ issue: fixture.issue }),
   getAgentsApiServices: fixture.services,
 }));

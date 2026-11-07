@@ -13,7 +13,7 @@ import { createAgentsClient, createAgentsFetch } from '../../src/agents-client.j
 describe('independent HTTP transport', () => {
   it('accepts standard SDK uploads larger than a Lambda request and enforces scoped expiring bearer keys', async () => {
     const store = new MemoryAgentsStore();
-    let now = 100;
+    let now = Math.floor(Date.now() / 1000);
     const tokens = new ApiTokenService(store, { now: () => now });
     const baseURL = 'https://api.example/v1';
     const services = { agents: new AgentService({ store }), files: new FileService({ store, artifacts: new MemoryArtifacts() }) };

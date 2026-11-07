@@ -58,7 +58,7 @@ export class SpaceAccessService {
     return { data, has_more: false };
   }
   public async bootstrap(principal: ApiPrincipal, raw: unknown): Promise<Space> {
-    if (principal.authentication !== 'iam') denied();
+    if (principal.authentication !== 'iam' || !principal.scopes.includes('api.agents.write')) denied();
     requireUnexpired(principal, this.now());
     const input = record(raw, ['name', 'manager']);
     if (typeof input.name !== 'string' || !input.name.trim() || input.name.length > 128) invalid('A space name is required.', 'name');

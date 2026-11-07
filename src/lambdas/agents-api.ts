@@ -36,7 +36,7 @@ export const handler = typeof lambdaRuntime?.streamifyResponse !== 'function' ? 
         if (!audience) throw new AgentsApiError(503, 'The streaming API is not configured.', 'service_unavailable');
         response = Response.json(await getApiTokenService().issue(ownerId, audience, await request.json().catch(() => { throw new AgentsApiError(400, 'Expected a JSON token request.', 'invalid_request'); })), { headers: { 'cache-control': 'no-store', 'x-request-id': context.awsRequestId } });
       } else {
-        if (process.env.AGENTS_TOKEN_ISSUER_ONLY === 'true') throw new AgentsApiError(404, 'Route not found.', 'not_found');
+        if (process.env.AGENTS_TOKEN_ISSUER_ONLY === 'true' && !(method === 'POST' && event.rawPath === '/v1/rat/spaces')) throw new AgentsApiError(404, 'Route not found.', 'not_found');
         response = await routeAgentsRequest(request, iamApiPrincipal(ownerId), getAgentsApiServices(), context.awsRequestId);
       }
     }

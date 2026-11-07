@@ -54,6 +54,7 @@ describe('OIDC API authentication', () => {
     for (const override of [{ issuer: 'http://localhost:1' }, { jwksUri: 'http://localhost/jwks' }, { redirectUri: 'http://localhost:8765/cb' }, { profile: 'id_token' }, { audience: undefined }, { apiScopes: ['admin'] }, { unknown: true }]) expect(() => parseOidcProviders(JSON.stringify([{ ...provider, ...override }]))).toThrow();
     expect(oidcLoginDiscovery([provider])[0]).toMatchObject({ client_id: 'desktop', jwks_uri: provider.jwksUri });
     expect(oidcLoginDiscovery([provider])[0]).not.toHaveProperty('apiScopes');
-    expect(() => parseOidcProviders('[]')).toThrow();
+    expect(parseOidcProviders('[]')).toEqual([]);
+    expect(() => parseOidcProviders('null')).toThrow();
   });
 });

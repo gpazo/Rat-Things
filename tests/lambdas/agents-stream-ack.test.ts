@@ -3,6 +3,8 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const fixture = vi.hoisted(() => ({ events: vi.fn(), release: undefined as (() => void) | undefined }));
 vi.mock('../../src/app/composition.js', () => ({
+  getTeamAuthentication: () => undefined,
+  agentsApiDiscovery: () => ({}),
   getApiTokenService: () => ({ issue: vi.fn() }),
   getAgentsApiServices: () => ({ sessions: { events: fixture.events } }),
 }));

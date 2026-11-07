@@ -204,19 +204,26 @@ async function routeSession(request: Request, principal: ApiPrincipal, parts: st
     const admitted = authority ? await admission?.admit(authority, body) : undefined;
     if (authority && !admitted) throw new AgentsApiError(503, 'Workload admission is unavailable.', 'service_unavailable');
     const caller = authority && admitted ? { ...authority, observations: [...authority.observations, ...admitted.observations], admission: admitted.evidence } : undefined;
-    const session = await (sessions.create as TeamCreate)(ownerId, body, undefined, undefined, undefined, caller);
-    return isStreaming(body) ? eventStream((signal) => sessions.stream(ownerId, session.id, signal, true), request.signal, requestId) : json(200, session, requestId);
+    const session = await sessions.create(ownerId, body, undefined, undefined, undefined, caller);
+    return isStreaming(body) ? eventStream((signal) => sessions.stream(ownerId, session.id, signal, true, undefined, authority ? { revalidate: authority.revalidate } : undefined), request.signal, requestId) : json(200, session, requestId);
   }
   if (!id && method === 'GET') return json(200, await sessions.list(ownerId, queryParameters(new URL(request.url).searchParams, { nullableLimit: true })), requestId);
   if (id && !collection) {
     if (method === 'GET') return json(200, await sessions.retrieve(ownerId, id), requestId);
-    if (method === 'POST') return json(200, await sessions.update(ownerId, id, await requestBody(request), mutation(principal ?? ownerId, requestId)), requestId);
+    if (method === 'POST') {
+      const body = await requestBody(request);
+      if (authority) {
+        if (!admission) throw new AgentsApiError(503, 'Workload admission is unavailable.', 'service_unavailable');
+        await admission.validateSessionUpdate(authority, id, body);
+      }
+      return json(200, await sessions.update(ownerId, id, body, mutation(principal, requestId)), requestId);
+    }
     if (method === 'DELETE') return json(200, await sessions.delete(ownerId, id), requestId);
   }
   if (id && collection === 'fork' && parts.length === 2 && method === 'POST') {
     const body = await requestBody(request);
     requireInferencePermission(principal, body, 'create');
-    return json(201, await (sessions.fork as TeamFork)(ownerId, id, teamForkInput(body, authority), authority), requestId);
+    return json(201, await sessions.fork(ownerId, id, teamForkInput(body, authority), authority), requestId);
   }
   if (id && collection === 'runtime' && parts.length === 2 && method === 'GET') return json(200, await sessions.runtime(ownerId, id), requestId);
   if (id && collection === 'lineage' && parts.length === 2 && method === 'GET') return json(200, await sessions.lineage(ownerId, id), requestId);
@@ -225,13 +232,13 @@ async function routeSession(request: Request, principal: ApiPrincipal, parts: st
     if (method === 'POST') {
       const body = await requestBody(request);
       requireInferencePermission(principal, body, 'events');
-      await (sessions.events as TeamEvents)(ownerId, id, body, request.headers.get('idempotency-key') ?? undefined, { waitForConnection: true, signal: request.signal, ...(authority ? { caller: authority } : {}) });
+      await sessions.events(ownerId, id, body, request.headers.get('idempotency-key') ?? undefined, { waitForConnection: true, signal: request.signal, ...(authority ? { caller: authority } : {}) });
       return new Response(null, { status: 204, headers: requestId ? { 'x-request-id': requestId } : {} });
     }
     if (method === 'GET') {
       if (!streaming) throw new AgentsApiError(400, 'Use the Agents API streaming endpoint for this request.', 'streaming_unavailable');
       const baseline = await sessions.streamSnapshot(ownerId, id);
-      return eventStream((signal) => (sessions.stream as TeamStream)(ownerId, id, signal, false, baseline, authority ? { revalidate: authority.revalidate, ...(request.headers.get('last-event-id') ? { after: request.headers.get('last-event-id')! } : {}) } : undefined), request.signal, requestId);
+      return eventStream((signal) => sessions.stream(ownerId, id, signal, false, baseline, authority ? { revalidate: authority.revalidate, ...(request.headers.get('last-event-id') ? { after: request.headers.get('last-event-id')! } : {}) } : undefined), request.signal, requestId);
     }
   }
   if (id && collection === 'subagents' && method === 'GET') {
@@ -277,7 +284,8 @@ function eventStream(events: (signal: AbortSignal) => AsyncIterable<import('../d
         if (!next) { controller.enqueue(encoder.encode(': keepalive\n\n')); return; }
         pending = undefined;
         if (next.done) { cleanup(); controller.close(); return; }
-        controller.enqueue(encoder.encode(`event: ${next.value.type}\ndata: ${JSON.stringify(next.value)}\n\n`));
+        const eventId = 'event_id' in next.value && typeof next.value.event_id === 'string' ? next.value.event_id : undefined;
+        controller.enqueue(encoder.encode(`${eventId ? `id: ${eventId}\n` : ''}event: ${next.value.type}\ndata: ${JSON.stringify(next.value)}\n\n`));
       } catch (error) { cleanup(); controller.error(error); }
       finally { if (timer) clearTimeout(timer); }
     },
@@ -339,13 +347,9 @@ export function queryParameters(params: URLSearchParams, options: { nullableLimi
 }
 
 function mutation(caller: ApiPrincipal | string, requestId?: string): import('../domain/configuration-history.js').ConfigurationMutation {
-  return { actor: typeof caller === 'string' || !caller.actor ? { kind: 'owner', id: typeof caller === 'string' ? caller : caller.ownerId } : { kind: 'principal', id: caller.actor.id, ...(caller.actor.issuer ? { issuer: caller.actor.issuer, subject: caller.actor.subject! } : {}) }, ...(requestId ? { requestId } : {}) };
+  return { actor: typeof caller === 'string' || !caller.actor || caller.authentication !== 'oidc' ? { kind: 'owner', id: typeof caller === 'string' ? caller : caller.ownerId } : { kind: 'principal', id: caller.actor.id, ...(caller.actor.issuer ? { issuer: caller.actor.issuer, subject: caller.actor.subject! } : {}) }, ...(requestId ? { requestId } : {}) };
 }
 
-type TeamCreate = (owner: string, raw: unknown, integrationId?: string, runtime?: import('../domain/session-runtime.js').RuntimePin, restored?: Pick<import('../core/session-ports.js').SessionState, 'importedHistory' | 'importedFrom'>, caller?: SpaceAuthority) => ReturnType<SessionService['create']>;
-type TeamFork = (owner: string, id: string, raw: unknown, caller?: SpaceAuthority) => ReturnType<SessionService['fork']>;
-type TeamEvents = (owner: string, id: string, raw: unknown, key?: string, response?: { waitForConnection: boolean; signal?: AbortSignal; caller?: SpaceAuthority }) => Promise<void>;
-type TeamStream = (owner: string, id: string, signal: AbortSignal, initial?: boolean, baseline?: import('../core/session-stream.js').SessionStreamSnapshot, options?: { after?: string; revalidate?: () => Promise<void> }) => ReturnType<SessionService['stream']>;
 function teamForkInput(raw: unknown, authority?: SpaceAuthority): unknown {
   if (authority && raw && typeof raw === 'object' && Object.keys(raw).some(key => !['input', 'metadata'].includes(key))) throw new AgentsApiError(403, 'Fork cannot override the fixed execution authority.', 'insufficient_permissions');
   return raw;

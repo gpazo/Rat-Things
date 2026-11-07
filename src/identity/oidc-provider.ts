@@ -18,7 +18,7 @@ const fields = ['id', 'issuer', 'jwksUri', 'clientId', 'audience', 'profile', 'a
 export function parseOidcProviders(raw: string | undefined): OidcProvider[] {
   let input: unknown;
   try { input = JSON.parse(raw ?? '[]'); } catch { throw new Error('TEAM_OIDC_PROVIDERS_JSON must be valid JSON.'); }
-  if (!Array.isArray(input) || !input.length || input.length > 16) throw new Error('Configure between one and sixteen OIDC providers.');
+  if (!Array.isArray(input) || input.length > 16) throw new Error('Configure at most sixteen OIDC providers.');
   const providers = input.map((value: unknown): OidcProvider => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid OIDC provider.');
     const record = value as Record<string, unknown>;

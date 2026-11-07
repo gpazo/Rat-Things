@@ -104,6 +104,16 @@ describe('workload admission', () => {
     const accepted = { ownerId: s.authority.ownerId, collection: 'session_preparations', id: 's', createdAt: 1, revision: 1, value: input };
     await expect(s.base.commit([{ resource: accepted, expectedRevision: 0 }], admission.observations)).rejects.toThrow();
   });
+  it('keeps the admitted Session model fixed even when the space ceiling lists another model', async () => {
+    const s = await setup();
+    const agent = await s.agents.create(s.authority.ownerId, { model: 'model' });
+    await s.base.put({ ownerId: s.authority.ownerId, id: 'session', collection: 'sessions', createdAt: 1, revision: 1,
+      value: { session: { agent }, workloadAdmission: { ceiling: { ...role, models: ['model', 'broader'] } } } }, 0);
+    await expect(s.admission.validateSessionUpdate(s.authority, 'session', { agent: { model: 'broader' } })).rejects.toMatchObject({ status: 403 });
+    await expect(s.admission.validateSessionUpdate(s.authority, 'session', { agent: { model: 'model' } })).resolves.toBeUndefined();
+    await expect(s.admission.setRole(s.authority, 'unused', { ...role, capability_profile_ids: ['microvm-full'] })).rejects.toThrow();
+    await expect(s.admission.setRole(s.authority, 'template', { ...role, environments: [{ type: 'openai_hosted', environment_template_id: 'mutable' }] })).rejects.toThrow();
+  });
   it('admits a continuing Agent during Share under a matching ceiling without target Agent selection', async () => {
     const s = await setup();
     await s.admission.setRole(s.authority, 'default', role);
@@ -142,6 +152,31 @@ describe('team router', () => {
     };
     expect((await routeAgentsRequest(request(), bob, services)).status).toBe(409);
     expect(effects).toEqual(['write']);
+  });
+  it('emits role downgrades while idle and closes visibility after revocation', async () => {
+    const s = await setup();
+    await s.access.bind(s.authority, { issuer, subject: 'bob', role: 'collaborator' });
+    const abort = new AbortController();
+    const services = { ...s, activity: {
+      snapshot: async () => ({ cursor: 's:1', inputs: [] }),
+      follow: async function* (_owner: string, _id: string, signal: AbortSignal) {
+        yield { type: 'rat.session.activity', event_id: 's:1', activity: { cursor: 's:1', inputs: [] } };
+        while (!signal.aborted) await new Promise(resolve => setTimeout(resolve, 10));
+      },
+    } };
+    const response = await routeAgentsRequest(new Request('https://api.test/v1/rat/sessions/s/activity/events', { headers: { 'x-rat-space': s.space.id }, signal: abort.signal }), principal('bob'), services);
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    try {
+      expect(decoder.decode((await reader.read()).value)).toContain('"role":"collaborator"');
+      await s.access.bind(s.authority, { issuer, subject: 'bob', role: 'viewer' });
+      let permission = '';
+      for (let attempt = 0; attempt < 4 && !permission.includes('"role":"viewer"'); attempt++) permission = decoder.decode((await reader.read()).value);
+      expect(permission).toContain('rat.space.permissions');
+      expect(permission).toContain('"role":"viewer"');
+      await s.access.revoke(s.authority, principal('bob').actor!.id);
+      await expect(reader.read()).rejects.toThrow();
+    } finally { abort.abort(); await reader.cancel().catch(() => {}); }
   });
   it('rejects viewers and missing selectors before invoking effects and preserves IAM bootstrap', async () => {
     const s = await setup();

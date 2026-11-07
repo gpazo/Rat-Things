@@ -3,6 +3,7 @@ import { planConfigurationRevision, configurationRef } from '../core/configurati
 import type { Agent, AgentSession, EnvironmentParam } from '../domain/agents-api.js';
 import type { AgentObservation, AgentsStore } from '../core/agents-ports.js';
 import { AgentsApiError, invalid, parseAgentsContract } from '../domain/agents-api-validation.js';
+import { resolveAgentConfiguration } from '../domain/agent-configuration.js';
 import { canonicalJson } from '../domain/json.js';
 import { observation, record, type SpaceAuthority } from './space-access.js';
 import { requireUnexpired } from './principal.js';
@@ -19,7 +20,7 @@ export interface ExecutionRole {
   max_subagents?: number;
 }
 export interface WorkloadAssignment { agent_id: string; execution_role_id: string; agent_digest: string }
-export interface WorkloadAdmission { observations: AgentObservation[]; evidence: { execution_role_id: string; agent_digest: string; capability_digest: string; capability_profile_ids: string[]; connection_grant_ids: string[] } }
+export interface WorkloadAdmission { observations: AgentObservation[]; evidence: { execution_role_id: string; agent_digest: string; capability_digest: string; capability_profile_ids: string[]; connection_grant_ids: string[]; ceiling: ExecutionRole } }
 
 /** Capability roles admit saved configurations. Human roles never become runtime tool authority. */
 export class WorkloadAdmissionService {
@@ -35,14 +36,15 @@ export class WorkloadAdmissionService {
       if (!Array.isArray(input[key]) || (input[key] as unknown[]).length > 100 || (input[key] as unknown[]).some(v => typeof v !== 'string' || !v || v.length > 256)) invalid(`Invalid ${key}.`);
     }
     if ((input.capability_profile_ids as string[]).length || (input.connection_grant_ids as string[]).length) invalid('Capability profile and connection grant references are not supported by Session execution. These arrays must be empty.');
-    if (!(input.models as string[]).length || !Array.isArray(input.tools) || !Array.isArray(input.environments) || !input.environments.length || input.environments.length > 20) invalid('Execution role requires models, tools, and allowed environments.');
+    if (!(input.models as string[]).length || !Array.isArray(input.tools) || input.tools.length > 100 || !Array.isArray(input.environments) || !input.environments.length || input.environments.length > 20) invalid('Execution role requires models, tools, and allowed environments.');
     const agent = parseAgentsContract('AgentCreate', { model: (input.models as string[])[0], tools: input.tools });
     for (const environment of input.environments) {
       parseAgentsContract('SessionCreate', { agent: { model: agent.model }, environment });
       rejectEnvironmentSecrets(environment);
     }
     if (input.max_subagents !== undefined && (typeof input.max_subagents !== 'number' || !Number.isInteger(input.max_subagents) || input.max_subagents < 0 || input.max_subagents > 32)) invalid('Invalid max_subagents.');
-    const role = { ...input, id } as unknown as ExecutionRole;
+    const tools = resolveAgentConfiguration(agent, { id: 'ceiling', created_at: 0, updated_at: 0 }).tools;
+    const role = { ...input, id, tools } as unknown as ExecutionRole;
     const previous = await this.store.get<ExecutionRole>(authority.ownerId, 'execution_roles', id);
     await authority.revalidate(); requireUnexpired(authority);
     await this.store.commit([{ resource: { ownerId: authority.ownerId, collection: 'execution_roles', id, revision: (previous?.revision ?? 0) + 1, createdAt: previous?.createdAt ?? Math.floor(Date.now() / 1000), value: role }, expectedRevision: previous?.revision ?? 0 }], authority.observations);
@@ -80,8 +82,15 @@ export class WorkloadAdmissionService {
     return { observations: [observation(agent), observation(assignment), observation(role)], evidence: {
       execution_role_id: role.id, agent_digest: assignment.value.agent_digest,
       capability_digest: digest({ agent: agentConfigurationDigest(agent.value), environment: input.environment, vault_ids: input.vault_ids ?? [], policy: role.value }),
-      capability_profile_ids: role.value.capability_profile_ids, connection_grant_ids: role.value.connection_grant_ids,
+      capability_profile_ids: role.value.capability_profile_ids, connection_grant_ids: role.value.connection_grant_ids, ceiling: role.value,
     } };
+  }
+  public async validateSessionUpdate(authority: SpaceAuthority, id: string, raw: unknown): Promise<void> {
+    const input = parseAgentsContract('SessionUpdate', raw);
+    if (input.agent?.model === undefined) return;
+    const stored = await this.store.get<{ session: AgentSession; workloadAdmission?: { ceiling?: ExecutionRole } }>(authority.ownerId, 'sessions', id);
+    if (!stored) throw new AgentsApiError(404, 'Session not found.', 'resource_not_found');
+    if (input.agent.model !== stored.value.session.agent.model) denied('Changing the admitted model requires a new Session.');
   }
   public async admitShare(authority: SpaceAuthority, manifest: { source_agent?: Agent; session: Pick<AgentSession, 'agent' | 'vault_ids' | 'created_at'>; environment: EnvironmentParam }): Promise<WorkloadAdmission> {
     const source = manifest.source_agent ?? parseAgentsContract('Agent', { ...manifest.session.agent, object: 'agent', created_at: manifest.session.created_at, updated_at: manifest.session.created_at, metadata: {} });
@@ -128,7 +137,7 @@ function validateEnvironmentCeiling(environment: EnvironmentParam, vaultIds: str
 function rejectEnvironmentSecrets(environment: unknown) {
   if (!environment || typeof environment !== 'object') return;
   const record = environment as Record<string, unknown>;
-  if (record.type === 'template') invalid('Execution ceilings require an explicit immutable environment.');
+  if (record.environment_template_id !== undefined) invalid('Execution ceilings require an explicit immutable environment.');
   if (record.env && Object.keys(record.env).length || record.environment_variables && Object.keys(record.environment_variables).length) invalid('Credentials and host environment do not belong in execution ceilings.');
 }
 function digest(value: unknown) { return createHash('sha256').update(canonicalJson(value)).digest('hex'); }
