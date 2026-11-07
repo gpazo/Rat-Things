@@ -9,6 +9,8 @@ import { pipeline } from 'node:stream/promises';
 import { connectLocalWorkspace, createLocalAgentsFetch, type LocalConnection, type LocalWorkspaceConnection } from '../src/local-workspace.js';
 import { installedNativeOptions, installedServiceIdentity } from '../src/app/local-installed.js';
 import { createAgentsFetch } from '../src/agents-client.js';
+import { ConsoleTeams } from '../src/console-team.js';
+import { TeamSignInRequired } from '../src/client-connections.js';
 
 const host = '127.0.0.1';
 let port = boundedPort(process.env.RAT_THINGS_CONSOLE_PORT ?? '4174');
@@ -18,7 +20,10 @@ delete process.env.RAT_THINGS_CONSOLE_TOKEN;
 let localWorkspace: LocalWorkspaceConnection | undefined;
 let localConnection: LocalConnection | undefined;
 let upstreamBase = '';
-let workspaceKind: 'local' | 'cloud' = 'cloud';
+let workspaceKind: 'local' | 'cloud' | 'team' = 'cloud';
+const teams = new ConsoleTeams();
+let teamSpace: Record<string, unknown> | undefined;
+let teamConnectionId: string | undefined;
 let unsignedFixture = process.env.AGENT_RUNTIME_UNSIGNED === 'true';
 let region = process.env.AWS_REGION ?? '';
 let authenticatedFetch: typeof fetch | undefined;
@@ -30,9 +35,10 @@ if (configured) upstreamBase = requiredApiUrl();
 else await useLocal();
 
 const server = createServer((request, response) => {
-  void handle(request, response).catch(() => {
+  void handle(request, response).catch((failure: unknown) => {
     if (response.destroyed || response.writableEnded) return;
     if (response.headersSent) { response.destroy(); return; }
+    if (failure instanceof TeamSignInRequired) return json(response, 401, error('authentication_required', failure.message));
     const message = 'The console request failed. Check the API endpoint and AWS credentials.';
     json(response, 500, { error: { code: 'console_error', message } });
   });
@@ -59,6 +65,7 @@ process.stdin.resume();
 const shutdown = () => {
   if (stopping) return;
   stopping = true;
+  teams.close();
   process.stdin.destroy();
   server.closeAllConnections(); server.close();
   void (async () => {
@@ -89,12 +96,34 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
   }
   const requestUrl = new URL(request.url ?? '/', `http://${host}:${port}`);
   if (!requestUrl.pathname.startsWith('/api/v1/')) return json(response, 404, error('not_found', 'console route not found'));
+  if (requestUrl.pathname.startsWith('/api/v1/team/')) {
+    if (request.method !== 'GET' && request.headers['x-rat-console-request'] !== '1') return json(response, 403, error('forbidden', 'missing console request marker'));
+    try {
+      const input = request.method === 'GET' ? {} : JSON.parse(await requestBody(request) ?? '{}') as Record<string, unknown>;
+      const result = await teams.route(request.method ?? 'GET', requestUrl.pathname.slice('/api/v1/team'.length), input);
+      if (requestUrl.pathname.endsWith(`/connections/${teamConnectionId}/logout`)) await useLocal();
+      return json(response, 200, result);
+    } catch { return json(response, 400, error('team_connection_failed', 'Team connection failed. Check your endpoint and sign in again.')); }
+  }
   if (requestUrl.pathname === '/api/v1/workspace') {
     if (request.method === 'GET') return json(response, 200, workspaceInfo());
     if (request.method !== 'POST' || request.headers['x-rat-console-request'] !== '1') return json(response, 403, error('forbidden', 'missing console request marker'));
     try {
       const input = JSON.parse(await requestBody(request) ?? '{}') as Record<string, unknown>;
       if (input.kind === 'local') await useLocal();
+      else if (input.kind === 'team') {
+        if (typeof input.connection_id !== 'string' || typeof input.space_id !== 'string') throw new Error('Choose a connected team space');
+        const connection = (await teams.store.list()).find(value => value.id === input.connection_id);
+        if (!connection) throw new Error('Sign in to this team first');
+        const client = await teams.store.client({ connection_id: connection.id, endpoint: connection.endpoint, space_id: input.space_id });
+        const checked = await client.fetch(`${client.baseURL}/rat/spaces`, { signal: AbortSignal.timeout(15_000) });
+        if (!checked.ok) throw new Error('Team access is no longer available');
+        const spaces = await checked.json() as { data: Record<string, unknown>[] };
+        const space = spaces.data.find(value => value.id === input.space_id);
+        if (!space) throw new Error('Team access is no longer available');
+        upstreamBase = new URL(client.baseURL).origin; authenticatedFetch = client.fetch; workspaceKind = 'team'; unsignedFixture = false;
+        teamSpace = space; teamConnectionId = connection.id;
+      }
       else if (input.kind === 'cloud') {
         if (typeof input.endpoint !== 'string' || typeof input.region !== 'string' || !/^[a-z]{2}(?:-[a-z]+)+-\d+$/.test(input.region)) throw new Error('Enter the Agents API URL and AWS region.');
         const url = new URL(input.endpoint);
@@ -115,8 +144,9 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 }
 
 function workspaceInfo() {
-  return { kind: workspaceKind, name: workspaceKind === 'local' ? 'This computer' : 'Your AWS workspace',
-    endpoint: `${upstreamBase}/v1`, region, local_available: true };
+  return { kind: workspaceKind, name: workspaceKind === 'local' ? 'This computer' : workspaceKind === 'team' ? teamSpace?.name : 'Your AWS workspace',
+    endpoint: `${upstreamBase}/v1`, region, local_available: true,
+    ...(workspaceKind === 'team' ? { connection_id: teamConnectionId, space_id: teamSpace?.id, role: teamSpace?.role, permissions: teamSpace?.permissions } : {}) };
 }
 
 async function useLocal() {
@@ -173,9 +203,10 @@ async function proxy(
   }
   const unsignedHeaders: Record<string, string> = {
     host: url.host,
-    accept: 'application/json',
+    accept: upstreamPath.endsWith('/activity/events') ? 'text/event-stream' : 'application/json',
     'openai-beta': 'agents=v1',
     ...(body ? { 'content-type': 'application/json' } : {}),
+    ...(typeof request.headers['last-event-id'] === 'string' ? { 'last-event-id': request.headers['last-event-id'] } : {}),
     ...(typeof request.headers['idempotency-key'] === 'string'
       ? { 'idempotency-key': request.headers['idempotency-key'] }
       : {}),

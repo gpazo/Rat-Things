@@ -19,25 +19,48 @@ const sdkFetch: typeof fetch = (input, init) => {
   }) as unknown as Promise<Response>;
 };
 
-/** Use the upstream client with the deployment's IAM identity and native streaming fetch. */
-export function createAgentsClient(options: Parameters<typeof createAgentsFetch>[0]): OpenAI {
-  return new OpenAI({ apiKey: 'aws-sigv4', baseURL: options.baseURL, fetch: createAgentsFetch(options) });
+/** Bind the upstream client to an explicit IAM or personal access-token strategy. */
+export function createAgentsClient(options: OidcClientOptions | IamClientOptions): OpenAI {
+  return new OpenAI({ apiKey: 'rat-things', baseURL: options.baseURL, fetch: createAgentsFetch(options) });
 }
 
-export function createAgentsFetch(options: {
+interface IamClientOptions {
   baseURL: string;
   region: string;
+  accessToken?: never;
+  spaceId?: never;
   credentials?: ConstructorParameters<typeof SignatureV4>[0]['credentials'];
   fetch?: typeof fetch;
   tokenIssuerURL?: string;
   scopes?: readonly ApiScope[];
-}): typeof fetch {
+}
+interface OidcClientOptions { baseURL: string; accessToken: () => Promise<string>; spaceId?: string; fetch?: typeof fetch; region?: never; credentials?: never; tokenIssuerURL?: never; scopes?: never; }
+export function createAgentsFetch(options: OidcClientOptions | IamClientOptions): typeof fetch {
   const scopes = options.scopes === undefined ? undefined : [...options.scopes];
   const endpoint = new URL(options.baseURL);
-  if (endpoint.protocol !== 'https:') throw new Error('The Agents API endpoint must use HTTPS');
+  if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) throw new Error('The Agents API endpoint must use HTTPS');
+  if (options.accessToken) {
+    if (options.credentials || options.tokenIssuerURL || options.scopes) throw new Error('Choose one API authentication strategy');
+    const transport = options.fetch ?? sdkFetch;
+    return async (input, init) => {
+      const request = new Request(input, init);
+      if (new URL(request.url).origin !== endpoint.origin) throw new Error('The Agents client cannot authenticate another origin');
+      const headers = new Headers(request.headers);
+      const remove: string[] = [];
+      headers.forEach((_value, key) => { if (key.startsWith('x-amz-') || key === 'authorization' || key === 'x-rat-space') remove.push(key); });
+      for (const key of remove) headers.delete(key);
+      const accessToken = await options.accessToken!();
+      if (!accessToken || /[\s\r\n]/.test(accessToken)) throw new Error('Invalid API access token');
+      headers.set('authorization', `Bearer ${accessToken}`);
+      if (options.spaceId) headers.set('x-rat-space', options.spaceId);
+      return transport(new Request(request, { headers, redirect: request.redirect === 'manual' ? 'manual' : 'error' }));
+    };
+  }
+  if (!options.region) throw new Error('AWS region is required for IAM authentication');
+  const region = options.region;
   const signer = new SignatureV4({
     service: endpoint.hostname.includes('.lambda-url.') ? 'lambda' : 'execute-api',
-    region: options.region, credentials: options.credentials ?? defaultProvider(), sha256: Sha256,
+    region, credentials: options.credentials ?? defaultProvider(), sha256: Sha256,
   });
   const transport = options.fetch ?? sdkFetch;
   if (options.scopes !== undefined && /\.(lambda-url\.[a-z0-9-]+\.on\.aws|execute-api\.[a-z0-9-]+\.amazonaws\.com)$/.test(endpoint.hostname) && !options.tokenIssuerURL) throw new Error('Scoped clients require the bearer-token API endpoint');
@@ -50,7 +73,7 @@ export function createAgentsFetch(options: {
       const issuer = options.tokenIssuerURL ?? await discoverIssuer(transport, endpoint);
       const url = new URL(issuer);
       if (url.protocol !== 'https:' || url.hostname !== `${url.hostname.split('.')[0]}.lambda-url.${options.region}.on.aws` || url.pathname !== '/v1/auth/tokens' || url.search || url.hash || url.username || url.password) throw new Error('The API token issuer must be an AWS Lambda URL in the configured region');
-      const issuerSigner = new SignatureV4({ service: 'lambda', region: options.region, credentials: options.credentials ?? defaultProvider(), sha256: Sha256 });
+      const issuerSigner = new SignatureV4({ service: 'lambda', region, credentials: options.credentials ?? defaultProvider(), sha256: Sha256 });
       const body = JSON.stringify(scopes === undefined ? {} : { scopes });
       const signed = await issuerSigner.sign(new HttpRequest({ protocol: 'https:', hostname: url.hostname, path: url.pathname, method: 'POST', headers: { host: url.host, 'content-type': 'application/json' }, body }));
       const result = await transport(url, { method: 'POST', headers: signed.headers, body, redirect: 'error', signal: AbortSignal.timeout(30_000) });

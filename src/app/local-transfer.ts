@@ -26,8 +26,8 @@ export class LocalTransferService {
   public constructor(private readonly options: {
     store: AgentsStore; sessions: SessionService; environments: EnvironmentService; owner: string;
     snapshot: (id: string) => Promise<PortableFile[]>;
-    client?: typeof createAgentsClient;
-    modelsFetch?: typeof createAgentsFetch;
+    client?: (options: TransferPlan['destination']) => ReturnType<typeof createAgentsClient>;
+    modelsFetch?: (options: TransferPlan['destination']) => typeof fetch;
   }) {}
   public async models(raw: unknown) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)
