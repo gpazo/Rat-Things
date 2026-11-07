@@ -1,3 +1,8 @@
+import { OidcAuthenticator } from '../adapters/oidc-authenticator.js';
+import { parseOidcProviders, oidcLoginDiscovery, type OidcProvider } from '../identity/oidc-provider.js';
+import { SpaceAccessService } from '../identity/space-access.js';
+import { GuardedAgentsStore } from '../identity/guarded-agents-store.js';
+import { WorkloadAdmissionService } from '../identity/workload-admission.js';
 import { readSessionOutputSecrets } from '../credentials/session-output.js';
 import { EventCandidateService } from '../core/event-candidate-service.js';
 import { BedrockEventFilter } from '../adapters/bedrock-event-filter.js';
@@ -112,7 +117,7 @@ let connectionConsumerService: ConnectionConsumerService | undefined;
 let oauthAuthorizationService: OAuthAuthorizationService | undefined;
 let capabilityProfileRegistry: CapabilityProfileRegistry | undefined;
 let sourcePolicyResolver: StoredSourceSessionResolver | undefined;
-let agentsApiServices: { history: ConfigurationHistory; authorizations: ToolAuthorizationService; store: SessionEventStore; tokens: ApiTokenService; agents: AgentService; vaults: VaultService; templates: EnvironmentTemplateService; environments: EnvironmentService; files: FileService; skills: SkillService; webhooks: WebhookService; tools: SessionToolService; models: ModelCatalog | undefined; piModels: ModelCatalog | undefined; readonly sessions: SessionService } | undefined;
+let agentsApiServices: { access: SpaceAccessService; admission: WorkloadAdmissionService; guardedStore: GuardedAgentsStore; history: ConfigurationHistory; authorizations: ToolAuthorizationService; store: SessionEventStore; tokens: ApiTokenService; agents: AgentService; vaults: VaultService; templates: EnvironmentTemplateService; environments: EnvironmentService; files: FileService; skills: SkillService; webhooks: WebhookService; tools: SessionToolService; models: ModelCatalog | undefined; piModels: ModelCatalog | undefined; readonly sessions: SessionService } | undefined;
 let sessionIntegrationService: SessionIntegrationService | undefined;
 let agentsSessionService: SessionService | undefined;
 let apiTokenService: ApiTokenService | undefined;
@@ -130,7 +135,8 @@ export function getApiTokenService() {
 export function getAgentsApiServices() {
   if (agentsApiServices) return agentsApiServices;
   const base = getBaseServices();
-  const store = new SessionEventStore(new DynamoAgentsStore(base.clients.dynamodb, requiredEnv('AGENTS_TABLE_NAME'), base.definitions));
+  const guardedStore = new GuardedAgentsStore(new DynamoAgentsStore(base.clients.dynamodb, requiredEnv('AGENTS_TABLE_NAME'), base.definitions));
+  const store = new SessionEventStore(guardedStore);
   const environmentCredentials = new SecretsEnvironmentCredentials(base.clients.secrets, requiredEnv('INTEGRATION_CREDENTIAL_NAME_PREFIX'), requiredEnv('INTEGRATION_CREDENTIAL_KMS_KEY_ARN'));
   const templates = new EnvironmentTemplateService({ store });
   const files = new FileService({ store, artifacts: base.artifacts });
@@ -140,7 +146,7 @@ export function getAgentsApiServices() {
   ) });
   const piCatalog = piCatalogFromConfig(process.env.PI_BEDROCK_MODEL_IDS_JSON, process.env.AWS_REGION);
   agentsApiServices = {
-    store,
+    store, guardedStore, access: new SpaceAccessService(store), admission: new WorkloadAdmissionService(store),
     history: new ConfigurationHistory(store),
     authorizations: new ToolAuthorizationService(store),
     piModels: createPiModelCatalog(piCatalog, process.env.PI_BEDROCK_DEFAULT_MODEL),
@@ -522,4 +528,16 @@ export function getEventCandidateService(): EventCandidateService {
     count: name => emitMetric('event-filter', name, 1, 'Count'),
   });
   return eventCandidateService;
+}
+
+let teamAuthentication: { providers: OidcProvider[]; verifier: OidcAuthenticator } | undefined;
+export function getTeamAuthentication() {
+  if (process.env.AGENTS_AUTH_MODE !== 'oidc') return undefined;
+  teamAuthentication ??= (() => { const providers = parseOidcProviders(process.env.TEAM_OIDC_PROVIDERS_JSON); return { providers, verifier: new OidcAuthenticator(providers) }; })();
+  return teamAuthentication;
+}
+export function agentsApiDiscovery() {
+  const team = getTeamAuthentication();
+  return { base_url: requiredEnv('AGENTS_PUBLIC_BASE_URL'), ...(team ? { authentication: 'oidc', login_providers: oidcLoginDiscovery(team.providers) }
+    : { issuer_url: requiredEnv('AGENTS_TOKEN_ISSUER_URL') }) };
 }

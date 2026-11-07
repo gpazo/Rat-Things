@@ -18,7 +18,7 @@ export interface AgentResource<T> {
   value: T;
 }
 
-export interface AgentObservation { ownerId: string; collection: string; id: string; revision: number }
+export interface AgentObservation { ownerId: string; collection: string; id: string; revision: number; validUntil?: number }
 
 export interface AgentsStore {
   get<T>(ownerId: string, collection: string, id: string): Promise<AgentResource<T> | undefined>;
@@ -28,7 +28,7 @@ export interface AgentsStore {
   commit(writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>, observations?: AgentObservation[]): Promise<void>;
   commitAtObservation?(writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>, observation: { ownerId: string; id: string; revision: number }): Promise<void>;
   /** Delete and companion compare-and-swap writes succeed atomically. */
-  delete(resource: AgentResource<unknown>, writes?: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>): Promise<void>;
+  delete(resource: AgentResource<unknown>, writes?: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>, observations?: AgentObservation[]): Promise<void>;
 }
 
 export interface AgentsClock {

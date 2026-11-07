@@ -8,7 +8,7 @@ export type ConfigurationSubject =
   | { kind: 'session'; id: string };
 
 export interface ConfigurationRevisionRef { subject: ConfigurationSubject; revision: number }
-export type ConfigurationActor = { kind: 'owner'; id: string } | { kind: 'system' } | { kind: 'unknown' };
+export type ConfigurationActor = { kind: 'principal'; id: string; issuer?: string; subject?: string } | { kind: 'owner'; id: string } | { kind: 'system' } | { kind: 'unknown' };
 export interface ConfigurationMutation { actor?: ConfigurationActor; requestId?: string }
 
 export interface SessionConfiguration {

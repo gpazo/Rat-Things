@@ -1,12 +1,12 @@
-import { getAgentsApiServices } from './app/composition.js';
+import { getAgentsApiServices, getTeamAuthentication, agentsApiDiscovery } from './app/composition.js';
 import { requiredEnv } from './adapters/executors.js';
 import { createAgentsHttpServer } from './adapters/agents-http-server.js';
 import { agentsErrorResponse, routeAgentsRequest } from './lambdas/agents-router.js';
 
 const services = getAgentsApiServices();
 const baseURL = requiredEnv('AGENTS_PUBLIC_BASE_URL');
-const server = createAgentsHttpServer({ baseURL, issuerURL: requiredEnv('AGENTS_TOKEN_ISSUER_URL'),
-  authenticate: (authorization) => services.tokens.authenticate(authorization, baseURL),
+const server = createAgentsHttpServer({ baseURL, issuerURL: process.env.AGENTS_TOKEN_ISSUER_URL ?? '', discovery: agentsApiDiscovery(),
+  authenticate: (authorization) => getTeamAuthentication()?.verifier.authenticate(authorization) ?? services.tokens.authenticate(authorization, baseURL),
   route: (request, owner, id) => routeAgentsRequest(request, owner, services, id), error: agentsErrorResponse,
 });
 server.listen(Number(process.env.PORT ?? 8080), '0.0.0.0');

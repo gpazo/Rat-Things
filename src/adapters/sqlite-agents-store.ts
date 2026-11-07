@@ -112,14 +112,21 @@ export class SqliteAgentsStore implements AgentsStore {
 
   public async commit(writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>, observations: AgentObservation[] = []): Promise<void> {
     this.transaction(() => {
-      for (const observation of observations) this.expect(observation, observation.revision);
+      for (const observation of observations) {
+        if (observation.validUntil !== undefined && observation.validUntil <= Date.now()) throw new AgentsApiError(401, 'Authority expired before acceptance.', 'invalid_api_key');
+        this.expect(observation, observation.revision);
+      }
       this.validateWrites(writes);
       for (const { resource } of writes) this.write(resource);
     });
   }
 
-  public async delete(resource: AgentResource<unknown>, writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }> = []): Promise<void> {
+  public async delete(resource: AgentResource<unknown>, writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }> = [], observations: AgentObservation[] = []): Promise<void> {
     this.transaction(() => {
+      for (const observed of observations) {
+        if (observed.validUntil !== undefined && observed.validUntil <= Date.now()) throw new AgentsApiError(401, 'Authority expired before acceptance.', 'invalid_api_key');
+        this.expect(observed, observed.revision);
+      }
       this.expect(resource, resource.revision);
       this.expectListOrder(resource);
       this.validateWrites(writes);

@@ -141,3 +141,28 @@ it.each([undefined, 'createdAt', 'id'] as const)('guards the fixed ordering mode
     expect(condition.ConditionExpression).toContain(listOrder === 'id' ? 'AND #listOrder = :listOrder' : 'AND (attribute_not_exists(#listOrder) OR #listOrder = :listOrder)');
   }
 });
+
+it('rejects expired authority after object persistence and before the acceptance transaction', async () => {
+  const send = vi.fn(async () => ({}));
+  const deadline = Date.now() + 60_000;
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(deadline - 1);
+  const store = new DynamoAgentsStore({ send } as unknown as DynamoDBDocumentClient, 'agents', {
+    putJson: async key => { clock.mockReturnValue(deadline); return { bucket: 'private', key, sha256: 'fixture', bytes: 1, contentType: 'application/json' }; },
+    getJson: async <T>() => ({}) as T,
+  });
+  try {
+    await expect(store.commit([{ resource, expectedRevision: 0 }], [{ ownerId: 'space', collection: 'space_bindings', id: 'actor', revision: 1, validUntil: deadline }])).rejects.toMatchObject({ status: 401 });
+    expect(send).not.toHaveBeenCalled();
+  } finally { clock.mockRestore(); }
+});
+
+it('guards deletion with the same current membership transaction', async () => {
+  const send = vi.fn(async (_command: unknown) => ({}));
+  const store = new DynamoAgentsStore({ send } as unknown as DynamoDBDocumentClient, 'agents', {
+    putJson: async key => ({ bucket: 'private', key, sha256: 'fixture', bytes: 1, contentType: 'application/json' }), getJson: async <T>() => ({}) as T,
+  });
+  await store.delete(resource, [], [{ ownerId: 'space', collection: 'space_bindings', id: 'actor', revision: 3 }]);
+  const transaction = send.mock.calls[0]![0] as TransactWriteCommand;
+  expect(transaction.input.TransactItems).toHaveLength(3);
+  expect(transaction.input.TransactItems?.[2]?.ConditionCheck?.ExpressionAttributeValues).toEqual({ ':expected': 3 });
+});

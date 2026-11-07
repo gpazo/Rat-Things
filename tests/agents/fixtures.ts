@@ -28,6 +28,7 @@ export class MemoryAgentsStore implements AgentsStore {
 
   public async commit(writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>, observations: AgentObservation[] = []): Promise<void> {
     for (const observation of observations) {
+      if (observation.validUntil !== undefined && observation.validUntil <= Date.now()) throw new AgentsApiError(401, 'Authority expired before acceptance.', 'invalid_api_key');
       if (this.resources.get(this.key(observation.ownerId, observation.collection, observation.id))?.revision !== observation.revision) throw new AgentsResourceConflictError();
     }
     for (const { resource, expectedRevision } of writes) {
@@ -39,7 +40,11 @@ export class MemoryAgentsStore implements AgentsStore {
     }
   }
 
-  public async delete(resource: AgentResource<unknown>, writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }> = []): Promise<void> {
+  public async delete(resource: AgentResource<unknown>, writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }> = [], observations: AgentObservation[] = []): Promise<void> {
+    for (const observation of observations) {
+      if (observation.validUntil !== undefined && observation.validUntil <= Date.now()) throw new AgentsApiError(401, 'Authority expired before acceptance.', 'invalid_api_key');
+      if (this.resources.get(this.key(observation.ownerId, observation.collection, observation.id))?.revision !== observation.revision) throw new AgentsResourceConflictError();
+    }
     const key = this.key(resource.ownerId, resource.collection, resource.id);
     const current = this.resources.get(key);
     if (current?.revision !== resource.revision || (current.listOrder ?? 'createdAt') !== (resource.listOrder ?? 'createdAt')) throw new AgentsResourceConflictError();

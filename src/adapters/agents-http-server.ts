@@ -7,7 +7,7 @@ import { AgentsApiError } from '../domain/agents-api-validation.js';
 
 /** A streaming HTTP transport avoids Lambda's request-size and invocation-duration limits. */
 export function createAgentsHttpServer(options: {
-  baseURL: string; issuerURL: string;
+  baseURL: string; issuerURL: string; discovery?: object;
   authenticate(authorization: string | null): Promise<ApiPrincipal>;
   route(request: Request, principal: ApiPrincipal, requestId: string): Promise<Response>;
   error(error: unknown, requestId: string): Response;
@@ -21,7 +21,7 @@ export function createAgentsHttpServer(options: {
     let reserved = false;
     try {
       if (incoming.method === 'GET' && incoming.url === '/health') { await send(outgoing, Response.json({ status: 'ok' })); return; }
-      if (incoming.method === 'GET' && incoming.url === '/.well-known/agents-api') { await send(outgoing, Response.json({ issuer_url: options.issuerURL, base_url: options.baseURL }, { headers: { 'cache-control': 'no-store' } })); return; }
+      if (incoming.method === 'GET' && incoming.url === '/.well-known/agents-api') { await send(outgoing, Response.json(options.discovery ?? { issuer_url: options.issuerURL, base_url: options.baseURL }, { headers: { 'cache-control': 'no-store' } })); return; }
       const owner = await options.authenticate(incoming.headers.authorization ?? null);
       const headers = new Headers();
       for (const [name, value] of Object.entries(incoming.headers)) if (typeof value === 'string') headers.set(name, value);

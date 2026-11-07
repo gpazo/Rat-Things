@@ -9758,6 +9758,29 @@
           "properties": {
             "kind": {
               "type": "string",
+              "const": "principal"
+            },
+            "id": {
+              "type": "string"
+            },
+            "issuer": {
+              "type": "string"
+            },
+            "subject": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
               "const": "owner"
             },
             "id": {

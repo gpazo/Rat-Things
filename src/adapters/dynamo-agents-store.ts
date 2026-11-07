@@ -3,7 +3,7 @@ import {
   DynamoDBDocumentClient, GetCommand, QueryCommand, TransactWriteCommand,
   type TransactWriteCommandInput,
 } from '@aws-sdk/lib-dynamodb';
-import { AgentsResourceConflictError, invalid } from '../domain/agents-api-validation.js';
+import { AgentsApiError, AgentsResourceConflictError, invalid } from '../domain/agents-api-validation.js';
 import type { ArtifactReference } from '../domain/contracts.js';
 import { canonicalJson } from '../domain/json.js';
 import type { AgentListOrdering, AgentListQuery, AgentObservation, AgentResource, AgentsStore } from '../core/agents-ports.js';
@@ -68,7 +68,9 @@ export class DynamoAgentsStore implements AgentsStore {
   public async commit(writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>, observations: AgentObservation[] = []): Promise<void> {
     if (writes.length === 0 && observations.length === 0) return;
     if (writes.length * 2 + observations.length > 100) throw new Error('Agents storage transaction exceeds its item limit');
-    await this.transact([...await this.writeItems(writes), ...observations.map(observation => ({ ConditionCheck: {
+    const items = await this.writeItems(writes);
+    requireLiveObservations(observations);
+    await this.transact([...items, ...observations.map(observation => ({ ConditionCheck: {
       TableName: this.tableName, Key: rootKey(observation.ownerId, observation.collection, observation.id),
       ConditionExpression: '#revision = :expected AND attribute_not_exists(deleted)',
       ExpressionAttributeNames: { '#revision': 'revision' }, ExpressionAttributeValues: { ':expected': observation.revision },
@@ -105,9 +107,11 @@ export class DynamoAgentsStore implements AgentsStore {
     return items;
   }
 
-  public async delete(resource: AgentResource<unknown>, writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }> = []): Promise<void> {
-    if (writes.length > 49) throw new Error('Agents storage transaction exceeds its item limit');
-    await this.transact([...await this.writeItems(writes), { Update: {
+  public async delete(resource: AgentResource<unknown>, writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }> = [], observations: AgentObservation[] = []): Promise<void> {
+    if (writes.length * 2 + observations.length + 2 > 100) throw new Error('Agents storage transaction exceeds its item limit');
+    const items = await this.writeItems(writes);
+    requireLiveObservations(observations);
+    await this.transact([...items, { Update: {
       TableName: this.tableName,
       Key: rootKey(resource.ownerId, resource.collection, resource.id),
       UpdateExpression: 'SET deleted = :deleted, #revision = :next',
@@ -117,7 +121,11 @@ export class DynamoAgentsStore implements AgentsStore {
     } }, { Delete: {
       TableName: this.tableName,
       Key: { scope: listScope(resource.ownerId, resource.collection), key: orderKey(resource) },
-    } }]);
+    } }, ...observations.map(observation => ({ ConditionCheck: {
+      TableName: this.tableName, Key: rootKey(observation.ownerId, observation.collection, observation.id),
+      ConditionExpression: '#revision = :expected AND attribute_not_exists(deleted)',
+      ExpressionAttributeNames: { '#revision': 'revision' }, ExpressionAttributeValues: { ':expected': observation.revision },
+    } }))]);
   }
 
   private async transact(items: NonNullable<TransactWriteCommandInput['TransactItems']>) {
@@ -169,4 +177,8 @@ function orderKey(resource: Pick<ResourceIndex, 'id' | 'createdAt' | 'listOrder'
 }
 function fixedOrderCondition(resource: Pick<ResourceIndex, 'listOrder'>): string {
   return resource.listOrder === 'id' ? '#listOrder = :listOrder' : '(attribute_not_exists(#listOrder) OR #listOrder = :listOrder)';
+}
+
+function requireLiveObservations(observations: AgentObservation[]) {
+  if (observations.some(value => value.validUntil !== undefined && value.validUntil <= Date.now())) throw new AgentsApiError(401, 'Authority expired before acceptance.', 'invalid_api_key');
 }

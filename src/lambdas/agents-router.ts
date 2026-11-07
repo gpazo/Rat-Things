@@ -1,4 +1,9 @@
-import { requireRoutePermission, requireInferencePermission, type ApiPrincipal } from '../domain/api-permissions.js';
+import type { SpaceAccessService, SpaceAuthority } from '../identity/space-access.js';
+import type { WorkloadAdmissionService } from '../identity/workload-admission.js';
+import type { GuardedAgentsStore } from '../identity/guarded-agents-store.js';
+import { requireUnexpired } from '../identity/principal.js';
+import { routeRatRequest } from './rat-router.js';
+import { requireRoutePermission, requireInferencePermission, routeActions, type ApiPrincipal } from '../domain/api-permissions.js';
 import type { AgentService } from '../core/agent-service.js';
 import type { SessionService } from '../core/session-service.js';
 import type { VaultService } from '../core/vault-service.js';
@@ -24,6 +29,18 @@ export async function routeAgentRequest(
 
 export interface AgentsApiServices extends AgentsAuditServices {
   agents: AgentService;
+  access?: SpaceAccessService;
+  admission?: WorkloadAdmissionService;
+  guardedStore?: GuardedAgentsStore;
+  activity?: {
+    snapshot(ownerId: string, id: string, caller: SpaceAuthority): Promise<unknown>;
+    follow(ownerId: string, id: string, signal: AbortSignal, options: { after?: string; revalidate: () => Promise<void> }): AsyncIterable<{ event_id?: string; type?: string; activity?: unknown }>;
+  };
+  shares?: {
+    stage(ownerId: string, raw: unknown, caller: SpaceAuthority): Promise<unknown>;
+    retrieve(ownerId: string, id: string): Promise<unknown>;
+    activate(ownerId: string, id: string, raw: unknown, caller: SpaceAuthority): Promise<unknown>;
+  };
   sessions?: SessionService;
   vaults?: VaultService;
   templates?: EnvironmentTemplateService;
@@ -36,6 +53,33 @@ export interface AgentsApiServices extends AgentsAuditServices {
 }
 
 export async function routeAgentsRequest(request: Request, principal: ApiPrincipal, services: AgentsApiServices, requestId?: string, streaming = true): Promise<Response> {
+  try {
+    requireUnexpired(principal);
+    const parts = pathParts(new URL(request.url).pathname);
+    const noSpace = parts[1] === 'rat' && parts.length === 3 && ['me', 'spaces'].includes(parts[2] ?? '');
+    if (noSpace) return await routeRatRequest(request, principal, parts, services, undefined, requestId);
+    if (principal.authentication !== 'oidc') return dispatchAgentsRequest(request, principal, services, requestId, streaming);
+    const selector = request.headers.get('x-rat-space');
+    if (!selector || !/^space_[A-Za-z0-9_-]{1,128}$/.test(selector) || !services.access || !services.guardedStore) throw new AgentsApiError(403, 'Select an authorized space.', 'insufficient_permissions');
+    if (parts[1] === 'rat' && parts[2] === 'spaces' && parts[3] !== selector) throw new AgentsApiError(403, 'Space selector does not match the resource.', 'insufficient_permissions');
+    const body = request.method === 'POST' && parts[1] === 'agents' && parts[2] === 'sessions' ? await requestBody(request.clone()) : undefined;
+    const actions = routeActions(request.method, parts, body);
+    const authority = await services.access.authorize(principal, selector, actions);
+    const scoped = { ...principal, ownerId: authority.ownerId, actor: authority.actor };
+    requireRoutePermission(scoped, request.method, parts);
+    const dispatch = () => parts[1] === 'rat' ? routeRatRequest(request, scoped, parts, services, authority, requestId)
+      : dispatchAgentsRequest(request, scoped, services, requestId, streaming, authority);
+    const explicitAcceptance = request.method === 'POST' && (parts[1] === 'rat' && parts[2] === 'shares' || parts[1] === 'agents' && parts[2] === 'sessions' && (parts.length === 3 || parts.length === 5 && ['events', 'fork'].includes(parts[4] ?? '')));
+    if (parts[1] === 'agents' && parts[2] === 'sessions' && parts[3] === 'import' && request.method === 'POST') throw new AgentsApiError(403, 'Use Share to admit a Session to a space.', 'insufficient_permissions');
+    const readOnly = request.method === 'GET';
+    if (!readOnly && !explicitAcceptance && parts[1] !== 'rat') await services.access.accept(authority, actions, parts.join('/'));
+    const response = explicitAcceptance || !readOnly && parts[1] !== 'rat' ? await dispatch() : await services.guardedStore.run(authority, readOnly, dispatch);
+    await authority.revalidate();
+    return reauthorizedResponse(response, authority, request.signal);
+  } catch (error) { return agentsErrorResponse(error, requestId); }
+}
+
+async function dispatchAgentsRequest(request: Request, principal: ApiPrincipal, services: AgentsApiServices, requestId?: string, streaming = true, authority?: SpaceAuthority): Promise<Response> {
   try {
     const ownerId = principal.ownerId;
     const url = new URL(request.url);
@@ -66,8 +110,8 @@ export async function routeAgentsRequest(request: Request, principal: ApiPrincip
       if (request.method === 'GET') return json(200, await services.environments.files(ownerId, parts[3], queryParameters(url.searchParams, { nullableLimit: true })), requestId);
       if (request.method === 'POST') return json(200, await services.environments.createFile(ownerId, parts[3], await requestBody(request)), requestId);
     }
-    if (parts[1] === 'vaults') return await routeVault(request, ownerId, parts.slice(2), services.vaults, requestId);
-    if (parts[1] === 'agents' && parts[2] === 'sessions') return await routeSession(request, principal, parts.slice(3), services.sessions, requestId, streaming);
+    if (parts[1] === 'vaults') return await routeVault(request, ownerId, parts.slice(2), services.vaults, requestId, principal);
+    if (parts[1] === 'agents' && parts[2] === 'sessions') return await routeSession(request, principal, parts.slice(3), services.sessions, requestId, streaming, authority, services.admission);
     const route = /^\/v1\/agents(?:\/([^/]+))?$/.exec(url.pathname);
     if (!route) throw new AgentsApiError(404, 'Route not found.', 'resource_not_found');
     const id = parts[2];
@@ -77,11 +121,11 @@ export async function routeAgentsRequest(request: Request, principal: ApiPrincip
       return json(200, await agents.list(ownerId, queryParameters(url.searchParams, { nullableLimit: true })), requestId);
     }
     if (method === 'POST' && !id) {
-      return json(200, await agents.create(ownerId, await requestBody(request), mutation(ownerId, requestId)), requestId);
+      return json(200, await agents.create(ownerId, await requestBody(request), mutation(principal, requestId)), requestId);
     }
     if (method === 'GET' && id) return json(200, await agents.retrieve(ownerId, id), requestId);
-    if (method === 'POST' && id) return json(200, await agents.update(ownerId, id, await requestBody(request), mutation(ownerId, requestId)), requestId);
-    if (method === 'DELETE' && id) return json(200, await agents.delete(ownerId, id, mutation(ownerId, requestId)), requestId);
+    if (method === 'POST' && id) return json(200, await agents.update(ownerId, id, await requestBody(request), mutation(principal, requestId)), requestId);
+    if (method === 'DELETE' && id) return json(200, await agents.delete(ownerId, id, mutation(principal, requestId)), requestId);
     throw new AgentsApiError(405, 'Method not allowed.', 'method_not_allowed');
   } catch (error) {
     return agentsErrorResponse(error, requestId);
@@ -122,28 +166,28 @@ async function routeTemplate(request: Request, ownerId: string, parts: string[],
   throw new AgentsApiError(405, 'Method not allowed.', 'method_not_allowed');
 }
 
-async function routeVault(request: Request, ownerId: string, parts: string[], vaults: VaultService | undefined, requestId?: string): Promise<Response> {
+async function routeVault(request: Request, ownerId: string, parts: string[], vaults: VaultService | undefined, requestId?: string, principal?: ApiPrincipal): Promise<Response> {
   if (!vaults) throw new AgentsApiError(503, 'Vault service is unavailable.', 'service_unavailable');
   const [vaultId, collection, credentialId] = parts;
   const method = request.method;
   const query = () => queryParameters(new URL(request.url).searchParams, { nullableLimit: true });
-  if (!vaultId && method === 'POST') return json(200, await vaults.create(ownerId, await requestBody(request), mutation(ownerId, requestId)), requestId);
+  if (!vaultId && method === 'POST') return json(200, await vaults.create(ownerId, await requestBody(request), mutation(principal ?? ownerId, requestId)), requestId);
   if (!vaultId && method === 'GET') return json(200, await vaults.list(ownerId, query()), requestId);
   if (vaultId && !collection) {
     if (method === 'GET') return json(200, await vaults.retrieve(ownerId, vaultId), requestId);
-    if (method === 'DELETE') return json(200, await vaults.delete(ownerId, vaultId, mutation(ownerId, requestId)), requestId);
+    if (method === 'DELETE') return json(200, await vaults.delete(ownerId, vaultId, mutation(principal ?? ownerId, requestId)), requestId);
   }
   if (vaultId && collection === 'credentials' && parts.length <= 3) {
-    if (!credentialId && method === 'POST') return json(200, await vaults.createCredential(ownerId, vaultId, await requestBody(request), mutation(ownerId, requestId)), requestId);
+    if (!credentialId && method === 'POST') return json(200, await vaults.createCredential(ownerId, vaultId, await requestBody(request), mutation(principal ?? ownerId, requestId)), requestId);
     if (!credentialId && method === 'GET') return json(200, await vaults.credentials(ownerId, vaultId, query()), requestId);
     if (credentialId && method === 'GET') return json(200, await vaults.credential(ownerId, vaultId, credentialId), requestId);
-    if (credentialId && method === 'POST') return json(200, await vaults.updateCredential(ownerId, vaultId, credentialId, await requestBody(request), mutation(ownerId, requestId)), requestId);
-    if (credentialId && method === 'DELETE') return json(200, await vaults.deleteCredential(ownerId, vaultId, credentialId, mutation(ownerId, requestId)), requestId);
+    if (credentialId && method === 'POST') return json(200, await vaults.updateCredential(ownerId, vaultId, credentialId, await requestBody(request), mutation(principal ?? ownerId, requestId)), requestId);
+    if (credentialId && method === 'DELETE') return json(200, await vaults.deleteCredential(ownerId, vaultId, credentialId, mutation(principal ?? ownerId, requestId)), requestId);
   }
   throw new AgentsApiError(404, 'Route not found.', 'resource_not_found');
 }
 
-async function routeSession(request: Request, principal: ApiPrincipal, parts: string[], sessions: SessionService | undefined, requestId?: string, streaming = true): Promise<Response> {
+async function routeSession(request: Request, principal: ApiPrincipal, parts: string[], sessions: SessionService | undefined, requestId?: string, streaming = true, authority?: SpaceAuthority, admission?: WorkloadAdmissionService): Promise<Response> {
   const ownerId = principal.ownerId;
   if (!sessions) throw new AgentsApiError(503, 'Session service is unavailable.', 'service_unavailable');
   if (parts.length === 1 && parts[0] === 'import') {
@@ -157,19 +201,22 @@ async function routeSession(request: Request, principal: ApiPrincipal, parts: st
     const body = await requestBody(request);
     requireInferencePermission(principal, body, 'create');
     if (isStreaming(body) && !streaming) throw new AgentsApiError(400, 'Use the Agents API streaming endpoint for this request.', 'streaming_unavailable');
-    const session = await sessions.create(ownerId, body);
+    const admitted = authority ? await admission?.admit(authority, body) : undefined;
+    if (authority && !admitted) throw new AgentsApiError(503, 'Workload admission is unavailable.', 'service_unavailable');
+    const caller = authority && admitted ? { ...authority, observations: [...authority.observations, ...admitted.observations], admission: admitted.evidence } : undefined;
+    const session = await (sessions.create as TeamCreate)(ownerId, body, undefined, undefined, undefined, caller);
     return isStreaming(body) ? eventStream((signal) => sessions.stream(ownerId, session.id, signal, true), request.signal, requestId) : json(200, session, requestId);
   }
   if (!id && method === 'GET') return json(200, await sessions.list(ownerId, queryParameters(new URL(request.url).searchParams, { nullableLimit: true })), requestId);
   if (id && !collection) {
     if (method === 'GET') return json(200, await sessions.retrieve(ownerId, id), requestId);
-    if (method === 'POST') return json(200, await sessions.update(ownerId, id, await requestBody(request), mutation(ownerId, requestId)), requestId);
+    if (method === 'POST') return json(200, await sessions.update(ownerId, id, await requestBody(request), mutation(principal ?? ownerId, requestId)), requestId);
     if (method === 'DELETE') return json(200, await sessions.delete(ownerId, id), requestId);
   }
   if (id && collection === 'fork' && parts.length === 2 && method === 'POST') {
     const body = await requestBody(request);
     requireInferencePermission(principal, body, 'create');
-    return json(201, await sessions.fork(ownerId, id, body), requestId);
+    return json(201, await (sessions.fork as TeamFork)(ownerId, id, teamForkInput(body, authority), authority), requestId);
   }
   if (id && collection === 'runtime' && parts.length === 2 && method === 'GET') return json(200, await sessions.runtime(ownerId, id), requestId);
   if (id && collection === 'lineage' && parts.length === 2 && method === 'GET') return json(200, await sessions.lineage(ownerId, id), requestId);
@@ -178,13 +225,13 @@ async function routeSession(request: Request, principal: ApiPrincipal, parts: st
     if (method === 'POST') {
       const body = await requestBody(request);
       requireInferencePermission(principal, body, 'events');
-      await sessions.events(ownerId, id, body, request.headers.get('idempotency-key') ?? undefined, { waitForConnection: true, signal: request.signal });
+      await (sessions.events as TeamEvents)(ownerId, id, body, request.headers.get('idempotency-key') ?? undefined, { waitForConnection: true, signal: request.signal, ...(authority ? { caller: authority } : {}) });
       return new Response(null, { status: 204, headers: requestId ? { 'x-request-id': requestId } : {} });
     }
     if (method === 'GET') {
       if (!streaming) throw new AgentsApiError(400, 'Use the Agents API streaming endpoint for this request.', 'streaming_unavailable');
       const baseline = await sessions.streamSnapshot(ownerId, id);
-      return eventStream((signal) => sessions.stream(ownerId, id, signal, false, baseline), request.signal, requestId);
+      return eventStream((signal) => (sessions.stream as TeamStream)(ownerId, id, signal, false, baseline, authority ? { revalidate: authority.revalidate, ...(request.headers.get('last-event-id') ? { after: request.headers.get('last-event-id')! } : {}) } : undefined), request.signal, requestId);
     }
   }
   if (id && collection === 'subagents' && method === 'GET') {
@@ -291,6 +338,46 @@ export function queryParameters(params: URLSearchParams, options: { nullableLimi
   return query;
 }
 
-function mutation(ownerId: string, requestId?: string): import('../domain/configuration-history.js').ConfigurationMutation {
-  return { actor: { kind: 'owner', id: ownerId }, ...(requestId ? { requestId } : {}) };
+function mutation(caller: ApiPrincipal | string, requestId?: string): import('../domain/configuration-history.js').ConfigurationMutation {
+  return { actor: typeof caller === 'string' || !caller.actor ? { kind: 'owner', id: typeof caller === 'string' ? caller : caller.ownerId } : { kind: 'principal', id: caller.actor.id, ...(caller.actor.issuer ? { issuer: caller.actor.issuer, subject: caller.actor.subject! } : {}) }, ...(requestId ? { requestId } : {}) };
+}
+
+type TeamCreate = (owner: string, raw: unknown, integrationId?: string, runtime?: import('../domain/session-runtime.js').RuntimePin, restored?: Pick<import('../core/session-ports.js').SessionState, 'importedHistory' | 'importedFrom'>, caller?: SpaceAuthority) => ReturnType<SessionService['create']>;
+type TeamFork = (owner: string, id: string, raw: unknown, caller?: SpaceAuthority) => ReturnType<SessionService['fork']>;
+type TeamEvents = (owner: string, id: string, raw: unknown, key?: string, response?: { waitForConnection: boolean; signal?: AbortSignal; caller?: SpaceAuthority }) => Promise<void>;
+type TeamStream = (owner: string, id: string, signal: AbortSignal, initial?: boolean, baseline?: import('../core/session-stream.js').SessionStreamSnapshot, options?: { after?: string; revalidate?: () => Promise<void> }) => ReturnType<SessionService['stream']>;
+function teamForkInput(raw: unknown, authority?: SpaceAuthority): unknown {
+  if (authority && raw && typeof raw === 'object' && Object.keys(raw).some(key => !['input', 'metadata'].includes(key))) throw new AgentsApiError(403, 'Fork cannot override the fixed execution authority.', 'insufficient_permissions');
+  return raw;
+}
+function reauthorizedResponse(response: Response, authority: SpaceAuthority, signal: AbortSignal): Response {
+  if (!response.body) return response;
+  const reader = response.body.getReader();
+  let closed = false;
+  let timer: ReturnType<typeof setInterval> | undefined;
+  const cleanup = () => { closed = true; if (timer) clearInterval(timer); signal.removeEventListener('abort', abort); };
+  const abort = () => { cleanup(); void reader.cancel(); };
+  signal.addEventListener('abort', abort, { once: true });
+  return new Response(new ReadableStream({
+    start(controller) {
+      let checking = false;
+      timer = setInterval(() => {
+        if (checking || closed) return;
+        checking = true;
+        void authority.revalidate().catch(error => { if (!closed) { cleanup(); controller.error(error); void reader.cancel(); } }).finally(() => { checking = false; });
+      }, 1000);
+      timer.unref?.();
+    },
+    async pull(controller) {
+      try {
+        await authority.revalidate();
+        const next = await reader.read();
+        if (closed) return;
+        await authority.revalidate();
+        if (closed) return;
+        if (next.done) { cleanup(); controller.close(); } else controller.enqueue(next.value);
+      } catch (error) { if (!closed) { cleanup(); controller.error(error); void reader.cancel(); } }
+    },
+    async cancel() { cleanup(); await reader.cancel(); },
+  }), { status: response.status, headers: response.headers });
 }

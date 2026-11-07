@@ -27,7 +27,7 @@ export class ApiTokenService {
     const grant = (await this.store.get<TokenGrant>(owner, 'api_tokens', digest(matched[1]!)))?.value;
     if (!grant || grant.ownerId !== owner || grant.audience !== audience || grant.expiresAt <= this.clock.now()) unauthorized();
     if (!Array.isArray(grant.scopes) || grant.scopes.some(scope => !API_SCOPES.includes(scope))) unauthorized();
-    return { ownerId: grant.ownerId, scopes: [...grant.scopes] };
+    return { ownerId: grant.ownerId, scopes: [...grant.scopes], authentication: 'token', expiresAt: grant.expiresAt * 1000, actor: { id: grant.ownerId, kind: 'operator' } };
   }
 }
 

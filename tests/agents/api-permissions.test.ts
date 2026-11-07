@@ -49,7 +49,7 @@ describe('scoped API authority', () => {
     expect(create).toHaveBeenCalledTimes(1);
   });
   it('enforces a persisted read-only bearer grant over HTTP, including encoded paths', async () => {
-    const store = new MemoryAgentsStore(); const tokens = new ApiTokenService(store, { now: () => 100 });
+    const store = new MemoryAgentsStore(); const tokens = new ApiTokenService(store);
     const baseURL = 'https://rat.invalid/v1';
     const issued = await tokens.issue('alice', baseURL, { scopes: ['api.agents.read'] });
     const server = createAgentsHttpServer({ baseURL, issuerURL: 'https://issuer.lambda-url.us-west-2.on.aws/v1/auth/tokens', authenticate: value => tokens.authenticate(value, baseURL), route: (request, principal) => routeAgentsRequest(request, principal, { agents: new AgentService({ store }) }), error: agentsErrorResponse });
