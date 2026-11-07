@@ -236,6 +236,11 @@ Use the same `Idempotency-Key` when retrying an ambiguous submission. Keys are
 scoped to the authenticated actor, so two participants using the same client key
 do not overwrite each other's contributions.
 
+An accepted contribution can cross a Turn boundary. If the worker confirms that
+the original Turn ended before receiving it, the service carries that contribution
+into a following Turn with the same message identity and attribution. An uncertain
+delivery outcome is not permission to replay the work.
+
 The local Share coordinator owns staging and activation. Applications should use
 the desktop flow or `POST /v1/workspace/shares` on the authenticated local service
 with `session_id`, `endpoint`, `space_id` and `connection_id`. A retry uses the
