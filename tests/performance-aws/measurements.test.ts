@@ -55,11 +55,11 @@ describe('exact client observations', () => {
     materialized.items.push({ id: 'input-b', type: 'message', role: 'user', turn_id: 'new-turn', content: [{ type: 'input_text', text: 'Sample fixture-2. Reply OK.' }] } as Activity['items'][number]);
     const linked = observePeer(observedPending, materialized, work, 108);
     expect(linked.input).toEqual({ state: 'observed', latencyMs: 5, receiptId: 'receipt-a', turnIds: ['new-turn'] });
-    expect(finishSample(sample({ peers: [linked] }), 110, materialized, 'done').peers[0]?.progress).toMatchObject({ attribution: 'shared_batch' });
+    expect(finishSample(sample({ peers: [linked] }), 110, materialized, 'done').peers[0]?.progress).toMatchObject({ attribution: 'shared_turn_ambiguous' });
     const secondWork = { ...work, id: 'fixture-2', subject: 'writer-b', text: 'Sample fixture-2. Reply OK.' };
     const secondLinked = observePeer(peer, materialized, secondWork, 108);
     const summary = summarize([finishSample(sample({ peers: [linked] }), 110, materialized, 'done'), finishSample(sample({ id: 'fixture-2', peers: [secondLinked] }), 110, materialized, 'done')]);
-    expect(summary).toMatchObject({ uniqueProgressItems: 1, sharedTurnProgressSubmissions: 2, perSubmissionProgressObservations: 2, firstProgressMs: { count: 1 } });
+    expect(summary).toMatchObject({ uniqueProgressItems: 1, sharedTurnProgressObservations: 2, perSubmissionProgressObservations: 2, firstProgressMs: { count: 1 } });
   });
 
   it('excludes prior Turns, empty new assistant messages and reasoning-only state', () => {
@@ -78,7 +78,7 @@ describe('exact client observations', () => {
     expect(observePeer(first, snapshot, work, 200)).toEqual(first);
     snapshot.inputs.push({ ...snapshot.inputs[0]!, id: 'receipt-b', message_ids: ['input-b'] });
     const complete = finishSample(sample({ peers: [first] }), 220, snapshot, 'timeout');
-    expect(complete.peers[0]?.progress).toMatchObject({ state: 'observed', latencyMs: 8, attribution: 'shared_batch' });
+    expect(complete.peers[0]?.progress).toMatchObject({ state: 'observed', latencyMs: 8, attribution: 'shared_turn_ambiguous' });
   });
 
   it('retains rejection, error and censored denominators separately from success percentiles', () => {

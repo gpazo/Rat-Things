@@ -29,6 +29,9 @@ it.each(['persistent', 'desktop'] as const)('measures exact correlated messages 
   expect(result.submission.summary).toMatchObject({ expected: 6, observed: 6, censored: 0 });
   expect(result.peerVisibility.summary).toMatchObject({ expected: 12, observed: 12 });
   expect(result.firstSyntheticOutput.summary).toMatchObject({ expected: 12, observed: 12 });
+  expect(result.syntheticExecution).toMatchObject({ invocationCount: expect.any(Number), totalInvocationCount: expect.any(Number), setupInvocationCount: 1 });
+  expect(result.syntheticExecution.totalInvocationCount).toBe(result.syntheticExecution.invocationCount + result.syntheticExecution.setupInvocationCount);
+  expect(result.syntheticExecution.inputOccurrences).toHaveLength(6);
   expect(result.stream.initialBytes).toBeGreaterThan(0);
   expect(result.stream.workloadBytes).toBeGreaterThan(0);
   expect(result.cleanup.completed).toBe(true);

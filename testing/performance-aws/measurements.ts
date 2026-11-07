@@ -26,7 +26,7 @@ export type Observation =
   | { state: 'censored'; elapsedMs: number; reason: string };
 export type Progress =
   | { state: 'pending' }
-  | { state: 'observed'; latencyMs: number; turnId: string; itemId: string; kind: string; attribution: 'unclassified' | 'unique_receipt_for_turn' | 'shared_batch' }
+  | { state: 'observed'; latencyMs: number; turnId: string; itemId: string; kind: string; attribution: 'unclassified' | 'unique_receipt_for_turn' | 'shared_turn_ambiguous' }
   | { state: 'censored'; elapsedMs: number; reason: string };
 export interface PeerSample { peer: string; input: Observation; progress: Progress }
 export interface Sample {
@@ -88,7 +88,7 @@ export function finishSample(sample: Sample, nowMs: number, activity: Activity |
   const finishedMs = Math.min(nowMs, sample.deadlineMs ?? nowMs);
   const attribution = (progress: Extract<Progress, { state: 'observed' }>): typeof progress.attribution => {
     const count = activity?.inputs.filter(input => input.turn_ids.includes(progress.turnId)).length ?? 0;
-    return count === 0 ? 'unclassified' : count === 1 ? 'unique_receipt_for_turn' : 'shared_batch';
+    return count === 0 ? 'unclassified' : count === 1 ? 'unique_receipt_for_turn' : 'shared_turn_ambiguous';
   };
   return { ...sample, peers: sample.peers.map(peer => ({ ...peer,
     input: peer.input.state === 'pending' ? { state: 'censored', elapsedMs: Math.max(0, finishedMs - sample.startedMs), reason } : peer.input,
@@ -125,7 +125,7 @@ export function summarize(samples: readonly Sample[], expectedSubmissions = samp
     peerInputMs: distribution(peers.flatMap(peer => peer.input.state === 'observed' ? [peer.input.latencyMs] : [])),
     firstProgressMs: distribution([...progressByTurn.values()]),
     uniqueProgressItems: progressByTurn.size,
-    sharedTurnProgressSubmissions: peers.filter(peer => peer.progress.state === 'observed' && peer.progress.attribution === 'shared_batch').length,
+    sharedTurnProgressObservations: peers.filter(peer => peer.progress.state === 'observed' && peer.progress.attribution === 'shared_turn_ambiguous').length,
     perSubmissionProgressObservations: peers.filter(peer => peer.progress.state === 'observed').length,
     censoredPeerInputs: peers.filter(peer => peer.input.state === 'censored').length,
     censoredProgress: peers.filter(peer => peer.progress.state === 'censored').length,
