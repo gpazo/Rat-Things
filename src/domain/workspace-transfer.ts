@@ -5,6 +5,12 @@ import { posix } from 'node:path';
 export interface PortableFile { path: string; data: string; mode: number; link?: string; directory?: boolean }
 export const MAX_TRANSFER_BYTES = 100 * 1024 * 1024;
 
+/** Harness scratch belongs to each executor, never to the portable workspace. */
+function reservedWorkspacePath(path: string): boolean {
+  return path === '.rat-transfer' || path.startsWith('.rat-transfer/')
+    || /^codex-bwrap-synthetic-mount-targets-[0-9]+(?:\/|$)/.test(path);
+}
+
 /** The read-only exporter runs inside the VM; the host receives only bounded workspace data. */
 export const WORKSPACE_EXPORT_SCRIPT = `
 const fs = require('node:fs/promises');
@@ -14,7 +20,7 @@ const path = require('node:path');
   async function walk(directory) {
     for (const entry of await fs.readdir('/workspace/' + directory, { withFileTypes: true })) {
       const name = directory ? directory + '/' + entry.name : entry.name;
-      if (name === '.rat-transfer') continue;
+      if (name === '.rat-transfer' || /^codex-bwrap-synthetic-mount-targets-[0-9]+$/.test(name)) continue;
       const full = '/workspace/' + name;
       if (files.length >= 10000) throw new Error('Too many files');
       if (entry.isDirectory()) {
@@ -54,7 +60,7 @@ export function archiveWorkspace(files: PortableFile[]) {
   if (files.length > 10_000) throw new Error('Workspace has too many files to transfer');
   for (const file of files) {
     if (!file.path || file.path.startsWith('/') || file.path.includes('\\') || file.path.includes('\0') || file.path.split('/').some(part => !part || part === '..' || part === '.') || paths.has(file.path)) throw new Error('Invalid workspace archive path');
-    if (file.path === '.rat-transfer' || file.path.startsWith('.rat-transfer/')) throw new Error('Reserved workspace archive path');
+    if (reservedWorkspacePath(file.path)) throw new Error('Reserved workspace archive path');
     if (!Number.isInteger(file.mode) || file.mode < 0 || file.mode > 0o777) throw new Error('Invalid workspace mode');
     if (file.directory && (file.link !== undefined || file.data !== '')) throw new Error('Invalid workspace directory');
     if (file.link !== undefined) {
@@ -80,7 +86,7 @@ export function archiveWorkspace(files: PortableFile[]) {
 export function restoreWorkspaceCommand(sha256: string, parts = 1): string {
   if (!/^[a-f0-9]{64}$/.test(sha256)) throw new Error('Invalid workspace digest');
   if (!Number.isInteger(parts) || parts < 1 || parts > 50) throw new Error('Invalid workspace parts');
-  const script = `import hashlib, os, posixpath, stat, zipfile
+  const script = `import hashlib, os, posixpath, re, stat, zipfile
 p='/workspace/.rat-transfer/workspace.zip'
 with open(p,'wb') as out:
  for j in range(${parts}):
@@ -94,7 +100,8 @@ with zipfile.ZipFile(p) as z:
  names=set(); directories=[]
  for i in entries:
   n=i.filename.rstrip('/') if i.is_dir() else i.filename
-  assert n and not n.startswith('/') and '\\\\' not in n and all(v not in ('','.','..') for v in n.split('/')) and n not in names and not n.startswith('.rat-transfer/')
+  assert n and not n.startswith('/') and '\\\\' not in n and all(v not in ('','.','..') for v in n.split('/')) and n not in names
+  assert n!='.rat-transfer' and not n.startswith('.rat-transfer/') and not re.match(r'^codex-bwrap-synthetic-mount-targets-[0-9]+(/|$)', n)
   names.add(n)
  for i in entries:
   n=i.filename.rstrip('/') if i.is_dir() else i.filename

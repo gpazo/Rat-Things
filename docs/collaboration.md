@@ -82,6 +82,10 @@ and workspace files. The destination recovers a fresh private harness from saved
 context. Native processes and subscription logins do not move, and completed
 commands or setup are not replayed.
 
+Workspace transfer excludes the harness's sandbox lock directory and transfer
+staging files. These belong to each executor and are recreated there; they are
+not part of the team's working files.
+
 Once local execution has been released, this computer cannot resume it. The
 hosted Session becomes the place to continue, even if an activation response is
 lost. Retry the same Share operation after an interruption; its saved receipt
