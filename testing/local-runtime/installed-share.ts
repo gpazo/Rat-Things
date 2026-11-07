@@ -68,7 +68,7 @@ async function main() {
       headers: { authorization: `Bearer ${await person.accessTokenForRequest()}`, 'X-Rat-Space': spaceId, 'content-type': 'application/json' },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     if (!response.ok) throw new Error(`Team ${method} ${path} returned ${response.status}.`);
-    return await response.json() as T;
+    return (response.status === 204 ? undefined : await response.json()) as T;
   };
   const localResponse = async (path: string, method = 'GET', body?: unknown) => {
     assert(local && service && !service.exited, 'Owned installed service is unavailable.');
