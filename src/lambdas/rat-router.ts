@@ -34,7 +34,7 @@ export async function routeRatRequest(request: Request, principal: ApiPrincipal,
     if (parts.length === 5 && method === 'GET') return json(200, { ...await services.activity.snapshot(authority.ownerId, id, authority) as object, role: authority.role, permissions: authority.permissions }, requestId);
     if (parts.length === 6 && childId === 'events' && method === 'GET') {
       const cursor = request.headers.get('last-event-id') ?? new URL(request.url).searchParams.get('after') ?? undefined;
-      return activityStream(signal => services.activity!.follow(authority.ownerId, id, signal, { ...(cursor ? { after: cursor } : {}), revalidate: authority.revalidate }), request.signal, requestId, () => access.authorize(principal, authority.spaceId, ['read']));
+      return activityStream(signal => services.activity!.follow(authority.ownerId, id, signal, { ...(cursor ? { after: cursor } : {}) }), request.signal, requestId, () => access.authorize(principal, authority.spaceId, ['read']));
     }
   }
   if (collection === 'shares' && services.shares) {
