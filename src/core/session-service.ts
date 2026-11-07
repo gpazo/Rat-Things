@@ -187,7 +187,7 @@ export class SessionService {
     await this.beginShare(ownerId, id, operationId);
     await this.completeReadyTurns(ownerId, id);
     let resource = await this.required(ownerId, id);
-    if (resource.value.share?.operationId !== operationId || resource.value.share.phase === 'released') throw new AgentsApiError(409, 'The source Session has already been released.', 'session_shared');
+    if (resource.value.share?.operationId !== operationId || !['quiescing', 'frozen'].includes(resource.value.share.phase)) throw new AgentsApiError(409, 'The source Session cannot be snapshotted.', 'session_shared');
     const observation = await this.observe(ownerId, resource.value);
     if (observation.session.status !== 'idle' || observation.session.required_actions.length || observation.turns.some(({ turn }) => !terminalTurn(turn))
       || Object.values(resource.value.receipts).some(receipt => !receipt.dispatched)) throw new AgentsApiError(409, 'Waiting for accepted work to finish.', 'session_busy');
@@ -208,9 +208,16 @@ export class SessionService {
     return { state: { ...state, session: observation.session }, admission: { admitted, current, ...(state.workloadAdmission !== undefined ? { workload: state.workloadAdmission } : {}) }, sourceAgent, workspace: await readWorkspace(observation.session) };
   }
 
-  public async abortShare(ownerId: string, id: string, operationId: string, companion: { resource: AgentResource<unknown>; expectedRevision: number }) {
+  public async beginAbortShare(ownerId: string, id: string, operationId: string, companion: { resource: AgentResource<unknown>; expectedRevision: number }) {
     const resource = await this.required(ownerId, id);
     if (resource.value.share?.operationId !== operationId || resource.value.share.phase === 'released') throw new AgentsApiError(409, 'Released Shares cannot return to local execution.', 'session_shared');
+    await this.options.store.commit([{ resource: { ...resource, revision: resource.revision + 1,
+      value: { ...resource.value, share: { ...resource.value.share, phase: 'aborting' as const } } }, expectedRevision: resource.revision }, companion]);
+  }
+
+  public async abortShare(ownerId: string, id: string, operationId: string, companion: { resource: AgentResource<unknown>; expectedRevision: number }) {
+    const resource = await this.required(ownerId, id);
+    if (resource.value.share?.operationId !== operationId || resource.value.share.phase !== 'aborting') throw new AgentsApiError(409, 'Share cancellation is not fenced.', 'session_shared');
     const { share: _share, ...value } = resource.value;
     await this.options.store.commit([{ resource: { ...resource, revision: resource.revision + 1, value }, expectedRevision: resource.revision }, companion]);
   }
@@ -218,7 +225,7 @@ export class SessionService {
   public async releaseShare(ownerId: string, id: string, operationId: string, digest: string, destination: { endpoint: string; spaceId: string }) {
     const resource = await this.required(ownerId, id);
     const share = resource.value.share;
-    if (share?.operationId !== operationId || share.phase === 'quiescing' || share.digest && share.digest !== digest) throw new AgentsApiError(409, 'Share release does not match the frozen source.', 'share_conflict');
+    if (share?.operationId !== operationId || !['frozen', 'released'].includes(share.phase) || share.digest && share.digest !== digest) throw new AgentsApiError(409, 'Share release does not match the frozen source.', 'share_conflict');
     if (share.phase === 'released') return;
     await this.replace(resource, { ...resource.value, share: { operationId, digest, destination, phase: 'released' } });
   }

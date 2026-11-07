@@ -31,5 +31,5 @@ export interface ShareStatus {
   id: string;
   session_id: string;
   digest: string;
-  status: 'staged' | 'activating' | 'active';
+  status: 'staged' | 'activating' | 'active' | 'aborted';
 }

@@ -35,6 +35,7 @@ interface ShareRecord {
   workspaceFileIds: string[];
   artifactFileIds: Record<string, string>;
   staged?: boolean;
+  abortRequested?: boolean;
 }
 const CHUNK_BYTES = 3 * 1024 * 1024;
 const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
@@ -64,7 +65,7 @@ export class LocalShareService {
     const previous = await this.options.store.get<ShareRecord>(this.options.owner, 'local_shares', id);
     if (previous) {
       if (previous.value.plan.source_session_id !== input.session_id || canonicalJson(previous.value.plan.destination) !== canonicalJson(destination)) throw new AgentsApiError(409, 'This Share ID belongs to a different request.', 'idempotency_conflict');
-      if (!['complete', 'aborted'].includes(previous.value.plan.status)) {
+      if (!previous.value.abortRequested && !['complete', 'aborted'].includes(previous.value.plan.status)) {
         await this.options.sessions.beginShare(this.options.owner, previous.value.plan.source_session_id, id);
         this.schedule(id);
       }
@@ -100,14 +101,29 @@ export class LocalShareService {
   }
   public async execute(id: string) {
     const resource = await this.required(id);
-    if (!['complete', 'aborted'].includes(resource.value.plan.status)) this.schedule(id);
+    if (!resource.value.abortRequested && !['complete', 'aborted'].includes(resource.value.plan.status)) this.schedule(id);
     return this.retrieve(id);
   }
   public async abort(id: string) {
+    const initial = await this.required(id);
+    if (initial.value.plan.status === 'aborted') return this.retrieve(id);
+    await this.options.sessions.beginAbortShare(this.options.owner, initial.value.plan.source_session_id, id, {
+      resource: { ...initial, revision: initial.revision + 1, value: { ...initial.value, abortRequested: true } }, expectedRevision: initial.revision,
+    });
     this.cancellations.get(id)?.abort();
     await this.active.get(id);
     const resource = await this.required(id);
-    if (resource.value.plan.status === 'aborted') return resource.value.plan;
+    if (resource.value.manifest) {
+      const destination = resource.value.plan.destination;
+      const connection = await this.options.connection({ connection_id: destination.connection_id!, endpoint: destination.baseURL, space_id: destination.space_id });
+      if (connection.baseURL.replace(/\/$/, '') !== destination.baseURL) throw new Error('Destination connection changed');
+      const status = await this.request<ShareStatus>(connection, `/rat/shares/${id}`, { method: 'DELETE',
+        body: JSON.stringify({ digest: resource.value.digest, release_token: resource.value.releaseToken, session_id: resource.value.plan.source_session_id }),
+        headers: { 'content-type': 'application/json' },
+      }, this.stopped.signal);
+      this.checkStatus(resource.value, status);
+      if (status.status !== 'aborted') throw new Error('Destination has not retired this Share');
+    }
     const plan = { ...resource.value.plan, status: 'aborted' as const, error: null };
     await this.options.sessions.abortShare(this.options.owner, plan.source_session_id, id, {
       resource: { ...resource, revision: resource.revision + 1, value: { ...resource.value, releaseToken: '', plan } }, expectedRevision: resource.revision,
@@ -131,6 +147,7 @@ export class LocalShareService {
 
   private async run(id: string, signal: AbortSignal) {
     let record = (await this.required(id)).value;
+    if (record.abortRequested) throw new AgentsApiError(409, 'Share cancellation is pending.', 'share_aborting');
     if (!record.manifest) {
       await this.options.sessions.beginShare(this.options.owner, record.plan.source_session_id, id);
       await this.update(id, value => ({ ...value, plan: { ...value.plan, status: 'quiescing', error: null } }));

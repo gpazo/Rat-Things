@@ -16,6 +16,8 @@ interface StagedShare {
   evidence: unknown;
   artifacts: SavedSessionArtifact[];
 }
+interface RetiredShare { status: ShareStatus; releaseHash: string; staged?: StagedShare }
+type StoredShare = StagedShare | RetiredShare;
 export const shareDigest = (value: unknown) => createHash('sha256').update(canonicalJson(value)).digest('hex');
 export const releaseDigest = (token: string) => createHash('sha256').update(token).digest('hex');
 
@@ -30,8 +32,9 @@ export class SessionShareService {
   public async stage(ownerId: string, raw: unknown, caller?: SessionCaller): Promise<ShareStatus> {
     const request = parseShareStage(raw);
     const { manifest, digest } = request;
-    const previous = await this.options.store.get<StagedShare>(ownerId, 'session_shares', manifest.operation_id);
+    const previous = await this.options.store.get<StoredShare>(ownerId, 'session_shares', manifest.operation_id);
     if (previous) {
+      if (!('request' in previous.value)) throw new AgentsApiError(409, 'This Share operation was cancelled.', 'share_aborted');
       if (shareDigest(previous.value.request) !== shareDigest(request)) throw new AgentsApiError(409, 'Share operation content changed.', 'share_conflict');
       await validateSessionCaller(caller);
       return previous.value.status;
@@ -66,7 +69,9 @@ export class SessionShareService {
 
   public async activate(ownerId: string, id: string, raw: unknown, caller?: SessionCaller): Promise<ShareStatus> {
     if (!record(raw) || Object.keys(raw).some(key => !['digest', 'release_token'].includes(key)) || typeof raw.digest !== 'string' || typeof raw.release_token !== 'string') invalid('Supply the Share digest and source release proof');
-    let resource = await this.required(ownerId, id);
+    const stored = await this.required(ownerId, id);
+    if (!('request' in stored.value)) throw new AgentsApiError(409, 'This Share operation was cancelled.', 'share_aborted');
+    let resource = { ...stored, value: stored.value };
     if (resource.value.status.digest !== raw.digest || releaseDigest(raw.release_token as string) !== resource.value.request.manifest.release_hash) throw new AgentsApiError(409, 'Source release proof does not match this Share.', 'share_conflict');
     if (resource.value.status.status === 'active') { await validateSessionCaller(caller); return resource.value.status; }
     if (resource.value.status.status === 'staged') {
@@ -77,14 +82,47 @@ export class SessionShareService {
     }
     await this.options.sessions.activateShare(ownerId, resource.value.request, resource.value.artifacts, resource.value.evidence);
     const current = await this.required(ownerId, id);
+    if (!('request' in current.value)) throw new AgentsApiError(409, 'This Share operation was cancelled.', 'share_aborted');
     if (current.value.status.status === 'active') return current.value.status;
     const status = { ...current.value.status, status: 'active' as const };
     await this.options.store.put({ ...current, revision: current.revision + 1, value: { ...current.value, status } }, current.revision);
     return status;
   }
 
+  public async abort(ownerId: string, id: string, raw: unknown, caller?: SessionCaller): Promise<ShareStatus> {
+    if (!record(raw) || Object.keys(raw).some(key => !['digest', 'release_token', 'session_id'].includes(key))
+      || typeof raw.digest !== 'string' || !/^[a-f0-9]{64}$/.test(raw.digest) || typeof raw.release_token !== 'string'
+      || typeof raw.session_id !== 'string' || !/^sess_[a-zA-Z0-9_-]+$/.test(raw.session_id)
+      || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(id)) invalid('Supply the Share identity, digest and source cancellation proof');
+    const releaseHash = releaseDigest(raw.release_token);
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const current = await this.options.store.get<StoredShare>(ownerId, 'session_shares', id);
+      if (current) {
+        const expected = 'request' in current.value ? current.value.request.manifest.release_hash : current.value.releaseHash;
+        if (current.value.status.digest !== raw.digest || current.value.status.session_id !== raw.session_id || expected !== releaseHash) throw new AgentsApiError(409, 'Share cancellation proof does not match.', 'share_conflict');
+        if (current.value.status.status === 'aborted') { await validateSessionCaller(caller); return current.value.status; }
+        if (current.value.status.status !== 'staged') throw new AgentsApiError(409, 'Accepted activation cannot be cancelled.', 'share_active');
+      }
+      const status: ShareStatus = { id, session_id: raw.session_id, digest: raw.digest, status: 'aborted' };
+      const resource = { ownerId, collection: 'session_shares', id, createdAt: current?.createdAt ?? Math.floor(Date.now() / 1000), revision: (current?.revision ?? 0) + 1,
+        value: { status, releaseHash, ...(current && 'request' in current.value ? { staged: current.value } : {}) } satisfies RetiredShare };
+      const reservation = current ? await this.options.store.get<{ operationId: string; digest: string }>(ownerId, 'session_share_reservations', raw.session_id) : undefined;
+      if (current && (!reservation || reservation.value.operationId !== id || reservation.value.digest !== raw.digest)) throw new AgentsApiError(409, 'Share reservation changed.', 'share_conflict');
+      await validateSessionCaller(caller);
+      try {
+        const writes = [{ resource, expectedRevision: current?.revision ?? 0 }];
+        if (reservation) await this.options.store.delete(reservation, writes, caller?.observations);
+        else await this.options.store.commit(writes, caller?.observations);
+        return status;
+      } catch (error) {
+        if (!(error instanceof AgentsApiError) || error.code !== 'conflict' || attempt === 9) throw error;
+      }
+    }
+    throw new AgentsApiError(409, 'Share cancellation changed concurrently.', 'share_conflict');
+  }
+
   private async required(ownerId: string, id: string) {
-    return await this.options.store.get<StagedShare>(ownerId, 'session_shares', id) ?? resourceNotFound();
+    return await this.options.store.get<StoredShare>(ownerId, 'session_shares', id) ?? resourceNotFound();
   }
 }
 

@@ -52,6 +52,7 @@ async function fixture(fault?: 'stage_reply' | 'before_release' | 'release_reply
       uploaded.set(id, new Uint8Array(await file.arrayBuffer()));
       return Response.json({ id });
     }
+    if (request.method === 'DELETE') return Response.json(await destination.abort('destination', path.split('/').at(-1)!, await request.json()));
     if (path.endsWith('/shares')) {
       staged = await request.json() as ShareStageRequest;
       const result = await destination.stage('destination', staged);
@@ -71,7 +72,7 @@ async function fixture(fault?: 'stage_reply' | 'before_release' | 'release_reply
   const snapshot = vi.fn(async () => []);
   const options = { store: f.store, sessions: f.sessions, environments, owner: 'operator', snapshot,
     connection: async () => ({ baseURL: 'https://shared.example/v1', fetch: fetcher }) };
-  return { ...f, source, destination, admit, options, staged: () => staged };
+  return { ...f, source, destination, files, admit, options, staged: () => staged };
 }
 
 it.each(['stage_reply', 'before_release', 'release_reply', 'activation_reply'] as const)('recovers %s without reviving the source or replaying completed work', async fault => {
@@ -134,7 +135,7 @@ it('atomically retires a staged operation before release and permits a fresh loc
   await expect(f.sessions.releaseShare('operator', f.source.id, plan.id, f.staged()!.digest, { endpoint: 'https://shared.example/v1', spaceId: 'space_team' })).rejects.toMatchObject({ code: 'share_conflict' });
   await f.sessions.events('operator', f.source.id, message);
   expect((await service.execute(plan.id)).status).toBe('aborted');
-  expect((await f.destination.retrieve('destination', plan.id)).status).toBe('staged');
+  expect((await f.destination.retrieve('destination', plan.id)).status).toBe('aborted');
   await service.close();
 });
 
@@ -214,5 +215,109 @@ it('labels forged source identities and admission as imported while future input
   expect(JSON.stringify(call[3])).toContain('identity not verified');
   expect(JSON.stringify(call[3])).not.toContain('Authenticated participant');
   expect(JSON.stringify(call[2].input)).toContain('Authenticated participant');
+  await coordinator.close();
+});
+
+it('retires destination authority before returning local and permits a new Share to the same space', async () => {
+  const f = await fixture('before_release');
+  const service = new LocalShareService(f.options);
+  const request = { session_id: f.source.id, endpoint: 'https://shared.example', space_id: 'space_team', connection_id: 'connection_team' };
+  const first = await service.create(request);
+  await expect.poll(async () => (await service.retrieve(first.id)).status).toBe('failed');
+  await service.abort(first.id);
+  expect(await f.store.get('destination', 'session_share_reservations', f.source.id)).toBeUndefined();
+  const second = await service.create(request);
+  expect(second.id).not.toBe(first.id);
+  await expect.poll(async () => (await service.retrieve(second.id)).status).toBe('complete');
+  expect((await f.destination.retrieve('destination', first.id)).status).toBe('aborted');
+  expect((await f.destination.retrieve('destination', second.id)).status).toBe('active');
+  await service.close();
+});
+
+it('keeps source fenced across a lost destination retirement reply and resolves it after restart', async () => {
+  const f = await fixture('before_release');
+  let loseReply = true;
+  const options = { ...f.options, connection: async () => {
+    const connection = await f.options.connection();
+    return { ...connection, fetch: (async (input, init) => {
+      const response = await connection.fetch(input, init);
+      if (init?.method === 'DELETE' && loseReply) { loseReply = false; throw new Error('Lost retirement acknowledgement'); }
+      return response;
+    }) as typeof fetch };
+  } };
+  let service = new LocalShareService(options);
+  const plan = await service.create({ session_id: f.source.id, endpoint: 'https://shared.example', space_id: 'space_team', connection_id: 'connection_team' });
+  await expect.poll(async () => (await service.retrieve(plan.id)).status).toBe('failed');
+  await expect(service.abort(plan.id)).rejects.toThrow('Lost retirement acknowledgement');
+  expect((await f.destination.retrieve('destination', plan.id)).status).toBe('aborted');
+  expect((await f.store.get<SessionState>('operator', 'sessions', f.source.id))!.value.share?.phase).toBe('aborting');
+  await expect(f.sessions.events('operator', f.source.id, message)).rejects.toMatchObject({ code: 'session_shared' });
+  await service.close();
+  service = new LocalShareService(options);
+  expect(await service.abort(plan.id)).toMatchObject({ status: 'aborted', can_abort: false });
+  await expect(f.sessions.events('operator', f.source.id, message)).resolves.toBeUndefined();
+  await service.close();
+});
+
+it('tombstones an unseen destination operation so a delayed stage cannot claim its Session', async () => {
+  const f = await fixture('before_release');
+  const service = new LocalShareService(f.options);
+  const plan = await service.create({ session_id: f.source.id, endpoint: 'https://shared.example', space_id: 'space_team', connection_id: 'connection_team' });
+  await expect.poll(async () => (await service.retrieve(plan.id)).status).toBe('failed');
+  const request = f.staged()!;
+  const record = (await f.store.get<{ releaseToken: string }>('operator', 'local_shares', plan.id))!.value;
+  const cancellation = { digest: request.digest, session_id: f.source.id, release_token: record.releaseToken };
+  expect(await f.destination.abort('delayed-target', plan.id, cancellation)).toMatchObject({ status: 'aborted' });
+  await expect(f.destination.stage('delayed-target', request)).rejects.toMatchObject({ code: 'share_aborted' });
+  await expect(f.destination.activate('delayed-target', plan.id, cancellation)).rejects.toMatchObject({ status: 400 });
+  await expect(f.destination.activate('delayed-target', plan.id, { digest: request.digest, release_token: record.releaseToken })).rejects.toMatchObject({ code: 'share_aborted' });
+  expect(await f.store.get('delayed-target', 'session_share_reservations', f.source.id)).toBeUndefined();
+  expect(await f.store.get('delayed-target', 'sessions', f.source.id)).toBeUndefined();
+  await service.close();
+});
+
+it('linearizes destination retirement against activation without leaving both runnable and reusable authority', async () => {
+  const f = await fixture('before_release');
+  const service = new LocalShareService(f.options);
+  const plan = await service.create({ session_id: f.source.id, endpoint: 'https://shared.example', space_id: 'space_team', connection_id: 'connection_team' });
+  await expect.poll(async () => (await service.retrieve(plan.id)).status).toBe('failed');
+  const request = f.staged()!;
+  const record = (await f.store.get<{ releaseToken: string }>('operator', 'local_shares', plan.id))!.value;
+  const proof = { digest: request.digest, release_token: record.releaseToken };
+  const result = await Promise.allSettled([
+    f.destination.activate('destination', plan.id, proof),
+    f.destination.abort('destination', plan.id, { ...proof, session_id: f.source.id }),
+  ]);
+  expect(result.filter(entry => entry.status === 'fulfilled')).toHaveLength(1);
+  const status = await f.destination.retrieve('destination', plan.id);
+  const reservation = await f.store.get('destination', 'session_share_reservations', f.source.id);
+  const session = await f.store.get('destination', 'sessions', f.source.id);
+  if (status.status === 'active') { expect(reservation).toBeDefined(); expect(session).toBeDefined(); }
+  else { expect(status.status).toBe('aborted'); expect(reservation).toBeUndefined(); expect(session).toBeUndefined(); }
+  await service.close();
+});
+
+
+it('rejects an in-flight stage when retirement commits during destination admission', async () => {
+  const f = await fixture('before_release');
+  const coordinator = new LocalShareService(f.options);
+  const plan = await coordinator.create({ session_id: f.source.id, endpoint: 'https://shared.example', space_id: 'space_team', connection_id: 'connection_team' });
+  await expect.poll(async () => (await coordinator.retrieve(plan.id)).status).toBe('failed');
+  const request = f.staged()!;
+  const record = (await f.store.get<{ releaseToken: string }>('operator', 'local_shares', plan.id))!.value;
+  let entered!: () => void;
+  const admissionEntered = new Promise<void>(resolve => { entered = resolve; });
+  let resume!: () => void;
+  const admissionPending = new Promise<void>(resolve => { resume = resolve; });
+  const destination = new SessionShareService({ store: f.store, sessions: f.sessions, files: f.files as never,
+    admit: async () => { entered(); await admissionPending; return { evidence: {} }; },
+  });
+  const pending = destination.stage('race-target', request);
+  await admissionEntered;
+  await destination.abort('race-target', plan.id, { digest: request.digest, release_token: record.releaseToken, session_id: f.source.id });
+  resume();
+  await expect(pending).rejects.toMatchObject({ code: 'conflict' });
+  expect((await destination.retrieve('race-target', plan.id)).status).toBe('aborted');
+  expect(await f.store.get('race-target', 'session_share_reservations', f.source.id)).toBeUndefined();
   await coordinator.close();
 });

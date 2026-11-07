@@ -29,7 +29,7 @@ export interface SessionState {
   fork?: import('../domain/session-fork.js').SessionFork;
   forkLock?: { id: string; expiresAt: number };
   closing?: boolean;
-  share?: { operationId: string; phase: 'quiescing' | 'frozen' | 'released'; digest?: string; destination?: { endpoint: string; spaceId: string } };
+  share?: { operationId: string; phase: 'quiescing' | 'frozen' | 'aborting' | 'released'; digest?: string; destination?: { endpoint: string; spaceId: string } };
   sharedFrom?: { operationId: string; digest: string; admission: unknown };
   inputSequence?: number;
   archivedInputs?: import('./session-activity.js').SessionInputReceipt[];
