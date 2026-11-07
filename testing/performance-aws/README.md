@@ -6,6 +6,15 @@ execution role with no tools and `environment: none`, and asks the configured
 real model for one-word replies. It does not deploy infrastructure or collect
 CloudWatch billing data. Ordinary tests never invoke AWS.
 
+The controller rejects GPT-6 Astra and requires an explicitly configured
+GPT-6 Luna model ID. Workload inputs are capped at 60, setup Session inputs at
+8, controller HTTP client retries are disabled, and the prompt requests a one-word
+reply. The artifact fails if observed assistant output for any Turn exceeds 256
+UTF-8 bytes. This observation guard does not impose a provider token limit before
+generation. The API has no per-agent output-token limit; provider retry behavior is
+also controlled by the deployed runtime. Verify both in preflight and budget for
+the unbounded output/retry exposure before any live run.
+
 Source the disposable deployment's `runtime.env` using the existing AWS harness
 instructions. The controller requires all three live opt-ins plus the fixture,
 region, admitted model, shared API URL, and IAM operator API URL:
@@ -44,11 +53,11 @@ AWS_E2E=true AWS_E2E_SHARED_SESSIONS=true AWS_E2E_REAL_CODEX=true \
 ```
 
 The default `persistent` mode holds each SSE subscription until the scenario
-finishes. `desktop` is HTTP playback of the recorded source's activity cadence:
-one activity frame per connection, 50 ms before reconnect, 20 s stream timeout,
-cursorless snapshot one second after idle, a forced snapshot every 15 seconds,
-runtime fetch on snapshots, and a separate space-authority read every two
-seconds. It does not run the native UI or reproduce every UI request and user
+finishes. `desktop` is HTTP playback of the current source's activity cadence:
+one SSE request stays open across multiple activity frames, then reconnects
+after EOF or the 20 s request timeout using the last cursor; cursor reset or
+recovery uses a fresh snapshot and runtime read. A separate space-authority
+read continues every two seconds. It does not run the native UI or reproduce every UI request and user
 interaction. This mode never changes the actual client or production limits.
 
 ## Reading the artifact

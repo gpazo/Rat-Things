@@ -48,6 +48,7 @@ export async function createPerformanceFixture(config: PerformanceConfig, viewer
   const handlers = new Set<Promise<void>>();
   const operations = new Map<string, Promise<void>>();
   const executed = new Map<string, { count: number; emittedAt: number }>();
+  const mockInvocations: Array<{ turnId: string; correlations: string[] }> = [];
   const workerErrors: string[] = [];
   let native: SessionRuntimeState | undefined;
   let session: AgentSession | undefined;
@@ -66,6 +67,7 @@ export async function createPerformanceFixture(config: PerformanceConfig, viewer
   const emit = async (owner: string, current: AgentSession, turnId: string, input: AgentSessionInputMessageParam[]) => {
     await delay(config.syntheticDelayMs, undefined, { signal: stopping.signal });
     const correlations = input.flatMap(message => message.content.flatMap(part => part.type === 'input_text' ? part.text.match(/perf-msg:[a-z0-9-]+/g) ?? [] : []));
+    mockInvocations.push({ turnId, correlations: [...correlations] });
     const items = correlations.map(correlation => assistantItem(turnId, `mock_${correlation}`, `${outputPrefix}${correlation}`));
     native = { ...native!, turns: native!.turns.map(binding => binding.turn.id === turnId ? { ...binding, items: [...binding.items, ...items] } : binding) };
     await publish(owner, current);
@@ -152,7 +154,7 @@ export async function createPerformanceFixture(config: PerformanceConfig, viewer
     await json(`/v1/rat/agents/${agent.id}/workload`, 'manager', { execution_role_id: 'mock' });
     session = await json<AgentSession>('/v1/agents/sessions', 'manager', { agent_id: agent.id, environment: { type: 'none' }, input: 'Synthetic performance setup' });
     await sessions.dispatch(spaceOwner(spaceId), session.id);
-    return { directory, baseURL, spaceId, sessionId: session.id, request, counted, executed, workerErrors, close,
+    return { directory, baseURL, spaceId, sessionId: session.id, request, counted, executed, mockInvocations, workerErrors, close,
       async settled() { while (busy) await busy; },
     };
   } catch (error) { await close(); throw error; }

@@ -37,6 +37,31 @@ describe('exact client observations', () => {
     expect(observePeer(peer, snapshot, work, 104)).toEqual(peer);
   });
 
+  it('observes durable accepted receipts before materialization, then links their original IDs to a shared Turn', () => {
+    const accepted = activity();
+    accepted.items = accepted.items.filter(item => item.id !== 'input-a' && item.id !== 'new-output');
+    accepted.inputs[0]!.status = 'accepted';
+    accepted.inputs[0]!.turn_ids = [];
+    accepted.inputs[0]!.provenance = { kind: 'authenticated' };
+    (accepted as Activity & { pending_inputs: Array<{ receipt_id: string; messages: Array<{ id: string; role: string; content: Array<{ type: string; text: string }> }> }> }).pending_inputs = [
+      { receipt_id: 'receipt-a', messages: [{ id: 'input-a', role: 'user', content: [{ type: 'input_text', text: work.text }], actor: { id: 'actor-a', subject: work.subject }, provenance: { kind: 'authenticated' } }] },
+    ];
+    const observedPending = observePeer(peer, accepted, work, 105);
+    expect(observedPending.input).toEqual({ state: 'observed', latencyMs: 5, receiptId: 'receipt-a', turnIds: [] });
+    expect(observedPending.progress.state).toBe('pending');
+
+    const materialized = activity();
+    materialized.inputs.push({ ...materialized.inputs[0]!, id: 'receipt-b', actor: { ...materialized.inputs[0]!.actor, subject: 'writer-b' }, message_ids: ['input-b'] });
+    materialized.items.push({ id: 'input-b', type: 'message', role: 'user', turn_id: 'new-turn', content: [{ type: 'input_text', text: 'Sample fixture-2. Reply OK.' }] } as Activity['items'][number]);
+    const linked = observePeer(observedPending, materialized, work, 108);
+    expect(linked.input).toEqual({ state: 'observed', latencyMs: 5, receiptId: 'receipt-a', turnIds: ['new-turn'] });
+    expect(finishSample(sample({ peers: [linked] }), 110, materialized, 'done').peers[0]?.progress).toMatchObject({ attribution: 'shared_batch' });
+    const secondWork = { ...work, id: 'fixture-2', subject: 'writer-b', text: 'Sample fixture-2. Reply OK.' };
+    const secondLinked = observePeer(peer, materialized, secondWork, 108);
+    const summary = summarize([finishSample(sample({ peers: [linked] }), 110, materialized, 'done'), finishSample(sample({ id: 'fixture-2', peers: [secondLinked] }), 110, materialized, 'done')]);
+    expect(summary).toMatchObject({ uniqueProgressItems: 1, sharedTurnProgressSubmissions: 2, perSubmissionProgressObservations: 2, firstProgressMs: { count: 1 } });
+  });
+
   it('excludes prior Turns, empty new assistant messages and reasoning-only state', () => {
     const snapshot = activity();
     snapshot.items = snapshot.items.filter(item => item.id !== 'new-output');
@@ -47,13 +72,13 @@ describe('exact client observations', () => {
     expect(observePeer(peer, snapshot, work, 106).progress).toEqual({ state: 'pending' });
   });
 
-  it('keeps first observed timings and labels a Turn shared by multiple receipts ambiguous', () => {
+  it('keeps first observed timings and labels shared Turn progress at Turn scope', () => {
     const snapshot = activity();
     const first = observePeer(peer, snapshot, work, 108);
     expect(observePeer(first, snapshot, work, 200)).toEqual(first);
     snapshot.inputs.push({ ...snapshot.inputs[0]!, id: 'receipt-b', message_ids: ['input-b'] });
     const complete = finishSample(sample({ peers: [first] }), 220, snapshot, 'timeout');
-    expect(complete.peers[0]?.progress).toMatchObject({ state: 'observed', latencyMs: 8, attribution: 'ambiguous_same_turn' });
+    expect(complete.peers[0]?.progress).toMatchObject({ state: 'observed', latencyMs: 8, attribution: 'shared_batch' });
   });
 
   it('retains rejection, error and censored denominators separately from success percentiles', () => {

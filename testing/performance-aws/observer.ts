@@ -93,12 +93,11 @@ export function observeActivity(options: {
   })() : Promise.resolve();
   const done = (async () => {
     let cursor: string | undefined;
-    let lastSnapshot = -Infinity;
     try {
       while (!signal.aborted) {
-        if (cursor === undefined || options.mode === 'desktop' && options.now() - lastSnapshot >= 15_000) {
+        if (cursor === undefined) {
           const activity = (await jsonRequest('snapshot', path))!;
-          accept(activity); cursor = activity.cursor; lastSnapshot = options.now();
+          accept(activity); cursor = activity.cursor;
           // Native activity remains usable when optional runtime metadata fails.
           if (options.mode === 'desktop') await jsonRequest('runtime', `/agents/sessions/${options.sessionId}/runtime`).catch(() => {
             if (!signal.aborted) measure.auxiliaryErrors.push('runtime_snapshot_failed');
@@ -115,28 +114,27 @@ export function observeActivity(options: {
         const reader = call.response.body.getReader();
         const frames = new Frames();
         let received = false;
+        let connectionFrames = 0;
         let outcome = 'stream_error';
         try {
-          loop: while (!signal.aborted) {
+          while (!signal.aborted) {
             const chunk = await reader.read();
             if (chunk.done) break;
             call.record.bytes += chunk.value.byteLength;
             for (const frame of frames.push(chunk.value)) {
               const activity = frameActivity(frame);
               if (!activity) continue;
-              accept(activity); cursor = activity.cursor; received = true;
-              if (options.mode === 'desktop') break loop;
+              accept(activity); cursor = activity.cursor; received = true; connectionFrames++;
             }
           }
-          outcome = signal.aborted ? 'controller_stop' : received && options.mode === 'desktop' ? 'one_activity_frame' : 'eof';
+          outcome = signal.aborted ? 'controller_stop' : received ? `activity_frames:${connectionFrames}` : 'eof';
         } catch (error) {
           outcome = signal.aborted ? 'controller_stop' : timeout?.aborted ? 'idle_timeout' : 'stream_error';
           if (!signal.aborted && !timeout?.aborted) throw error;
         } finally { await reader.cancel().catch(() => undefined); call.close(outcome); }
         if (signal.aborted) break;
         if (options.mode === 'persistent') throw new Error('unexpected_stream_end');
-        if (!received) cursor = undefined;
-        await delay(received ? 50 : 1_000, undefined, { signal });
+        await delay(50, undefined, { signal });
       }
     } catch (error) {
       if (!signal.aborted) {

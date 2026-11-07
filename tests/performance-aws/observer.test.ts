@@ -81,29 +81,27 @@ it('retains unexpected clean EOF as an error, not a successful observation perio
   await watcher.stop();
 });
 
-it('plays back one-frame desktop reconnects with separate space authority and runtime reads', async () => {
+it('keeps one desktop SSE request across multiple frames with separate space authority and runtime reads', async () => {
   const paths: string[] = []; const cursors: string[] = [];
-  let streams = 0; let cancelled = 0;
-  let secondResolve!: () => void;
-  const second = new Promise<void>(resolve => { secondResolve = resolve; });
+  let streams = 0;
   const watcher = observeActivity({ peer: 'viewer-0', sessionId: 'session-fixture', mode: 'desktop', now: () => performance.now(), signal: new AbortController().signal,
     onActivity: value => { cursors.push(value.cursor); },
     request: async (path, signal) => {
       paths.push(path);
       if (!path.endsWith('/events')) return new Response(JSON.stringify(path.endsWith('/activity') ? snapshot : {}));
       streams += 1;
-      if (streams === 2) secondResolve();
       return new Response(new ReadableStream({ start(controller) {
-        if (streams === 1) controller.enqueue(Buffer.from(['first', 'ignored'].map(cursor => `data: ${JSON.stringify({ activity: { ...snapshot, cursor } })}\n\n`).join('')));
-        else signal.addEventListener('abort', () => controller.close(), { once: true });
-      }, cancel() { cancelled += 1; } }));
+        controller.enqueue(Buffer.from(['first', 'second'].map(cursor => `data: ${JSON.stringify({ activity: { ...snapshot, cursor } })}\n\n`).join('')));
+        signal.addEventListener('abort', () => controller.close(), { once: true });
+      } }));
     },
   });
-  await watcher.ready; await second; await watcher.stop();
+  await watcher.ready; await new Promise(resolve => setTimeout(resolve, 10)); await watcher.stop();
   expect(paths).toContain('/rat/spaces');
   expect(paths).toContain('/agents/sessions/session-fixture/runtime');
-  expect(cursors).toEqual(['cursor-fixture', 'first']);
-  expect(cancelled).toBeGreaterThanOrEqual(1);
-  expect(watcher.measure.connections.filter(value => value.kind === 'stream')[0]?.outcome).toBe('one_activity_frame');
+  expect(cursors).toEqual(['cursor-fixture', 'first', 'second']);
+  expect(streams).toBe(1);
+  expect(watcher.measure.activityFrames).toBe(3);
+  expect(watcher.measure.connections.filter(value => value.kind === 'stream')[0]?.outcome).toBe('controller_stop');
   expect(watcher.measure.errors).toEqual([]);
 });

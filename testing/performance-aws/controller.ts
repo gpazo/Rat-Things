@@ -63,6 +63,8 @@ export function liveConfiguration(environment: NodeJS.ProcessEnv) {
   if (operator.protocol !== 'https:' || operator.username || operator.password || operator.search || operator.hash) throw new Error('Invalid operator endpoint.');
   const model = required('AWS_E2E_CODEX_MODEL_ID');
   if (!/^[a-zA-Z0-9._:/-]{1,200}$/.test(model)) throw new Error('Invalid model identifier.');
+  if (/astra/i.test(model)) throw new Error('GPT-6 Astra is prohibited for performance validation.');
+  if (!/(?:^|[.:/-])gpt-6-luna(?:$|[.:/-])/i.test(model)) throw new Error('This bounded performance run requires an explicitly configured GPT-6 Luna model ID.');
   const fixture = JSON.parse(required('TEAM_OIDC_FIXTURE_JSON')) as TeamIdentityFixture;
   return { region, baseURL, operatorURL, model, fixture };
 }
@@ -84,11 +86,19 @@ interface ScenarioResult {
   errors: { phase: string; kind: string }[];
   cleanup: Record<string, string>;
   turns: { id: string; status: string; baseline: boolean; usage: Activity['turns'][number]['usage'] }[];
+  modelUsage?: { observedTurns: number; unknownTurns: number; inputTokens: number; outputTokens: number; checkedAtMs: number };
   initialSession?: { acknowledgementMs: number | null; firstProgressMs: number | null; completedMs: number | null; startedAt: string; observedUntilMs: number; boundary: string };
   cost?: { streamConnectionMs: number; streamBytes: number; snapshotBytes: number; observerHttpConnectionMs: number; lambdaMemoryMb: number | null; usd: null };
 }
 
 const eventBody = (text: string) => ({ events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text }] }] }] });
+const outputBytes = (activity: Activity) => {
+  const byTurn = new Map<string, number>();
+  for (const item of activity.items) if (item.type === 'message' && item.role === 'assistant') {
+    byTurn.set(item.turn_id, (byTurn.get(item.turn_id) ?? 0) + item.content.flatMap(part => part.type === 'output_text' ? [Buffer.byteLength(part.text, 'utf8')] : []).reduce((sum, value) => sum + value, 0));
+  }
+  return Math.max(0, ...byTurn.values());
+};
 const safeFailure = (error: unknown) => {
   if (error && typeof error === 'object' && 'status' in error && typeof error.status === 'number' && Number.isInteger(error.status) && error.status >= 100 && error.status <= 599) return `http_${error.status}`;
   return error instanceof Error && /^(http_\d{3}|timeout|interrupted|observer_failure|turn_failed|receipt_mismatch)$/.test(error.message) ? error.message : 'controller_failure';
@@ -97,30 +107,38 @@ const safeFailure = (error: unknown) => {
 export async function run(options: Options, environment: NodeJS.ProcessEnv = process.env, signal = new AbortController().signal) {
   // Validate opt-ins before any identity, API, or SDK operation.
   const configuration = liveConfiguration(environment);
+  const runSignal = AbortSignal.any([signal, AbortSignal.timeout(90 * 60_000)]);
+  const plannedInputs = options.scenarios.reduce((sum, size) => sum + size.writers * options.rounds, 0);
+  const plannedSetupInputs = options.scenarios.length;
+  if (plannedInputs > 60) throw new Error('Live workload input cap is 60.');
+  if (plannedSetupInputs > 8) throw new Error('Live setup input cap is 8.');
   const origin = performance.now(); const now = () => performance.now() - origin;
   const revision = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
   const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=normal'], { encoding: 'utf8' }).trim().length > 0;
   const artifact = {
     schemaVersion: 1, kind: 'real-aws-shared-session-performance', status: 'running', startedAt: new Date().toISOString(), finishedAt: null as string | null,
-    plannedSubmissions: options.scenarios.reduce((sum, size) => sum + size.writers * options.rounds, 0),
-    attemptedSubmissions: 0, notStartedSubmissions: options.scenarios.reduce((sum, size) => sum + size.writers * options.rounds, 0),
+    plannedSubmissions: plannedInputs, plannedSetupInputs,
+    attemptedSubmissions: 0, notStartedSubmissions: plannedInputs,
     phase: 'configured', revision, dirty, nodeVersion: process.versions.node, platform: process.platform, architecture: process.arch,
     deploymentRevision: options.deploymentRevision, bundleSha256: options.bundleSha256,
     provenanceSource: 'deployment revision and artifact hash are caller-supplied, not independently verified by this controller',
     region: configuration.region, endpoint: configuration.baseURL, model: configuration.model,
     clock: 'performance.now; client monotonic milliseconds from controller start; no server clock subtraction',
-    options, execution: { tools: [], environment: 'none', reply: 'tiny acknowledgement', warmCold: 'unclassified',
+    options, safetyCaps: { maxWorkloadInputs: 60, maxSetupInputs: 8, maxWallTimeMs: 90 * 60_000, maxObservedTurnOutputBytes: 256,
+      modelOutputTokenLimit: null, estimatedTotalSpendCeilingUsd: 10, spendEnforcement: 'No live billed-cost sensor; caller must establish a conservative preflight estimate and stop before the $10 ceiling.' },
+    execution: { tools: [], environment: 'none', reply: 'exact one-word acknowledgement requested; observed output must remain <=256 UTF-8 bytes', outputBytesObserved: 0, maxObservedOutputBytes: 256,
+      reasoningEffort: 'low', reasoningSummary: null, warmCold: 'unclassified',
       classificationEvidence: 'No per-invocation platform initialization evidence is available; baseline completion does not classify later requests as warm.' },
     boundaries: ['Submission starts immediately before fetch after token preparation; acknowledgement is response headers.',
       'Peer visibility requires receipt actor subject plus exact fixture message through message_ids.',
       'Progress requires new assistant text or tool Item in a receipt-linked Turn absent from the pre-round baseline. Shared-Turn attribution is ambiguous.',
       'Connection occupancy is client request-to-close time, not Lambda billed duration. Stream byte counts are decoded HTTP body bytes, not wire/TLS bytes.',
       'Desktop mode models activity HTTP cadence and authority polling; it is not a native UI test or complete UI workload.',
-      'Each scenario has a distinct space; explicit rounds can reach the unchanged owner rate limit. No submission retries.',
+      'Each scenario has a distinct space; explicit rounds can reach the unchanged owner rate limit. No submission retries. Setup inputs count separately from the 60-workload-input cap; GPT-6 Luna is selected explicitly and GPT-6 Astra is rejected.',
       'Percentiles exclude censored/error samples; retained counts and individual samples are required context.'],
     provisionalTargets: { durableAcknowledgementP95Ms: 500, durableAcknowledgementP99Ms: 1500, peerInputP95Ms: 1000, peerInputP99Ms: 2000 },
-    desktopPlayback: options.streamMode === 'desktop' ? { activityFrameLimit: 1, reconnectMs: 50, streamTimeoutMs: 20_000, idleSnapshotDelayMs: 1_000,
-      forcedSnapshotMs: 15_000, authorityRefreshMs: 2_000, runtimeOnSnapshot: true, source: 'desktop/src/api.rs and desktop/src/app.rs at recorded revision' } : null,
+    desktopPlayback: options.streamMode === 'desktop' ? { activityFrameLimit: null, reconnectMsAfterEofOrTimeout: 50, streamTimeoutMs: 20_000, snapshotOnInitialOrRecovery: true,
+      authorityRefreshMs: 2_000, runtimeOnSnapshot: true, source: 'desktop/src/api.rs and desktop/src/app.rs at recorded revision' } : null,
     scenarios: [] as ScenarioResult[], cleanup: {} as Record<string, string>, errors: [] as { phase: string; kind: string }[],
     retained: 'Spaces and stack resources require the deployment owner teardown; this controller deletes Sessions, Agents and Cognito users.',
   };
@@ -149,7 +167,7 @@ export async function run(options: Options, environment: NodeJS.ProcessEnv = pro
     const viewers = identities.users.slice(maxWriters + 1);
     const operator = createAgentsClient({ baseURL: configuration.operatorURL, region: configuration.region }).withOptions({ maxRetries: 0, timeout: 30_000 });
     for (const size of options.scenarios) {
-      if (signal.aborted) throw new Error('interrupted');
+      if (runSignal.aborted) throw new Error('interrupted');
       const result: ScenarioResult = { id: `aws-performance-${randomUUID()}`, ...size, status: 'running', phase: 'setup', startedAt: new Date().toISOString(), finishedAt: null, samples: [], observers: [], phases: [], errors: [], cleanup: {}, turns: [] };
       artifact.scenarios.push(result);
       const phase = async (name: string) => { result.phase = name; result.phases.push({ phase: name, atMs: now(), atUtc: new Date().toISOString() }); await save(`${size.writers}x${size.viewers}:${name}`); };
@@ -157,21 +175,27 @@ export async function run(options: Options, environment: NodeJS.ProcessEnv = pro
       const works = new Map<string, Workload>();
       let latest: Activity | undefined;
       let baselineTurnIds: string[] = [];
-      const request = async (identity: TestTeamIdentity, path: string, method = 'GET', body?: unknown, requestSignal: AbortSignal = signal, headers: Record<string, string> = {}) => fetch(`${configuration.baseURL}${path}`, {
+      const request = async (identity: TestTeamIdentity, path: string, method = 'GET', body?: unknown, requestSignal: AbortSignal = runSignal, headers: Record<string, string> = {}) => fetch(`${configuration.baseURL}${path}`, {
         method, redirect: 'error', signal: requestSignal,
         headers: { authorization: `Bearer ${await identity.accessTokenForRequest()}`, 'X-Rat-Space': result.spaceId!, 'content-type': 'application/json', ...headers },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
       const json = async <T>(identity: TestTeamIdentity, path: string, method = 'GET', body?: unknown, requestSignal?: AbortSignal): Promise<T> => {
-        const response = await request(identity, path, method, body, AbortSignal.any([requestSignal ?? signal, AbortSignal.timeout(30_000)]));
+        const response = await request(identity, path, method, body, AbortSignal.any([requestSignal ?? runSignal, AbortSignal.timeout(30_000)]));
         if (!response.ok) { await response.body?.cancel(); throw new Error(`http_${response.status}`); }
         return (response.status === 204 ? undefined : await response.json()) as T;
       };
       const client = new OpenAI({ baseURL: configuration.baseURL, apiKey: manager.accessTokenForRequest, maxRetries: 0, timeout: 30_000,
         defaultHeaders: { 'X-Rat-Space': '' } });
       const headers = () => ({ 'X-Rat-Space': result.spaceId! });
-      const read = async (requestSignal?: AbortSignal) => { latest = await json<Activity>(manager, `/rat/sessions/${result.sessionId}/activity`, 'GET', undefined, requestSignal); return latest; };
-      const drain = async (deadlineMs: number, predicate: (value: Activity) => boolean, requestSignal = signal) => {
+      const read = async (requestSignal?: AbortSignal) => {
+        latest = await json<Activity>(manager, `/rat/sessions/${result.sessionId}/activity`, 'GET', undefined, requestSignal);
+        const known = latest.turns.filter(turn => turn.usage !== null);
+        result.modelUsage = { observedTurns: known.length, unknownTurns: latest.turns.length - known.length,
+          inputTokens: known.reduce((sum, turn) => sum + turn.usage!.input_tokens, 0), outputTokens: known.reduce((sum, turn) => sum + turn.usage!.output_tokens, 0), checkedAtMs: now() };
+        return latest;
+      };
+      const drain = async (deadlineMs: number, predicate: (value: Activity) => boolean, requestSignal = runSignal) => {
         while (now() < deadlineMs) {
           if (requestSignal.aborted) throw new Error('interrupted');
           const activity = await read(AbortSignal.any([requestSignal, AbortSignal.timeout(Math.max(1, Math.ceil(deadlineMs - now())))]));
@@ -191,7 +215,7 @@ export async function run(options: Options, environment: NodeJS.ProcessEnv = pro
         }
         await json(manager, `/rat/spaces/${space.id}/execution-roles/default`, 'PUT', { name: 'Performance capabilities', models: [configuration.model], tools: [],
           environments: [{ type: 'none' }], vault_ids: [], capability_profile_ids: [], connection_grant_ids: [] });
-        const agent = await client.beta.agents.create({ name: result.id, model: configuration.model, tools: [], instructions: 'Reply with exactly OK. Do not repeat the input. Keep every response to one word.' }, { headers: headers() });
+        const agent = await client.beta.agents.create({ name: result.id, model: configuration.model, tools: [], reasoning: { effort: 'low', summary: null }, instructions: 'Reply with exactly OK. Do not repeat or quote any input. Keep the entire response to one word.' }, { headers: headers() });
         result.agentId = agent.id; await phase('agent_created');
         await json(manager, `/rat/agents/${agent.id}/workload`, 'PUT', { execution_role_id: 'default' });
         const initialStart = now();
@@ -201,8 +225,11 @@ export async function run(options: Options, environment: NodeJS.ProcessEnv = pro
         result.initialSession.acknowledgementMs = now() - initialStart;
         result.sessionId = session.id; await phase('session_created');
         const baseline = await drain(now() + options.timeoutMs, activity => {
+          const bytes = outputBytes(activity);
+          artifact.execution.outputBytesObserved = Math.max(artifact.execution.outputBytesObserved, bytes);
+          if (bytes > artifact.execution.maxObservedOutputBytes) throw new Error('output_limit_exceeded');
           result.initialSession!.observedUntilMs = now() - initialStart;
-          if (activity.items.some(actualProgress)) result.initialSession!.firstProgressMs ??= now() - initialStart;
+            if (activity.items.some(actualProgress)) result.initialSession!.firstProgressMs ??= now() - initialStart;
           return activity.turns.length > 0 && settled(activity);
         });
         result.initialSession.completedMs = now() - initialStart;
@@ -212,7 +239,7 @@ export async function run(options: Options, environment: NodeJS.ProcessEnv = pro
         await phase('observers_connecting');
         for (const [index, identity] of viewers.slice(0, size.viewers).entries()) {
           const peer = `viewer-${index}`;
-          const watch = observeActivity({ peer, sessionId: session.id, mode: options.streamMode, now, signal,
+          const watch = observeActivity({ peer, sessionId: session.id, mode: options.streamMode, now, signal: runSignal,
             request: (path, requestSignal, extra) => request(identity, path, 'GET', undefined, requestSignal, extra),
             onActivity: (activity, receivedMs) => {
               for (const sample of result.samples) {
@@ -251,13 +278,16 @@ export async function run(options: Options, environment: NodeJS.ProcessEnv = pro
             const timeout = AbortSignal.timeout(Math.min(180_000, options.timeoutMs));
             try {
               const response = await fetch(`${configuration.baseURL}/agents/sessions/${session.id}/events`, { method: 'POST', redirect: 'error',
-                signal: AbortSignal.any([signal, timeout]), headers: { authorization: `Bearer ${token}`, 'X-Rat-Space': space.id, 'content-type': 'application/json', 'idempotency-key': sample.id }, body });
+                signal: AbortSignal.any([runSignal, timeout]), headers: { authorization: `Bearer ${token}`, 'X-Rat-Space': space.id, 'content-type': 'application/json', 'idempotency-key': sample.id }, body });
               sample.acknowledgement = { state: response.ok ? 'accepted' : 'rejected', latencyMs: now() - sample.startedMs, httpStatus: response.status };
               await response.body?.cancel();
-            } catch { sample.acknowledgement = { state: timeout.aborted ? 'timeout' : 'error', latencyMs: now() - sample.startedMs, error: signal.aborted ? 'interrupted' : timeout.aborted ? 'request_timeout' : 'transport_error' }; }
+            } catch { sample.acknowledgement = { state: timeout.aborted ? 'timeout' : 'error', latencyMs: now() - sample.startedMs, error: runSignal.aborted ? 'interrupted' : timeout.aborted ? 'request_timeout' : 'transport_error' }; }
           }));
           await phase(`round_${round}_acknowledged`);
           await drain(roundStart + options.timeoutMs, activity => {
+            const bytes = outputBytes(activity);
+            artifact.execution.outputBytesObserved = Math.max(artifact.execution.outputBytesObserved, bytes);
+            if (bytes > artifact.execution.maxObservedOutputBytes) throw new Error('output_limit_exceeded');
             if (watches.some(watch => watch.measure.errors.length)) throw new Error('observer_failure');
             if (settled(activity) && (activity.turns.some(turn => turn.status !== 'completed') || activity.inputs.some(input => input.status === 'failed'))) throw new Error('turn_failed');
             if (entries.some(({ work }) => receiptFor(activity, work).length > 1)) throw new Error('receipt_mismatch');
@@ -276,7 +306,7 @@ export async function run(options: Options, environment: NodeJS.ProcessEnv = pro
       finally {
         await phase('cleanup').catch(() => { result.status = 'failed'; result.errors.push({ phase: 'cleanup', kind: 'artifact_write_failed' }); });
         await Promise.all(watches.map(watch => watch.stop()));
-        result.samples = result.samples.map(sample => finishSample(sample, now(), latest, signal.aborted ? 'interrupted' : 'scenario_ended_before_observation'));
+        result.samples = result.samples.map(sample => finishSample(sample, now(), latest, runSignal.aborted ? 'interrupted' : 'scenario_ended_before_observation'));
         result.cleanup.observers = 'complete';
         if (watches.some(watch => watch.measure.errors.length || watch.measure.auxiliaryErrors.length)) result.status = 'failed';
         const cleanupSignal = AbortSignal.timeout(60_000);

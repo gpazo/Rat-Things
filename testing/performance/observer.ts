@@ -6,22 +6,34 @@ export interface ExpectedInput { correlation: string; writer: number }
 export function inspectActivity(activity: SessionActivity, expected: readonly ExpectedInput[]) {
   const expectations = new Map(expected.map(input => [input.correlation, input]));
   const accepted: Array<{ correlation: string; messageId: string; receiptId: string }> = [];
+  const seenUserMessageIds = new Set<string>();
   const outputs: string[] = [];
   const errors: string[] = [];
-  for (const item of activity.items) {
-    if (item.type !== 'message') continue;
-    const texts = item.content.flatMap(part => part.type === 'input_text' || part.type === 'output_text' ? [part.text] : []);
+  const inspectMessage = (id: string | null, role: string, content: Array<{ type: string; text?: string }>, writerActorId?: string, provenanceKind?: string) => {
+    if (!id) return;
+    const texts = content.flatMap(part => part.type === 'input_text' || part.type === 'output_text' ? [part.text ?? ''] : []);
     for (const text of texts) {
       const input = expectations.get(text);
-      if (item.role === 'user' && input) {
-        if (!item.id) { errors.push(`missing_message_id:${input.correlation}`); continue; }
-        const id = item.id;
+      if (role === 'user' && input) {
+        if (seenUserMessageIds.has(id)) continue;
+        seenUserMessageIds.add(id);
         const receipts = activity.inputs.filter(receipt => receipt.message_ids.includes(id));
-        if (receipts.length !== 1 || receipts[0]!.actor.id !== actorId(`writer-${input.writer}`) || receipts[0]!.provenance?.kind !== 'authenticated') errors.push(`wrong_attribution:${input.correlation}`);
-        else accepted.push({ correlation: input.correlation, messageId: item.id, receiptId: receipts[0]!.id });
+        if (receipts.length !== 1 || receipts[0]!.actor.id !== actorId(`writer-${input.writer}`) || receipts[0]!.provenance?.kind !== 'authenticated'
+          || writerActorId && (writerActorId !== receipts[0]!.actor.id || provenanceKind !== receipts[0]!.provenance?.kind)) errors.push(`wrong_attribution:${input.correlation}`);
+        else accepted.push({ correlation: input.correlation, messageId: id, receiptId: receipts[0]!.id });
       }
-      if (item.role === 'assistant' && text.startsWith(outputPrefix) && expectations.has(text.slice(outputPrefix.length))) outputs.push(text.slice(outputPrefix.length));
+      if (role === 'assistant' && text.startsWith(outputPrefix) && expectations.has(text.slice(outputPrefix.length))) outputs.push(text.slice(outputPrefix.length));
     }
+  };
+  for (const item of activity.items) {
+    if (item.type !== 'message') continue;
+    inspectMessage(item.id, item.role, item.content, undefined);
+  }
+  const pendingInputs = (activity as SessionActivity & { pending_inputs?: Array<{ receipt_id: string; messages: Array<{ id: string; role: string; content: Array<{ type: string; text?: string }>; actor?: { id?: string }; provenance?: { kind?: string } }> }> }).pending_inputs ?? [];
+  for (const pending of pendingInputs) for (const message of pending.messages) {
+    const receipt = activity.inputs.find(value => value.id === pending.receipt_id);
+    if (!receipt || !receipt.message_ids.includes(message.id)) { errors.push(`pending_receipt_mismatch:${message.id}`); continue; }
+    inspectMessage(message.id, message.role, message.content, message.actor?.id, message.provenance?.kind);
   }
   for (const correlation of expectations.keys()) {
     if (accepted.filter(value => value.correlation === correlation).length > 1) errors.push(`duplicate_input:${correlation}`);
@@ -37,7 +49,7 @@ export interface Observer {
   errors: string[]; semanticErrors: Set<string>; done: Promise<void>; stop(): void;
 }
 
-/** Playback of current desktop subscription behavior, not an execution of the native UI. */
+/** Playback of the desktop's persistent multi-frame subscription, not an execution of the native UI. */
 export function observe(fixture: PerformanceFixture, viewer: number, expected: ExpectedInput[], mode: 'persistent' | 'desktop', deadline: AbortSignal): Observer {
   const stop = new AbortController();
   const signal = AbortSignal.any([deadline, stop.signal]);
@@ -68,9 +80,9 @@ export function observe(fixture: PerformanceFixture, viewer: number, expected: E
     }
   })().catch(error => { if (!signal.aborted) { state.errors.push(`auth:${errorCode(error)}`); stop.abort(); } }) : Promise.resolve();
   const stream = (async () => {
-    let nextSnapshot = performance.now() + 15_000;
+    let recoverySnapshot = state.cursor === undefined;
     while (!signal.aborted) {
-      if (mode === 'desktop' && (state.cursor === undefined || performance.now() >= nextSnapshot)) {
+      if (mode === 'desktop' && (state.cursor === undefined || recoverySnapshot)) {
         state.snapshotRequests++;
         const snapshot = await fixture.request(`/v1/rat/sessions/${fixture.sessionId}/activity`, actor, { signal });
         const bytes = await snapshot.arrayBuffer(); state.snapshotBytes += bytes.byteLength;
@@ -81,7 +93,7 @@ export function observe(fixture: PerformanceFixture, viewer: number, expected: E
         state.runtimeBytes += (await runtime.arrayBuffer()).byteLength;
         if (!runtime.ok) state.errors.push(`runtime:HTTP_${runtime.status}`);
         consume(JSON.stringify({ type: 'rat.session.activity', event_id: activity.cursor, activity }));
-        nextSnapshot = performance.now() + 15_000;
+        recoverySnapshot = false;
         await delay(50, undefined, { signal });
         continue;
       }
@@ -107,9 +119,7 @@ export function observe(fixture: PerformanceFixture, viewer: number, expected: E
               const frame = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2);
               const data = frame.split('\n').filter(line => line.startsWith('data: ')).map(line => line.slice(6)).join('\n');
               if (data) readActivity = consume(data) || readActivity;
-              if (mode === 'desktop' && readActivity) break;
             }
-            if (mode === 'desktop' && readActivity) break;
           }
         } finally { connection.abort(); await reader.cancel().catch(() => {}); }
       } catch (error) {
@@ -117,8 +127,8 @@ export function observe(fixture: PerformanceFixture, viewer: number, expected: E
         if (!(mode === 'desktop' && idle?.aborted)) throw error;
       } finally { connection.abort(); }
       if (mode === 'desktop' && !signal.aborted) {
-        if (!readActivity) delete state.cursor;
-        await delay(readActivity ? 50 : 1000, undefined, { signal });
+        if (!readActivity && !state.cursor) recoverySnapshot = true;
+        await delay(50, undefined, { signal });
       }
     }
   })().catch(error => { if (!signal.aborted) state.errors.push(`stream:${errorCode(error)}`); stop.abort(); });

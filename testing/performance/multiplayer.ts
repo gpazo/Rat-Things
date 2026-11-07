@@ -99,6 +99,8 @@ export async function runScenario(config: PerformanceConfig, viewers: number, hi
       const accepted = proof.accepted.filter(value => value.correlation === input.correlation);
       if (input.httpStatus === 204 && accepted.length !== 1) semanticErrors.add(`acknowledged_input_missing:${input.correlation}`);
       if (accepted.length && fixture.executed.get(input.correlation)?.count !== 1) semanticErrors.add(`accepted_effect_count:${input.correlation}:${fixture.executed.get(input.correlation)?.count ?? 0}`);
+      const invocationCount = fixture.mockInvocations.flatMap(invocation => invocation.correlations).filter(value => value === input.correlation).length;
+      if (accepted.length && invocationCount !== 1) semanticErrors.add(`accepted_invocation_count:${input.correlation}:${invocationCount}`);
       const identities = new Set(observers.flatMap(observer => { const value = observer.accepted.get(input.correlation); return value ? [`${value.messageId}:${value.receiptId}`] : []; }));
       if (identities.size > 1) semanticErrors.add(`peer_identity_mismatch:${input.correlation}`);
     }
@@ -141,6 +143,7 @@ export async function runScenario(config: PerformanceConfig, viewers: number, hi
     submission: { summary: summarize(submissionSamples), samples: submissionSamples, httpStatuses: submissions.map(input => ({ correlation: input.correlation, status: input.httpStatus ?? null })) },
     peerVisibility: { summary: summarize(peerSamples), samples: peerSamples, boundary: 'submission start to exact attributed message+receipt in this viewer activity frame' },
     firstSyntheticOutput: { summary: summarize(outputSamples), samples: outputSamples, boundary: 'submission start to correlated typed assistant output in each viewer; deterministic mock, no model latency claim', syntheticDelayMs: config.syntheticDelayMs },
+    syntheticExecution: { invocationCount: fixture?.mockInvocations.length ?? 0, inputOccurrences: fixture?.mockInvocations.flatMap(invocation => invocation.correlations) ?? [], boundary: 'one synthetic executor invocation may receive multiple messages; each accepted correlation must occur in exactly one invocation' },
     targets: { provisional: true, intendedLoad: { writers: 20, viewers: 50 }, intendedLoadExercised: config.writers === 20 && viewers === 50,
       submission: targetCheck(submissionSamples, 500, 1500), peerVisibility: targetCheck(peerSamples, 1000, 2000) },
     stream: { bytes: observers.reduce((sum, observer) => sum + observer.bytes, 0), byteMeaning: 'SSE body bytes only',
