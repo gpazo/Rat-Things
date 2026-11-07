@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "region": "us-west-2",
+  "currency": "USD",
+  "basis": "Public on-demand first-tier Lambda pricing, standard DynamoDB on-demand table class, S3 Standard requests. No free tier, credits, taxes, Savings Plans or account-wide tier discounts. Lambda memory conversion is MB / 1024; duration is REPORT billed milliseconds / 1000.",
+  "rates": {
+    "lambdaArmGbSecond": {
+      "usdPerUnit": "0.0000133334",
+      "unit": "GB-second",
+      "source": {
+        "url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSLambda/current/us-west-2/index.json",
+        "sku": "T3BEHFG5V4TZDT76",
+        "rateCode": "T3BEHFG5V4TZDT76.JRTCKXETXF.6NBUNBXSC3",
+        "usageType": "USW2-Lambda-GB-Second-ARM",
+        "offerVersion": "20261030234255",
+        "publicationDate": "2026-10-30T23:42:55Z",
+        "effectiveDate": "2026-10-01T00:00:00Z",
+        "retrievedAt": "2026-11-07T15:48:10.801644+00:00"
+      }
+    },
+    "lambdaX86GbSecond": {
+      "usdPerUnit": "0.0000166667",
+      "unit": "GB-second",
+      "source": {
+        "url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSLambda/current/us-west-2/index.json",
+        "sku": "XCU6U9G4FCKZQWG9",
+        "rateCode": "XCU6U9G4FCKZQWG9.JRTCKXETXF.CUKFZ388N3",
+        "usageType": "USW2-Lambda-GB-Second",
+        "offerVersion": "20261030234255",
+        "publicationDate": "2026-10-30T23:42:55Z",
+        "effectiveDate": "2026-10-01T00:00:00Z",
+        "retrievedAt": "2026-11-07T15:48:10.801644+00:00"
+      }
+    },
+    "lambdaRequest": {
+      "usdPerUnit": "0.0000002000",
+      "unit": "request",
+      "source": {
+        "url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSLambda/current/us-west-2/index.json",
+        "sku": "ZWHFK83WS2P4WZR6",
+        "rateCode": "ZWHFK83WS2P4WZR6.JRTCKXETXF.6YS6EN2CT7",
+        "usageType": "USW2-Request",
+        "offerVersion": "20261030234255",
+        "publicationDate": "2026-10-30T23:42:55Z",
+        "effectiveDate": "2026-10-01T00:00:00Z",
+        "retrievedAt": "2026-11-07T15:48:10.801644+00:00"
+      }
+    },
+    "dynamoRead": {
+      "usdPerUnit": "0.0000001250",
+      "unit": "read-request-unit",
+      "source": {
+        "url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonDynamoDB/current/us-west-2/index.json",
+        "sku": "K6UMRY3TVDVCBP56",
+        "rateCode": "K6UMRY3TVDVCBP56.JRTCKXETXF.6YS6EN2CT7",
+        "usageType": "USW2-ReadRequestUnits",
+        "offerVersion": "20261105164016",
+        "publicationDate": "2026-11-05T16:40:16Z",
+        "effectiveDate": "2026-11-01T00:00:00Z",
+        "retrievedAt": "2026-11-07T15:48:11.016345+00:00"
+      }
+    },
+    "dynamoWrite": {
+      "usdPerUnit": "0.0000006250",
+      "unit": "write-request-unit",
+      "source": {
+        "url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonDynamoDB/current/us-west-2/index.json",
+        "sku": "4G4G98VBTENWGY5R",
+        "rateCode": "4G4G98VBTENWGY5R.JRTCKXETXF.6YS6EN2CT7",
+        "usageType": "USW2-WriteRequestUnits",
+        "offerVersion": "20261105164016",
+        "publicationDate": "2026-11-05T16:40:16Z",
+        "effectiveDate": "2026-11-01T00:00:00Z",
+        "retrievedAt": "2026-11-07T15:48:11.016345+00:00"
+      }
+    },
+    "s3Get": {
+      "usdPerUnit": "0.0000004000",
+      "unit": "request",
+      "source": {
+        "url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonS3/current/us-west-2/index.json",
+        "sku": "E77AQEM2DC4VV3FC",
+        "rateCode": "E77AQEM2DC4VV3FC.JRTCKXETXF.6YS6EN2CT7",
+        "usageType": "USW2-Requests-Tier2",
+        "offerVersion": "20261104174445",
+        "publicationDate": "2026-11-04T17:44:45Z",
+        "effectiveDate": "2026-10-01T00:00:00Z",
+        "retrievedAt": "2026-11-07T15:48:11.446254+00:00"
+      }
+    },
+    "s3Put": {
+      "usdPerUnit": "0.0000050000",
+      "unit": "request",
+      "source": {
+        "url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonS3/current/us-west-2/index.json",
+        "sku": "D4PMUVH6F64HK2D6",
+        "rateCode": "D4PMUVH6F64HK2D6.JRTCKXETXF.6YS6EN2CT7",
+        "usageType": "USW2-Requests-Tier1",
+        "offerVersion": "20261104174445",
+        "publicationDate": "2026-11-04T17:44:45Z",
+        "effectiveDate": "2026-10-01T00:00:00Z",
+        "retrievedAt": "2026-11-07T15:48:11.446254+00:00"
+      }
+    }
+  }
+}
