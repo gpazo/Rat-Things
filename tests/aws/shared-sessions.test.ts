@@ -116,8 +116,9 @@ live('shares real execution and progress across verified team identities with re
     const completed = await until(activity, current => current.turns.length > 0 && current.turns.every(turn => turn.status === 'completed')
       && current.inputs.every(input => input.status === 'dispatched'), timeout);
     await until(async () => subscriptions.map(subscription => subscription.latest()), snapshots =>
-      snapshots.every(snapshot => snapshot?.turns.some(turn => turn.status === 'completed')), 15_000);
-    for (const subscription of subscriptions) subscription.check();
+      snapshots.every(snapshot => snapshot?.turns.length === completed.turns.length && snapshot.turns.every(turn => turn.status === 'completed')
+        && snapshot.inputs.length === completed.inputs.length && snapshot.inputs.every(input => input.status === 'dispatched')), 15_000);
+    for (const subscription of subscriptions) subscription.assertOpen();
     for (const subscription of subscriptions) await subscription.stop();
 
     await client(alice).beta.agents.sessions.events.create(session.id, {
@@ -140,9 +141,16 @@ live('shares real execution and progress across verified team identities with re
     const revoked = watchActivity(baseURL, spaceId, session.id, await viewer.accessTokenForRequest(), unattended.cursor);
     subscriptions.push(revoked);
     await revoked.ready;
+    const idleFrames = revoked.frames();
+    await delay(2_100);
+    await until(async () => { revoked.assertOpen(); return revoked.frames(); }, count => count >= idleFrames + 2, 5_000);
+    revoked.assertOpen();
+    replay.assertOpen();
     const viewerIdentity = await json<{ actor: { id: string } }>(viewer, '/rat/me');
+    revoked.assertOpen();
     await json(manager, `/rat/spaces/${spaceId}/bindings/${encodeURIComponent(viewerIdentity.actor.id)}`, { method: 'DELETE' });
     await Promise.race([revoked.done, delay(8_000).then(() => { throw new Error('Revoked stream did not close within eight seconds.'); })]);
+    replay.assertOpen();
     const deniedAfterRemoval = await request(viewer, `/agents/sessions/${session.id}`);
     expect([403, 404]).toContain(deniedAfterRemoval.status);
     await deniedAfterRemoval.body?.cancel();
@@ -162,6 +170,8 @@ function watchActivity(baseURL: string, spaceId: string, sessionId: string, toke
   const controller = new AbortController();
   let latest: Activity | undefined;
   let failure: Error | undefined;
+  let settled = false;
+  let frames = 0;
   const ready = fetch(`${baseURL}/rat/sessions/${sessionId}/activity/events`, {
     headers: { authorization: `Bearer ${token}`, 'X-Rat-Space': spaceId, 'Last-Event-ID': cursor },
     signal: controller.signal, redirect: 'error',
@@ -180,6 +190,7 @@ function watchActivity(baseURL: string, spaceId: string, sessionId: string, toke
           let boundary: number;
           while ((boundary = pending.indexOf('\n\n')) !== -1) {
             const frame = pending.slice(0, boundary); pending = pending.slice(boundary + 2);
+            frames += 1;
             const data = frame.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
             if (!data || data === '[DONE]') continue;
             const event = JSON.parse(data) as { activity?: Activity };
@@ -188,8 +199,12 @@ function watchActivity(baseURL: string, spaceId: string, sessionId: string, toke
         }
       } finally { await reader.cancel().catch(() => undefined); }
     } catch (error) { if (!controller.signal.aborted) failure = error instanceof Error ? error : new Error('Activity subscription failed.'); }
+    finally { settled = true; }
   })();
-  return { ready, done, latest: () => latest, check: () => { if (failure) throw failure; },
+  return { ready, done, latest: () => latest, frames: () => frames, assertOpen: () => {
+    if (failure) throw failure;
+    if (settled) throw new Error('Activity subscription closed before its expected boundary.');
+  },
     stop: async () => { controller.abort(); await done; } };
 }
 

@@ -63,6 +63,7 @@ async function main() {
   let service: ReturnType<typeof startProcess> | undefined;
   let local: LocalConnection | undefined;
   let spaceId = '';
+  let operationError: unknown;
   const team = async <T>(path: string, method = 'GET', body?: unknown, person = manager): Promise<T> => {
     const response = await fetch(`${endpoint}${path}`, { method, redirect: 'error', signal: AbortSignal.timeout(120_000),
       headers: { authorization: `Bearer ${await person.accessTokenForRequest()}`, 'X-Rat-Space': spaceId, 'content-type': 'application/json' },
@@ -173,16 +174,29 @@ async function main() {
     await record('sourceFiles', source.files);
     evidence.status = 'passed';
   } catch (error) {
+    operationError = error;
     evidence.status = 'failed';
     evidence.failure = error instanceof Error ? error.message : 'Share acceptance failed.';
     throw error;
   } finally {
-    try { await stop(); } finally {
-      try { if (connectionId) await store.remove(connectionId); } finally { await identities.close(); }
+    const cleanup: Record<string, 'complete' | 'failed'> = {};
+    const cleanupErrors: unknown[] = [];
+    for (const [name, action] of [
+      ['service', stop],
+      ['connection', async () => { if (connectionId) await store.remove(connectionId); }],
+      ['identities', () => identities.close()],
+    ] as const) {
+      try { await action(); cleanup[name] = 'complete'; }
+      catch (error) { cleanup[name] = 'failed'; cleanupErrors.push(error); }
     }
+    evidence.cleanup = cleanup;
+    if (cleanupErrors.length) evidence.status = 'failed';
     evidence.finishedAt = new Date().toISOString();
     await writeFile(evidencePath, JSON.stringify(evidence, null, 2), { mode: 0o600 });
     console.log(`Installed Share evidence: ${evidencePath}`);
+    if (cleanupErrors.length) throw new AggregateError([
+      ...(operationError === undefined ? [] : [operationError]), ...cleanupErrors,
+    ], 'Installed Share cleanup could not be confirmed; inspect the retained evidence.');
   }
 }
 
