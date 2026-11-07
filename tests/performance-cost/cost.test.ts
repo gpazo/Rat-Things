@@ -33,9 +33,11 @@ describe('measured variable collaboration cost', () => {
   it('retains phase timers and retry counts without pricing overlapping durations as compute', () => {
     const baseline = run([perf(readMetrics), report()]);
     const timed = run([perf({ ...readMetrics, AuthorizationDuration: 250, DynamoReadDuration: 350,
-      SubmissionCommitDuration: 120, S3PutDuration: 40, OutboxRetryCount: 2, OutboxFailureCount: 0 }), report()]);
+      SubmissionCommitDuration: 120, SubmissionContractDuration: 25, SubmissionConfigurationDuration: 8, SubmissionPlanningDuration: 4,
+      S3PutDuration: 40, OutboxRetryCount: 2, OutboxFailureCount: 0 }), report()]);
     expect(timed.sources[0]!.metrics).toMatchObject({ AuthorizationDuration: 250, DynamoReadDuration: 350,
-      SubmissionCommitDuration: 120, S3PutDuration: 40, OutboxRetryCount: 2, OutboxFailureCount: 0 });
+      SubmissionCommitDuration: 120, SubmissionContractDuration: 25, SubmissionConfigurationDuration: 8, SubmissionPlanningDuration: 4,
+      S3PutDuration: 40, OutboxRetryCount: 2, OutboxFailureCount: 0 });
     expect(timed.subtotal).toEqual(baseline.subtotal);
   });
   it('uses REPORT billed GB-seconds, fractional capacity and exact per-unit rates', () => {

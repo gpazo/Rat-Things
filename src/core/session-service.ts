@@ -1,6 +1,6 @@
 import { feedbackCollection, feedbackDigest, feedbackWindow, planFeedbackBatch, type SessionFeedback, type FeedbackEvent } from './session-feedback-planning.js';
 import { SessionSteerRejectedError } from '../domain/session-errors.js';
-import { performanceCount, performancePhase } from './performance.js';
+import { performanceCount, performancePhase, performancePhaseSync } from './performance.js';
 import { planRejectedSteer } from './session-steer-planning.js';
 import { importedSessionMessage, importedSessionReceipts, participantContext } from './session-attribution.js';
 import { restoreWorkspaceCommand } from '../domain/workspace-transfer.js';
@@ -566,7 +566,7 @@ export class SessionService {
 
   public async events(ownerId: string, id: string, raw: unknown, idempotencyKey?: string, response?: { waitForConnection: boolean; signal?: AbortSignal; caller?: SessionCaller }): Promise<void> {
     const acceptedStarted = performance.now();
-    const { events } = parseAgentsContract('SessionEvents', raw);
+    const { events } = performancePhaseSync('SubmissionContractDuration', () => parseAgentsContract('SessionEvents', raw));
     if (idempotencyKey !== undefined && (!idempotencyKey || idempotencyKey.length > 256)) invalid('Idempotency-Key must contain 1–256 characters', 'Idempotency-Key');
     const caller = response?.caller;
     const requestKey = idempotencyKey ?? this.ids.next('request');
@@ -670,10 +670,10 @@ export class SessionService {
         if (priorDigest !== digest) throw new AgentsApiError(409, 'This Idempotency-Key was used with different events.', 'idempotency_conflict');
         return initial.value.session.environment.type;
       }
-      const resource = await ensureSessionConfiguration(this.options.store, initial, this.clock.now());
+      const resource = await performancePhase('SubmissionConfigurationDuration', () => ensureSessionConfiguration(this.options.store, initial, this.clock.now()));
       requireSessionMutable(resource.value, this.clock.now());
       // Validate before acceptance without reading execution or reconstructing history.
-      this.plan(resource.value, { session: resource.value.session, turns: resource.value.turns.map(binding => ({ turn: binding.turn, requiredActions: [] })) }, events, key, undefined, caller);
+      performancePhaseSync('SubmissionPlanningDuration', () => this.plan(resource.value, { session: resource.value.session, turns: resource.value.turns.map(binding => ({ turn: binding.turn, requiredActions: [] })) }, events, key, undefined, caller));
       if (!rateAdmitted) {
         await performancePhase('SubmissionRateLimitDuration', async () => { await this.options.rateLimit?.admit(ownerId, `input:${id}:${key}`, events.length); });
         rateAdmitted = true;

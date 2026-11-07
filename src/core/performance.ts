@@ -16,6 +16,7 @@ const units = {
   AuthorizationDuration: 'Milliseconds',
   FeedbackBatchMessages: 'Count', FeedbackBatchCount: 'Count', FeedbackCollectionDuration: 'Milliseconds',
   SubmissionConflicts: 'Count', SubmissionAcceptedDuration: 'Milliseconds',
+  SubmissionContractDuration: 'Milliseconds', SubmissionConfigurationDuration: 'Milliseconds', SubmissionPlanningDuration: 'Milliseconds',
   SubmissionReadDuration: 'Milliseconds', SubmissionValidationDuration: 'Milliseconds',
   SubmissionRateLimitDuration: 'Milliseconds', SubmissionCommitDuration: 'Milliseconds',
   SubmissionRecoveryDuration: 'Milliseconds', InputConnectionDuration: 'Milliseconds',
@@ -69,6 +70,12 @@ export async function performancePhase<T>(name: PerformanceMetric, work: () => P
   if (!scope) return work();
   const started = performance.now();
   try { return await work(); } finally { scope.add(name, Math.max(0, performance.now() - started)); }
+}
+export function performancePhaseSync<T>(name: PerformanceMetric, work: () => T): T {
+  const scope = context.getStore();
+  if (!scope) return work();
+  const started = performance.now();
+  try { return work(); } finally { scope.add(name, Math.max(0, performance.now() - started)); }
 }
 export function requestPerformanceOperation(method: string, pathname: string): PerformanceOperation {
   const path = pathname.split('/').filter(Boolean);

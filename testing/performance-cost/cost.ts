@@ -33,6 +33,7 @@ const metricNames = ['RequestDuration', 'ResponseBytes', 'StorageGetCount', 'Sto
   'S3ReadBytes', 'S3WriteBytes', 'AuthorizationCount', 'ActivityPollCount', 'ActivityEventCount', 'SubmissionConflicts',
   'DynamoReadDuration', 'DynamoWriteDuration', 'S3GetDuration', 'S3PutDuration', 'AuthorizationDuration',
   'SubmissionAcceptedDuration', 'SubmissionReadDuration', 'SubmissionValidationDuration', 'SubmissionRateLimitDuration',
+  'SubmissionContractDuration', 'SubmissionConfigurationDuration', 'SubmissionPlanningDuration',
   'SubmissionCommitDuration', 'SubmissionRecoveryDuration', 'InputConnectionDuration', 'OutboxRetryCount', 'OutboxFailureCount',
   'HydrationCacheHits', 'HydrationCacheMisses', 'HydrationCacheCoalesced', 'HydrationCacheEvictions',
   'FeedbackBatchMessages', 'FeedbackBatchCount', 'FeedbackCollectionDuration'] as const;

@@ -1,8 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { PerformanceScope, performanceCount, performanceMetricRecord, requestPerformanceOperation, type PerformanceRecord } from '../../src/core/performance.js';
+import { PerformanceScope, performanceCount, performanceMetricRecord, performancePhaseSync, requestPerformanceOperation, type PerformanceRecord } from '../../src/core/performance.js';
 import { measuredDynamo, measuredS3 } from '../../src/adapters/aws-performance.js';
 
 describe('bounded performance observations', () => {
+  it('observes synchronous validation without changing execution, falsey results or thrown errors', () => {
+    const records: PerformanceRecord[] = [];
+    const scope = new PerformanceScope('session-input', { sink: r => records.push(r) });
+    const error = new Error('invalid');
+    const effects: string[] = [];
+    expect(performancePhaseSync('SubmissionContractDuration', () => { effects.push('outside'); return false; })).toBe(false);
+    scope.run(() => {
+      expect(performancePhaseSync('SubmissionContractDuration', () => { effects.push('valid'); return 0; })).toBe(0);
+      expect(() => performancePhaseSync('SubmissionContractDuration', () => { effects.push('invalid'); throw error; })).toThrow(error);
+    });
+    scope.finish('client-error');
+    expect(effects).toEqual(['outside', 'valid', 'invalid']);
+    expect(records).toHaveLength(1);
+    expect(records[0]!.metrics.SubmissionContractDuration).toBeGreaterThanOrEqual(0);
+  });
   it('isolates simultaneous requests and finishes once without logging caller content', async () => {
     const records: PerformanceRecord[] = [];
     let now = 0;
