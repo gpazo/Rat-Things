@@ -110,7 +110,7 @@ export class SessionService {
       const prepared = await this.options.store.get<SessionPreparation>(ownerId, 'session_preparations', id) ?? resourceNotFound();
       if (prepared.value.created) return (await this.required(ownerId, id)).value.session;
       requireActivePreparation(prepared.value, this.clock.now());
-      const history = planConfigurationRevision(ownerId, admitted, sessionConfigurationSnapshot(state, preparation.sourceAgent ? { sourceAgent: preparation.sourceAgent } : {}), null, now, 'created');
+      const history = planConfigurationRevision(ownerId, admitted, sessionConfigurationSnapshot(state, preparation.sourceAgent ? { sourceAgent: preparation.sourceAgent } : {}), null, now, 'created', callerConfiguration(caller));
       await commitConfiguration(this.options.store, [{ resource, expectedRevision: 0 }, { resource: { ...prepared, revision: prepared.revision + 1, value: { ...prepared.value, created: true } }, expectedRevision: prepared.revision }, history], [history]);
     }
     catch (error) {
@@ -301,6 +301,10 @@ export class SessionService {
 
   public async fork(ownerId: string, sourceId: string, raw: unknown = {}, caller?: SessionCaller): Promise<AgentSession> {
     const resource = await this.configuredMutable(ownerId, sourceId);
+    const observesSource = (entry: import('./agents-ports.js').AgentObservation) => entry.ownerId === ownerId && entry.collection === 'sessions' && entry.id === sourceId;
+    if (caller?.observations?.some(entry => observesSource(entry) && entry.revision !== resource.revision)) throw new AgentsApiError(409, 'The source Session changed after admission.', 'conflict');
+    const acceptedCaller = caller?.observations ? { ...caller, observations: caller.observations.filter(entry => !observesSource(entry)) } : caller;
+    const workloadAdmission = caller?.admission ?? resource.value.workloadAdmission;
     const observation = await this.observe(ownerId, resource.value);
     const input = planSessionFork(observation.session, raw);
     const runtime = resource.value.runtime ?? CODEX_RUNTIME;
@@ -313,13 +317,13 @@ export class SessionService {
     await this.options.rateLimit?.admit(ownerId, `session:${id}`);
     const placement = resource.value.placement ?? 'microvm';
     const agent = { ...observation.session.agent, tools: observation.session.agent.tools.filter(tool => tool.type !== 'function' || tool.name !== THREAD_RELEASE_TOOL.name) };
-    await this.replace(resource, { ...resource.value, forkLock: { id, expiresAt: now + 300 } }, caller);
+    await this.replace(resource, { ...resource.value, forkLock: { id, expiresAt: now + 300 } }, acceptedCaller);
     let fork: SessionFork | undefined;
     let committed = false;
     let commitAttempted = false;
     try {
       // Credentials are prepared against a durable child identity before any secret creation.
-      const preparation: SessionPreparation = { workloadAdmission: resource.value.workloadAdmission, runtime, agent, placement, now, deadline: now + 300,
+      const preparation: SessionPreparation = { workloadAdmission, runtime, agent, placement, now, deadline: now + 300,
         requestDigest: hash(canonicalJson([sourceId, input])), inheritedTools: [] };
       await this.options.store.put({ ownerId, id, collection: 'session_preparations', createdAt: now, revision: 1, value: preparation }, 0);
       const prepared = await this.options.execution.prepareFork(ownerId, id, observation.session, input.network, input.vaultIds, placement);
@@ -329,14 +333,14 @@ export class SessionService {
       const session: AgentSession = { id, object: 'agent.session', agent, created_at: now, last_active_at: now,
         environment: prepared.environment, error: null, metadata: input.metadata, status: 'idle', required_actions: [], usage: null, vault_ids: input.vaultIds };
       const admitted = configurationRef({ kind: 'session', id }, 1);
-      const empty: SessionState = { workloadAdmission: resource.value.workloadAdmission, configuration: { admitted, current: admitted }, session, runtime, placement, fork, turns: [], receipts: {}, deletedArtifacts: [] };
+      const empty: SessionState = { workloadAdmission, configuration: { admitted, current: admitted }, session, runtime, placement, fork, turns: [], receipts: {}, deletedArtifacts: [] };
       const messages = initialMessages(input.input);
       const state = messages.length ? this.plan(empty, { session, turns: [] }, [{ type: 'agent.session.input.message', input: messages }], 'initial', undefined, caller) : empty;
       const current = await this.required(ownerId, sourceId);
       if (current.value.forkLock?.id !== id || current.value.forkLock.expiresAt <= this.clock.now()) throw new AgentsApiError(409, 'Fork preparation expired.', 'session_busy');
       const preparedResource = await this.options.store.get<SessionPreparation>(ownerId, 'session_preparations', id) ?? resourceNotFound();
       requireActivePreparation(preparedResource.value, this.clock.now());
-      const history = planConfigurationRevision(ownerId, admitted, sessionConfigurationSnapshot(state, { sourceSession: resource.value.configuration.current }), null, now, 'created');
+      const history = planConfigurationRevision(ownerId, admitted, sessionConfigurationSnapshot(state, { sourceSession: resource.value.configuration.current }), null, now, 'created', callerConfiguration(caller));
       commitAttempted = true;
       await commitConfiguration(this.options.store, [
         { resource: { ownerId, id, collection: 'sessions', createdAt: now, revision: 1, value: state }, expectedRevision: 0 },
@@ -871,4 +875,11 @@ function executionHistory(items: import('../domain/agents-api.js').AgentSessionI
     const message = item.id ? messages.get(item.id) : undefined;
     return item.type === 'message' && item.role === 'user' && message?.actor ? { ...item, content: executionInput([message])[0]!.content } : item;
   });
+}
+
+function callerConfiguration(caller?: SessionCaller): ConfigurationMutation {
+  return caller ? { actor: { kind: 'principal', id: caller.actor.id,
+    ...(caller.actor.issuer !== undefined ? { issuer: caller.actor.issuer } : {}),
+    ...(caller.actor.subject !== undefined ? { subject: caller.actor.subject } : {}),
+  } } : {};
 }

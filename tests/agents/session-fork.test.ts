@@ -154,3 +154,31 @@ it('retains a legacy source baseline at fork admission without requiring a prece
   expect(await history.retrieve('operator', { kind: 'session', id: child.id }, 1)).toMatchObject({ snapshot: { configuration: { sourceSession: baseline.ref } } });
   expect((await f.store.get<SessionState>('operator', 'sessions', source.id))?.value.turns[0]?.configuration).toBeUndefined();
 });
+
+it('forks only the observed source revision under current admission and records its verified actor', async () => {
+  const f = await fixture();
+  const resource = (await f.store.get<SessionState>('operator', 'sessions', f.source.id))!;
+  const actor = { id: 'actor_collaborator', kind: 'human' as const, issuer: 'https://identity.example', subject: 'collaborator' };
+  const admission = { execution_role_id: 'current-role', capability_digest: 'current-ceiling' };
+  const commit = f.store.commit.bind(f.store);
+  vi.spyOn(f.store, 'commit').mockImplementation(async (writes, observations) => {
+    for (const entry of observations ?? []) expect(writes.some(write => write.resource.ownerId === entry.ownerId && write.resource.collection === entry.collection && write.resource.id === entry.id)).toBe(false);
+    await commit(writes, observations);
+  });
+  const fork = await f.sessions.fork('operator', f.source.id, {}, { actor, admission, observations: [{ ownerId: 'operator', collection: 'sessions', id: f.source.id, revision: resource.revision }] });
+  expect((await f.store.get<SessionState>('operator', 'sessions', fork.id))!.value.workloadAdmission).toEqual(admission);
+  expect((await f.store.get<{ workloadAdmission: unknown }>('operator', 'session_preparations', fork.id))!.value.workloadAdmission).toEqual(admission);
+  expect((await new ConfigurationHistory(f.store).retrieve('operator', { kind: 'session', id: fork.id }, 1)).actor).toEqual({ kind: 'principal', id: actor.id, issuer: actor.issuer, subject: actor.subject });
+});
+
+it('rejects a source changed since fork admission before preparing an environment', async () => {
+  const f = await fixture();
+  const before = (await f.store.get<SessionState>('operator', 'sessions', f.source.id))!;
+  await f.store.put({ ...before, revision: before.revision + 1, value: { ...before.value, workloadAdmission: { role: 'changed' } } }, before.revision);
+  await expect(f.sessions.fork('operator', f.source.id, {}, {
+    actor: { id: 'actor_collaborator', kind: 'human' }, admission: { role: 'stale' },
+    observations: [{ ownerId: 'operator', collection: 'sessions', id: f.source.id, revision: before.revision }],
+  })).rejects.toMatchObject({ code: 'conflict' });
+  expect(f.prepare).not.toHaveBeenCalled();
+  expect((await f.store.get<SessionState>('operator', 'sessions', f.source.id))!.value.forkLock).toBeUndefined();
+});
