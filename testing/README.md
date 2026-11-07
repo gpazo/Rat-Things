@@ -6,7 +6,7 @@ Runtime contract validation uses generated AJV standalone functions, so requests
 do not compile schemas on first use. After changing the API contracts, run
 `npm run agents-api:schema` and `npm run agents-api:validators`. Commit the schema,
 validator module and declaration together. Edit the generator rather than its
-output. Builds and `npm run check` reject stale validators; parity tests compare
+output. Builds and `npm run check` reject stale schemas and validators; parity tests compare
 their acceptance and public errors with dynamic AJV using the same schema.
 
 ## Collaboration performance

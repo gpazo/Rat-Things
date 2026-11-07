@@ -11,7 +11,7 @@
     "node": ">=22.20.0"
   },
   "scripts": {
-    "build": "npm run agents-api:validators:check && node scripts/build.mjs",
+    "build": "npm run agents-api:schema:check && npm run agents-api:validators:check && node scripts/build.mjs",
     "package": "npm run build && node scripts/package-lambdas.mjs && node scripts/smoke-lambda-bundles.mjs",
     "architecture:check": "node scripts/check-architecture.mjs",
     "microvm:check": "node --check microvm/runtime-server.mjs && node --check microvm/runtime-network-policy.mjs && node --check microvm/runtime-process-policy.mjs",
