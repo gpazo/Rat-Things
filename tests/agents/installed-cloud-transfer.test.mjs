@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { runInNewContext } from 'node:vm';
 import { setTimeout as delay } from 'node:timers/promises';
 import { commandArguments, commandProof, cloudCommand, historyContent, installedEnvironment, parseAcceptanceArguments,
@@ -110,6 +111,18 @@ describe('installed cloud transfer inputs and evidence', () => {
 });
 
 describe('real cloud command proof contract', () => {
+  it('disables only the known Node proxy warning and retains other warnings and literal proof data', () => {
+    const expected = cloudCommand(cloudNonce, source());
+    expect(expected.argv.slice(0, -1)).toEqual(['node', '--disable-warning=UNDICI-EHPA', '-e']);
+    const child = spawnSync(process.execPath, [...expected.argv.slice(1, -1),
+      `process.emitWarning('proxy warning', {code:'UNDICI-EHPA'});process.emitWarning('other warning', {code:'PROOF-OTHER'});console.log('[UNDICI-EHPA] retained proof data');`],
+    { encoding: 'utf8', env: {} });
+    expect(child.status).toBe(0);
+    expect(child.stdout).toBe('[UNDICI-EHPA] retained proof data\n');
+    expect(child.stderr).not.toContain('UNDICI-EHPA');
+    expect(child.stderr).toContain('[PROOF-OTHER] Warning: other warning');
+  });
+
   it('accepts the exact argv directly or in one shell wrapper and rejects added commands or expansion', () => {
     const expected = cloudCommand(cloudNonce, source());
     expect(commandArguments(expected.command)).toEqual(expected.argv);
@@ -128,7 +141,7 @@ describe('real cloud command proof contract', () => {
     const fs = { readFileSync: (path, encoding) => { const value = values.get(path.replace('/workspace/', '')); if (value === undefined) throw new Error('missing'); return encoding ? value : Buffer.from(value); },
       writeFileSync: (path, bytes, options) => { expect(options.flag).toBe('wx'); const key = path.replace('/workspace/', ''); expect(values.has(key)).toBe(false); values.set(key, bytes.toString()); } };
     const require = name => { if (name === 'node:fs') return fs; if (name === 'node:crypto') return { createHash }; if (name === 'node:assert/strict') return { equal: (a, b) => expect(a).toBe(b), deepEqual: (a, b) => expect(JSON.parse(JSON.stringify(a))).toEqual(JSON.parse(JSON.stringify(b))) }; throw new Error('Unexpected module'); };
-    const execute = () => runInNewContext(command.argv[2], { require, Buffer, console: { log: value => { stdout += `${value}\n`; } } }, { timeout: 1000 });
+    const execute = () => runInNewContext(command.argv[3], { require, Buffer, console: { log: value => { stdout += `${value}\n`; } } }, { timeout: 1000 });
     execute(); expect(stdout).toBe(command.output); expect(sha256(values.get(command.file.path))).toBe(command.file.sha256);
     values.set('setup-count', 'onceonce'); expect(execute).toThrow();
   });
@@ -137,7 +150,9 @@ describe('real cloud command proof contract', () => {
     const expected = cloudCommand(cloudNonce, source()); const item = scenarioFixture().cloudItem;
     expect(commandProof([item], 'turn_cloud', expected).stdoutSha256).toBe(sha256(expected.output));
     for (const changed of [{ ...item, type: 'message' }, { ...item, turn_id: 'turn_old' }, { ...item, exit_code: 1 },
-      { ...item, output: `${item.output}\n` }, { ...item, command: `echo '${expected.output}'` }]) {
+      { ...item, output: `${item.output}\n` }, { ...item, output: `${item.output}(node:2) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental\n` },
+      { ...item, command: item.command.replace('--disable-warning=UNDICI-EHPA ', '') },
+      { ...item, command: item.command.replace('--disable-warning=UNDICI-EHPA', '--no-warnings') }, { ...item, command: `echo '${expected.output}'` }]) {
       expect(() => commandProof([changed], 'turn_cloud', expected)).toThrow();
     }
     expect(() => commandProof([item, item], 'turn_cloud', expected)).toThrow();

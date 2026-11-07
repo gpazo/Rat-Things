@@ -114,7 +114,7 @@ export function cloudCommand(nonce, source) {
   const file = { path: `installed-cloud-proof-${nonce}.json`, bytes: Buffer.byteLength(JSON.stringify(proof)), sha256: sha256(JSON.stringify(proof)) };
   const output = `${marker}${JSON.stringify({ ...proof, createdFile: file })}\n`;
   const program = `const fs=require('node:fs'),assert=require('node:assert/strict'),crypto=require('node:crypto');const expected=${JSON.stringify(source.files)};const files=expected.map(file=>{const bytes=fs.readFileSync('/workspace/'+file.path);return{path:file.path,bytes:bytes.length,sha256:crypto.createHash('sha256').update(bytes).digest('hex')}});assert.deepEqual(files,expected);assert.equal(fs.readFileSync('/workspace/setup-count','utf8'),'once');const proof={schemaVersion:1,nonce:${JSON.stringify(nonce)},sourceSessionId:${JSON.stringify(source.sessionId)},files,setupCount:'once'};const bytes=Buffer.from(JSON.stringify(proof));fs.writeFileSync('/workspace/'+${JSON.stringify(file.path)},bytes,{flag:'wx'});console.log(${JSON.stringify(marker)}+JSON.stringify({...proof,createdFile:{path:${JSON.stringify(file.path)},bytes:bytes.length,sha256:crypto.createHash('sha256').update(bytes).digest('hex')}}));`;
-  return { argv: ['node', '-e', program], command: `node -e '${program.replaceAll("'", "'\"'\"'")}'`, output, file };
+  return { argv: ['node', '--disable-warning=UNDICI-EHPA', '-e', program], command: `node --disable-warning=UNDICI-EHPA -e '${program.replaceAll("'", "'\"'\"'")}'`, output, file };
 }
 
 export function commandProof(items, turnId, expected) {
