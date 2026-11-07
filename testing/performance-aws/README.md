@@ -83,6 +83,10 @@ bundle; the controller does not claim to have done so.
   snapshot size. These are not TLS wire bytes or Lambda billed duration.
   Control-plane setup, submission, and manager drain polling are outside the
   observer occupancy totals and remain visible to separate server telemetry.
+  Optional runtime metadata failures are retained in `auxiliaryErrors` and make
+  the result fail, but do not stop activity observations. This matches the desktop's
+  ability to display activity without runtime metadata. Intentional cleanup aborts
+  are request outcomes, not additional backend failures.
 - Final per-Turn usage includes the baseline setup Turn, marked `baseline`, and
   measured workload Turns. Usage is best effort; null means unknown, not zero.
   A failed/cancelled run may have incomplete usage. Warm/cold is unclassified

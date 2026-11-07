@@ -4,6 +4,35 @@ import type { Activity } from '../../testing/performance-aws/measurements.js';
 
 const snapshot = { cursor: 'cursor-fixture', session: { id: 'session-fixture' }, items: [], turns: [], inputs: [] } as unknown as Activity;
 
+it('retains optional runtime failures while continuing activity observations', async () => {
+  const watcher = observeActivity({ peer: 'viewer-0', sessionId: 'session-fixture', mode: 'desktop', now: () => performance.now(), signal: new AbortController().signal,
+    onActivity: () => undefined, request: async (path, signal) => {
+      if (path.endsWith('/runtime')) return new Response(null, { status: 500 });
+      if (path.endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+        signal.addEventListener('abort', () => controller.close(), { once: true });
+      } }));
+      return new Response(JSON.stringify(path.endsWith('/activity') ? snapshot : {}));
+    } });
+  await watcher.ready; await watcher.stop();
+  expect(watcher.measure.errors).toEqual([]);
+  expect(watcher.measure.auxiliaryErrors).toEqual(['runtime_snapshot_failed']);
+});
+
+it('does not count an intentionally aborted runtime request as a backend failure', async () => {
+  let requested!: () => void;
+  const runtimeRequested = new Promise<void>(resolve => { requested = resolve; });
+  const watcher = observeActivity({ peer: 'viewer-0', sessionId: 'session-fixture', mode: 'desktop', now: () => performance.now(), signal: new AbortController().signal,
+    onActivity: () => undefined, request: async (path, signal) => {
+      if (path.endsWith('/runtime')) { requested(); return new Promise<Response>((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+      }); }
+      return new Response(JSON.stringify(path.endsWith('/activity') ? snapshot : {}));
+    } });
+  await runtimeRequested; await watcher.stop();
+  expect(watcher.measure.errors).toEqual([]);
+  expect(watcher.measure.auxiliaryErrors).toEqual([]);
+});
+
 it('counts bytes received before a snapshot body fails', async () => {
   let first = true;
   const watcher = observeActivity({ peer: 'viewer-0', sessionId: 'session-fixture', mode: 'persistent', now: () => performance.now(), signal: new AbortController().signal,

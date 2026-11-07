@@ -278,7 +278,7 @@ export async function run(options: Options, environment: NodeJS.ProcessEnv = pro
         await Promise.all(watches.map(watch => watch.stop()));
         result.samples = result.samples.map(sample => finishSample(sample, now(), latest, signal.aborted ? 'interrupted' : 'scenario_ended_before_observation'));
         result.cleanup.observers = 'complete';
-        if (watches.some(watch => watch.measure.errors.length)) result.status = 'failed';
+        if (watches.some(watch => watch.measure.errors.length || watch.measure.auxiliaryErrors.length)) result.status = 'failed';
         const cleanupSignal = AbortSignal.timeout(60_000);
         const actions: (readonly [string, () => Promise<unknown>])[] = [];
         if (result.sessionId && result.status !== 'passed') {

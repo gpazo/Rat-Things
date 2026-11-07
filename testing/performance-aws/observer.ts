@@ -7,7 +7,7 @@ export interface ConnectionMeasurement {
 }
 export interface ObserverMeasurement {
   peer: string; mode: 'persistent' | 'desktop'; connections: ConnectionMeasurement[];
-  initialSnapshotBytes: number | null; activityFrames: number; errors: string[];
+  initialSnapshotBytes: number | null; activityFrames: number; errors: string[]; auxiliaryErrors: string[];
 }
 export type Request = (path: string, signal: AbortSignal, headers?: Record<string, string>) => Promise<Response>;
 
@@ -43,7 +43,7 @@ export function observeActivity(options: {
 }) {
   const stop = new AbortController();
   const signal = AbortSignal.any([stop.signal, options.signal]);
-  const measure: ObserverMeasurement = { peer: options.peer, mode: options.mode, connections: [], initialSnapshotBytes: null, activityFrames: 0, errors: [] };
+  const measure: ObserverMeasurement = { peer: options.peer, mode: options.mode, connections: [], initialSnapshotBytes: null, activityFrames: 0, errors: [], auxiliaryErrors: [] };
   let latest: Activity | undefined;
   let readyResolve!: () => void;
   let readyReject!: (error: Error) => void;
@@ -99,7 +99,10 @@ export function observeActivity(options: {
         if (cursor === undefined || options.mode === 'desktop' && options.now() - lastSnapshot >= 15_000) {
           const activity = (await jsonRequest('snapshot', path))!;
           accept(activity); cursor = activity.cursor; lastSnapshot = options.now();
-          if (options.mode === 'desktop') await jsonRequest('runtime', `/agents/sessions/${options.sessionId}/runtime`).catch(() => { measure.errors.push('runtime_snapshot_failed'); });
+          // Native activity remains usable when optional runtime metadata fails.
+          if (options.mode === 'desktop') await jsonRequest('runtime', `/agents/sessions/${options.sessionId}/runtime`).catch(() => {
+            if (!signal.aborted) measure.auxiliaryErrors.push('runtime_snapshot_failed');
+          });
         }
         const timeout = options.mode === 'desktop' ? AbortSignal.timeout(20_000) : undefined;
         const requestSignal = AbortSignal.any([signal, ...(timeout ? [timeout] : [])]);
