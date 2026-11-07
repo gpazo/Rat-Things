@@ -1,0 +1,112 @@
+# Shared Session AWS performance controller
+
+This opt-in controller measures a real Cognito-authenticated shared Session and
+the deployed Agents API. It creates distinct writers and viewers, uses a fixed
+execution role with no tools and `environment: none`, and asks the configured
+real model for one-word replies. It does not deploy infrastructure or collect
+CloudWatch billing data. Ordinary tests never invoke AWS.
+
+Source the disposable deployment's `runtime.env` using the existing AWS harness
+instructions. The controller requires all three live opt-ins plus the fixture,
+region, admitted model, shared API URL, and IAM operator API URL:
+
+```sh
+AWS_E2E=true AWS_E2E_SHARED_SESSIONS=true AWS_E2E_REAL_CODEX=true \
+  node --import tsx testing/performance-aws/controller.ts \
+  --output /absolute/path/aws-performance.json
+```
+
+The default matrix is `1x1`, `10x10`, `20x20`, and `20x50`, where the first number
+is simultaneous writers and the second is viewers. Each scenario creates its
+own space and shared Session. One burst is the default. Narrow the matrix or
+explicitly request up to ten rounds with `--scenario 20x20,20x50 --rounds 2`.
+Each round waits for the previous Turns and input outboxes to settle. The initial
+Session input also runs to completion before measurement. This establishes a
+history baseline; it does not prove the next Lambda or model request is warm.
+
+Keep the real owner rate limit unchanged. Additional rounds may produce HTTP 429;
+concurrent submissions may expose conditional-write contention. The controller
+records every rejected request without retrying or removing it from the report.
+It continues the matrix, writes a failed status when requests or observations
+fail, and exits nonzero after cleanup. `--timeout-ms` controls the per-round wait
+(default 420000, maximum 900000); missing observations remain censored samples.
+
+To measure the desktop activity request pattern separately:
+
+```sh
+AWS_E2E=true AWS_E2E_SHARED_SESSIONS=true AWS_E2E_REAL_CODEX=true \
+  node --import tsx testing/performance-aws/controller.ts \
+  --scenario 20x20 --stream-mode desktop \
+  --output /absolute/path/aws-performance-desktop.json
+```
+
+The default `persistent` mode holds each SSE subscription until the scenario
+finishes. `desktop` is HTTP playback of the recorded source's activity cadence:
+one activity frame per connection, 50 ms before reconnect, 20 s stream timeout,
+cursorless snapshot one second after idle, a forced snapshot every 15 seconds,
+runtime fetch on snapshots, and a separate space-authority read every two
+seconds. It does not run the native UI or reproduce every UI request and user
+interaction. This mode never changes the actual client or production limits.
+
+## Reading the artifact
+
+The JSON file is written atomically after each phase and in final cleanup. It
+includes Git revision, dirty state including untracked files, Node/platform identity, per-scenario
+UTC start/end boundaries including cleanup, and monotonic phase timestamps.
+Optional `--deployment-revision FULL_SHA` and `--bundle-sha256 HEX_SHA256` record
+caller-supplied provenance. Independently verify these against the deployed
+bundle; the controller does not claim to have done so.
+
+- Submission-to-acknowledgement starts immediately before `fetch`, after token
+  preparation, and ends at receipt of response headers. Accepted, rejected,
+  network-error, and timeout outcomes remain separate.
+- Peer input visibility requires the exact fixture-generated message, its
+  receipt's `message_ids`, and the submitting actor's subject. Every input has
+  one visibility sample per viewer. Fixture text is hashed, not persisted.
+- First progress requires actual nonempty assistant text or a tool Item in a
+  receipt-linked Turn absent from that round's baseline. Older output and empty
+  assistant state do not qualify. Multiple receipts mapped to the same Turn are
+  explicitly `ambiguous_same_turn`; this is shared progress, not proof of which
+  input caused that output. Public reasoning Items are not counted as progress.
+- Raw samples preserve timeouts, missing observations, and rejected submissions.
+  Nearest-rank percentiles use observed values only; always report their counts
+  and the rejected/error/censored denominators together. Small bursts cannot
+  establish a stable population p99.
+- Observers record every snapshot/stream/runtime/authority request's status,
+  decoded body bytes, and client request-to-close occupancy, plus initial
+  snapshot size. These are not TLS wire bytes or Lambda billed duration.
+  Control-plane setup, submission, and manager drain polling are outside the
+  observer occupancy totals and remain visible to separate server telemetry.
+- Final per-Turn usage includes the baseline setup Turn, marked `baseline`, and
+  measured workload Turns. Usage is best effort; null means unknown, not zero.
+  A failed/cancelled run may have incomplete usage. Warm/cold is unclassified
+  until per-invocation platform evidence is joined externally.
+
+The provisional submission targets are p95 <=500 ms and p99 <=1500 ms; peer
+visibility targets are p95 <=1000 ms and p99 <=2000 ms. They are design targets,
+not guarantees. Model first progress is a separate distribution.
+
+Cost drivers include measured stream connection milliseconds, observer HTTP
+occupancy, bytes, and model token usage. `--lambda-memory-mb 512` can record a
+known configuration supplied by the deployment owner. Memory is not discovered
+or verified here. USD is intentionally null. Use verified memory, Lambda REPORT
+lines, API/storage metrics, provider usage, and current price provenance in a
+separate cost analysis; do not multiply client occupancy into a billed-cost claim.
+
+The controller closes all observers, waits for terminal Turns and dispatched or
+failed receipts, and deletes its Sessions and Agents. Failure cleanup first
+attempts cancellation and a bounded drain, then deletion even if cancellation
+fails. Every identity cleanup is attempted, and uncertain cleanup is recorded.
+Spaces and the disposable stack require the deployment owner's normal teardown.
+Prompts, model answers, passwords, bearer tokens, raw response errors, and fixture
+credentials are never written to performance artifacts.
+
+## Focused checks
+
+```sh
+npx vitest run tests/performance-aws --no-file-parallelism
+npm run typecheck
+```
+
+These checks use synthetic in-memory responses solely to test measurement and
+cleanup behavior. Their results are not AWS performance measurements.
