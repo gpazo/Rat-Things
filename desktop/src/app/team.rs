@@ -453,6 +453,7 @@ impl ConsoleApp {
                     .is_some_and(|permissions| workspace["permissions"] != json!(permissions))
         });
         if changed {
+            self.worker.cancel_activity();
             self.team.authority_revision += 1;
             self.selection_generation += 1;
             self.snapshot_pending = None;
@@ -510,6 +511,7 @@ impl ConsoleApp {
         }
     }
     pub(super) fn clear_team_access(&mut self, ctx: &egui::Context) {
+        self.worker.cancel_activity();
         self.team.authority_revision += 1;
         self.team.authority_valid_until = None;
         self.list_generation += 1;

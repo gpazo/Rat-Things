@@ -311,6 +311,32 @@ impl SessionSnapshot {
                 actor_labels.insert(id.to_owned(), label.clone());
             }
         }
+        let mut items: Vec<Resource> = parse("items")?;
+        for receipt in value["pending_inputs"].as_array().into_iter().flatten() {
+            let actor = &receipt["actor"];
+            let label = actor["label"]
+                .as_str()
+                .or(actor["subject"].as_str())
+                .or(actor["id"].as_str())
+                .unwrap_or("Participant")
+                .to_owned();
+            for message in receipt["messages"].as_array().into_iter().flatten() {
+                let Some(id) = message["id"].as_str() else {
+                    continue;
+                };
+                actor_labels.insert(id.to_owned(), label.clone());
+                if items.iter().any(|item| item.id == id) {
+                    continue;
+                }
+                let mut message = message.clone();
+                if message.get("type").is_none() {
+                    message["type"] = "message".into();
+                }
+                if let Ok(item) = serde_json::from_value::<Resource>(message) {
+                    items.push(item);
+                }
+            }
+        }
         let mut turns: Vec<Resource> = parse("turns")?;
         turns.sort_by_key(|turn| {
             std::cmp::Reverse(
@@ -323,7 +349,7 @@ impl SessionSnapshot {
         Ok(Self {
             session: serde_json::from_value(value["session"].clone())
                 .map_err(|_| "Invalid activity Session")?,
-            items: parse("items")?,
+            items,
             turns,
             artifacts: value
                 .get("artifacts")
@@ -375,4 +401,34 @@ pub(crate) fn string(value: &Value, key: &str) -> String {
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_owned()
+}
+
+#[cfg(test)]
+mod activity_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn pending_activity_messages_render_once_then_dedupe_after_materialization() {
+        let activity = |items: Value| {
+            json!({
+                "cursor":"opaque.digest", "session":{"id":"sess_shared","object":"agent.session"},
+                "items":items, "turns":[], "inputs":[], "runtime":{},
+                "pending_inputs":[{"receipt_id":"receipt_1","messages":[{"id":"msg_1","role":"user","content":[{"type":"input_text","text":"Hi"}]}],"actor":{"label":"Morgan"}}]
+            })
+        };
+        let pending = SessionSnapshot::from_activity(activity(json!([]))).unwrap();
+        assert_eq!(pending.items.len(), 1);
+        assert_eq!(pending.items[0].id, "msg_1");
+        assert_eq!(
+            pending.actor_labels.get("msg_1").map(String::as_str),
+            Some("Morgan")
+        );
+
+        let durable = SessionSnapshot::from_activity(activity(json!([{
+            "id":"msg_1", "type":"message", "role":"user", "content":[{"type":"input_text","text":"Hi"}]
+        }]))).unwrap();
+        assert_eq!(durable.items.len(), 1);
+        assert_eq!(durable.items[0].id, "msg_1");
+    }
 }

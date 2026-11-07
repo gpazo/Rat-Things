@@ -19,6 +19,7 @@ use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
+    sync::{Arc, atomic::AtomicBool},
     time::{Duration, Instant},
 };
 use team::{TeamOperation, TeamState};
@@ -736,6 +737,7 @@ impl ConsoleApp {
 
     fn clear_selection(&mut self, ctx: &egui::Context) {
         egui::Popup::close_all(ctx);
+        self.worker.cancel_activity();
         self.selection_generation += 1;
         self.selected = None;
         self.selected_id = None;
@@ -841,6 +843,7 @@ impl ConsoleApp {
                             .as_ref()
                             .and_then(|snapshot| snapshot.cursor.clone())
                     },
+                    cancel: Arc::new(AtomicBool::new(false)),
                 }
             } else {
                 Task::Snapshot { id }
@@ -905,8 +908,33 @@ impl ConsoleApp {
     }
 
     fn receive(&mut self, ctx: &egui::Context) {
-        while let Ok(completion) = self.worker.completions.try_recv() {
-            let Some(pending) = self.pending.remove(&completion.id) else {
+        loop {
+            let completion = self
+                .worker
+                .completions
+                .try_recv()
+                .or_else(|_| self.worker.activity_completions.try_recv());
+            let Ok(mut completion) = completion else {
+                break;
+            };
+            if let Ok(Data::ActivityFrame(snapshot)) = &completion.result {
+                completion.result = Ok(Data::Snapshot(snapshot.clone()));
+            }
+            let pending = if completion.finished {
+                self.pending.remove(&completion.id)
+            } else {
+                self.pending
+                    .get(&completion.id)
+                    .and_then(|request| match &request.operation {
+                        Pending::Snapshot { generation } => {
+                            Some(PendingRequest::new(Pending::Snapshot {
+                                generation: *generation,
+                            }))
+                        }
+                        _ => None,
+                    })
+            };
+            let Some(pending) = pending else {
                 continue;
             };
             let pending = pending.operation;
@@ -925,20 +953,20 @@ impl ConsoleApp {
                 | Pending::Credentials { generation } => *generation == self.selection_generation,
                 _ => true,
             };
-            if self.list_pending == Some(completion.id) {
+            if completion.finished && self.list_pending == Some(completion.id) {
                 self.list_pending = None;
             }
-            if self.detail_pending == Some(completion.id) {
+            if completion.finished && self.detail_pending == Some(completion.id) {
                 self.detail_pending = None;
             }
-            if self.snapshot_pending == Some(completion.id) {
+            if completion.finished && self.snapshot_pending == Some(completion.id) {
                 self.snapshot_pending = None;
                 self.next_refresh = Instant::now() + SNAPSHOT_INTERVAL;
             }
-            if self.mutation_pending == Some(completion.id) {
+            if completion.finished && self.mutation_pending == Some(completion.id) {
                 self.mutation_pending = None;
             }
-            if self.team.authority_pending == Some(completion.id) {
+            if completion.finished && self.team.authority_pending == Some(completion.id) {
                 self.team.authority_pending = None;
             }
             if !current {
@@ -1101,10 +1129,7 @@ impl ConsoleApp {
                         self.next_refresh = Instant::now();
                     }
                     (Pending::Snapshot { .. }, Data::ActivityIdle) => {
-                        if let Some(snapshot) = &mut self.snapshot {
-                            snapshot.cursor = None;
-                        }
-                        self.next_refresh = Instant::now() + Duration::from_secs(1);
+                        self.next_refresh = Instant::now() + Duration::from_millis(100);
                     }
                     (Pending::Snapshot { .. }, Data::Snapshot(mut snapshot)) => {
                         if snapshot.runtime.is_err()
@@ -1273,6 +1298,7 @@ impl ConsoleApp {
                             *row = resource.clone();
                         }
                         if self.selected_id.as_ref() == Some(&id) {
+                            self.worker.cancel_activity();
                             self.selection_generation += 1;
                             self.snapshot_pending = None;
                             self.selected = Some(resource.clone());
@@ -1979,6 +2005,7 @@ impl ConsoleApp {
     }
 
     fn reset_workspace(&mut self, ctx: &egui::Context) {
+        self.worker.cancel_activity();
         self.team.authority_pending = None;
         self.team.authority_due = None;
         self.team.authority_valid_until = Some(Instant::now() + team::AUTHORITY_MAX_AGE);

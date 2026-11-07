@@ -9,6 +9,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, SyncSender},
     },
     time::{Duration, Instant},
@@ -33,6 +34,7 @@ pub(crate) enum Task {
         cursor: Option<String>,
         role: String,
         permissions: Vec<String>,
+        cancel: Arc<AtomicBool>,
     },
     Local {
         path: String,
@@ -101,6 +103,7 @@ pub(crate) enum Data {
     Resource(Resource),
     Snapshot(SessionSnapshot),
     ActivityIdle,
+    ActivityFrame(SessionSnapshot),
     Authority {
         role: String,
         permissions: Vec<String>,
@@ -113,6 +116,7 @@ pub(crate) enum Data {
 pub(crate) struct Completion {
     pub id: u64,
     pub result: Result<Data, String>,
+    pub finished: bool,
 }
 
 struct Job {
@@ -125,8 +129,10 @@ pub(crate) struct Worker {
     jobs: SyncSender<Job>,
     runtime_jobs: SyncSender<Job>,
     activity_jobs: SyncSender<Job>,
+    activity_cancel: Option<Arc<AtomicBool>>,
     authority_jobs: SyncSender<Job>,
     pub completions: Receiver<Completion>,
+    pub activity_completions: Receiver<Completion>,
     next_id: u64,
 }
 
@@ -138,6 +144,7 @@ impl Worker {
         let (activity_jobs, activity_incoming) = mpsc::sync_channel::<Job>(2);
         let (authority_jobs, authority_incoming) = mpsc::sync_channel::<Job>(1);
         let (completed, completions) = mpsc::channel();
+        let (activity_completed, activity_completions) = mpsc::sync_channel(32);
         let incoming = Arc::new(Mutex::new(incoming));
         let runtime_incoming = Arc::new(Mutex::new(runtime_incoming));
         let activity_incoming = Arc::new(Mutex::new(activity_incoming));
@@ -154,6 +161,7 @@ impl Worker {
         {
             let api = Arc::clone(&api);
             let completed = completed.clone();
+            let activity_completed = activity_completed.clone();
             std::thread::Builder::new()
                 .name(format!("console-http-{index}"))
                 .spawn(move || {
@@ -161,8 +169,34 @@ impl Worker {
                         let Ok(job) = incoming.lock().expect("worker queue lock").recv() else {
                             break;
                         };
-                        let result = api.execute(job.task);
-                        if completed.send(Completion { id: job.id, result }).is_err() {
+                        let id = job.id;
+                        let repaint = job.repaint.clone();
+                        let emit = |result| {
+                            let completion = Completion {
+                                id,
+                                result,
+                                finished: false,
+                            };
+                            let sent = if index == 3 {
+                                activity_completed.send(completion).is_ok()
+                            } else {
+                                completed.send(completion).is_ok()
+                            };
+                            repaint.request_repaint();
+                            sent
+                        };
+                        let result = api.execute_streaming(job.task, &emit);
+                        let completion = Completion {
+                            id,
+                            result,
+                            finished: true,
+                        };
+                        let sent = if index == 3 {
+                            activity_completed.send(completion).is_ok()
+                        } else {
+                            completed.send(completion).is_ok()
+                        };
+                        if !sent {
                             break;
                         }
                         job.repaint.request_repaint();
@@ -174,8 +208,10 @@ impl Worker {
             jobs,
             runtime_jobs,
             activity_jobs,
+            activity_cancel: None,
             authority_jobs,
             completions,
+            activity_completions,
             next_id: 0,
         })
     }
@@ -183,9 +219,16 @@ impl Worker {
     pub fn submit(&mut self, task: Task, ctx: &egui::Context) -> Result<u64, String> {
         self.next_id += 1;
         let id = self.next_id;
+        let mut task = task;
+        let is_activity = matches!(&task, Task::Activity { .. });
         let jobs = if matches!(&task, Task::TeamAuthority { .. }) {
             &self.authority_jobs
         } else if matches!(&task, Task::Activity { .. }) {
+            self.cancel_activity();
+            if let Task::Activity { cancel, .. } = &mut task {
+                *cancel = Arc::new(AtomicBool::new(false));
+                self.activity_cancel = Some(cancel.clone());
+            }
             &self.activity_jobs
         } else if matches!(&task, Task::Local { path, .. }
             if path == "/api/v1/workspace/runtime"
@@ -195,13 +238,26 @@ impl Worker {
         } else {
             &self.jobs
         };
-        jobs.try_send(Job {
-            id,
-            task,
-            repaint: ctx.clone(),
-        })
-        .map_err(|_| "Requests are busy. Please try again shortly.".to_owned())?;
+        if jobs
+            .try_send(Job {
+                id,
+                task,
+                repaint: ctx.clone(),
+            })
+            .is_err()
+        {
+            if is_activity {
+                self.cancel_activity();
+            }
+            return Err("Requests are busy. Please try again shortly.".to_owned());
+        }
         Ok(id)
+    }
+
+    pub fn cancel_activity(&mut self) {
+        if let Some(cancel) = self.activity_cancel.take() {
+            cancel.store(true, Ordering::Release);
+        }
     }
 }
 
@@ -480,7 +536,16 @@ impl Api {
         .map(Data::Mutation)
     }
 
+    #[cfg(test)]
     fn execute(&self, task: Task) -> Result<Data, String> {
+        self.execute_streaming(task, &|_| true)
+    }
+
+    fn execute_streaming(
+        &self,
+        task: Task,
+        emit: &impl Fn(Result<Data, String>) -> bool,
+    ) -> Result<Data, String> {
         let deadline = Instant::now() + REQUEST_DEADLINE;
         match task {
             Task::TeamAuthority { space_id } => {
@@ -518,7 +583,16 @@ impl Api {
                 cursor,
                 role,
                 permissions,
-            } => self.activity(&id, cursor.as_deref(), &role, &permissions, deadline),
+                cancel,
+            } => self.activity(
+                &id,
+                cursor.as_deref(),
+                &role,
+                &permissions,
+                &cancel,
+                emit,
+                deadline,
+            ),
             Task::Local { path, body } => self.local_request(
                 &path,
                 if body.is_some() {
@@ -651,14 +725,20 @@ impl Api {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn activity(
         &self,
         id: &str,
         cursor: Option<&str>,
         current_role: &str,
         current_permissions: &[String],
+        cancel: &AtomicBool,
+        emit: &impl Fn(Result<Data, String>) -> bool,
         deadline: Instant,
     ) -> Result<Data, String> {
+        if cancel.load(Ordering::Acquire) {
+            return Ok(Data::ActivityIdle);
+        }
         let path = format!("/api/v1/rat/sessions/{}/activity", path_segment(id));
         let Some(cursor) = cursor else {
             let mut snapshot = self
@@ -686,7 +766,15 @@ impl Api {
             );
         }
         if matches!(response.status().as_u16(), 409 | 410) {
-            return self.activity(id, None, current_role, current_permissions, deadline);
+            return self.activity(
+                id,
+                None,
+                current_role,
+                current_permissions,
+                cancel,
+                emit,
+                deadline,
+            );
         }
         if !response.status().is_success() {
             return Err(format!(
@@ -696,7 +784,7 @@ impl Api {
         }
         let mut stream = BufReader::new(response);
         let mut data = String::new();
-        loop {
+        while !cancel.load(Ordering::Acquire) {
             let mut line = String::new();
             match stream.read_line(&mut line) {
                 Ok(0) => return Ok(Data::ActivityIdle),
@@ -726,14 +814,31 @@ impl Api {
                     continue;
                 }
                 if event.get("type").and_then(Value::as_str) == Some("rat.session.activity") {
-                    return SessionSnapshot::from_activity(event["activity"].clone())
-                        .map(Data::Snapshot);
+                    let snapshot = SessionSnapshot::from_activity(event["activity"].clone())?;
+                    if !emit(Ok(Data::ActivityFrame(snapshot))) {
+                        return Ok(Data::ActivityIdle);
+                    }
+                    data.clear();
+                    continue;
                 }
                 if event.get("session").is_some() {
-                    return SessionSnapshot::from_activity(event).map(Data::Snapshot);
+                    let snapshot = SessionSnapshot::from_activity(event)?;
+                    if !emit(Ok(Data::ActivityFrame(snapshot))) {
+                        return Ok(Data::ActivityIdle);
+                    }
+                    data.clear();
+                    continue;
                 }
                 if event.get("error").is_some() {
-                    return self.activity(id, None, current_role, current_permissions, deadline);
+                    return self.activity(
+                        id,
+                        None,
+                        current_role,
+                        current_permissions,
+                        cancel,
+                        emit,
+                        deadline,
+                    );
                 }
                 data.clear();
             } else if let Some(value) = line.strip_prefix("data:") {
@@ -743,6 +848,7 @@ impl Api {
                 data.push_str(value.trim());
             }
         }
+        Ok(Data::ActivityIdle)
     }
 
     fn download(&self, path: &str, destination: &Path) -> Result<(), String> {
@@ -918,6 +1024,7 @@ mod tests {
                 cursor: Some("act_sess_shared_8".into()),
                 role: "collaborator".into(),
                 permissions: vec!["read".into(), "contribute".into()],
+                cancel: Arc::new(AtomicBool::new(false)),
             })
             .unwrap();
         match result {
@@ -927,6 +1034,107 @@ mod tests {
             }
             _ => panic!("Expected the changed authority"),
         }
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn activity_stream_delivers_multiple_frames_before_finishing() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let activity = |cursor: &str| json!({"cursor":cursor,"session":{"id":"sess_shared","object":"agent.session"},"items":[],"turns":[],"inputs":[],"runtime":{}});
+        let body = [activity("cursor.1"), activity("cursor.2")]
+            .iter()
+            .map(|activity| {
+                format!(
+                    "event: rat.session.activity\ndata: {}\n\n",
+                    json!({"type":"rat.session.activity","activity":activity})
+                )
+            })
+            .collect::<String>();
+        let server_body = body.clone();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut byte = [0];
+            while !request.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).unwrap();
+                request.push(byte[0]);
+            }
+            write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{server_body}", server_body.len()).unwrap();
+        });
+        let api = Api::new(endpoint, "fixture".into()).unwrap();
+        let cursors = Mutex::new(Vec::new());
+        let result = api
+            .execute_streaming(
+                Task::Activity {
+                    id: "sess_shared".into(),
+                    cursor: Some("cursor.0".into()),
+                    role: "viewer".into(),
+                    permissions: vec!["read".into()],
+                    cancel: Arc::new(AtomicBool::new(false)),
+                },
+                &|frame| {
+                    if let Ok(Data::ActivityFrame(snapshot)) = frame {
+                        cursors.lock().unwrap().push(snapshot.cursor.unwrap());
+                    }
+                    true
+                },
+            )
+            .unwrap();
+        assert!(matches!(result, Data::ActivityIdle));
+        assert_eq!(*cursors.lock().unwrap(), ["cursor.1", "cursor.2"]);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn cancelling_activity_after_a_frame_stops_further_delivery() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let activity = |cursor: &str| json!({"cursor":cursor,"session":{"id":"sess_shared","object":"agent.session"},"items":[],"turns":[],"inputs":[],"runtime":{}});
+        let body = [activity("cursor.1"), activity("cursor.2")]
+            .iter()
+            .map(|activity| {
+                format!(
+                    "event: rat.session.activity\ndata: {}\n\n",
+                    json!({"type":"rat.session.activity","activity":activity})
+                )
+            })
+            .collect::<String>();
+        let server_body = body.clone();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut byte = [0];
+            while !request.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).unwrap();
+                request.push(byte[0]);
+            }
+            write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{server_body}", server_body.len()).unwrap();
+        });
+        let cancel = Arc::new(AtomicBool::new(false));
+        let emit_cancel = Arc::clone(&cancel);
+        let count = Mutex::new(0);
+        let result = Api::new(endpoint, "fixture".into())
+            .unwrap()
+            .execute_streaming(
+                Task::Activity {
+                    id: "sess_shared".into(),
+                    cursor: Some("cursor.0".into()),
+                    role: "viewer".into(),
+                    permissions: vec!["read".into()],
+                    cancel: Arc::clone(&cancel),
+                },
+                &|frame| {
+                    if matches!(frame, Ok(Data::ActivityFrame(_))) {
+                        *count.lock().unwrap() += 1;
+                        emit_cancel.store(true, Ordering::Release);
+                    }
+                    true
+                },
+            )
+            .unwrap();
+        assert!(matches!(result, Data::ActivityIdle));
+        assert_eq!(*count.lock().unwrap(), 1);
         server.join().unwrap();
     }
 
@@ -941,8 +1149,10 @@ mod tests {
             jobs,
             runtime_jobs,
             activity_jobs,
+            activity_cancel: None,
             authority_jobs,
             completions,
+            activity_completions: mpsc::channel().1,
             next_id: 0,
         };
         let ctx = egui::Context::default();
@@ -954,6 +1164,47 @@ mod tests {
         assert!(worker.submit(task(), &ctx).is_ok());
         assert!(worker.submit(task(), &ctx).is_err());
         assert_eq!(runtime_incoming.try_iter().count(), 2);
+    }
+
+    #[test]
+    fn worker_cancels_the_active_activity_token() {
+        let (jobs, _incoming) = mpsc::sync_channel(4);
+        let (runtime_jobs, _runtime_incoming) = mpsc::sync_channel(2);
+        let (activity_jobs, activity_incoming) = mpsc::sync_channel(2);
+        let (authority_jobs, _authority_incoming) = mpsc::sync_channel(1);
+        let (_completed, completions) = mpsc::channel();
+        let (_activity_completed, activity_completions) = mpsc::channel();
+        let mut worker = Worker {
+            jobs,
+            runtime_jobs,
+            activity_jobs,
+            activity_cancel: None,
+            authority_jobs,
+            completions,
+            activity_completions,
+            next_id: 0,
+        };
+        worker
+            .submit(
+                Task::Activity {
+                    id: "sess_shared".into(),
+                    cursor: Some("cursor".into()),
+                    role: "viewer".into(),
+                    permissions: vec!["read".into()],
+                    cancel: Arc::new(AtomicBool::new(false)),
+                },
+                &egui::Context::default(),
+            )
+            .unwrap();
+        let Job {
+            task: Task::Activity { cancel, .. },
+            ..
+        } = activity_incoming.try_recv().unwrap()
+        else {
+            panic!("Activity job was not queued")
+        };
+        worker.cancel_activity();
+        assert!(cancel.load(Ordering::Acquire));
     }
 
     #[test]
