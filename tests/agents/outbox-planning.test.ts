@@ -3,6 +3,12 @@ import { agentsJobGroup, agentsStreamJobs, agentsJobRetrySeconds, parseAgentsJob
 import { AgentsApiError, AgentsResourceConflictError } from '../../src/domain/agents-api-validation.js';
 
 describe('Session work isolation', () => {
+  it('wakes the owning Session only when durable feedback is first accepted', () => {
+    const index = { ownerId: 'owner', id: 'receipt', key: 'root', collection: 'session_feedback:sess_team', revision: 1 };
+    expect(agentsStreamJobs(index)).toEqual([{ type: 'dispatch', ownerId: 'owner', id: 'sess_team' }]);
+    expect(agentsStreamJobs({ ...index, revision: 2 })).toEqual([]);
+    expect(agentsStreamJobs({ ...index, deleted: true })).toEqual([]);
+  });
   it('revisits confirmed rejected writes promptly without accelerating other conflicts', () => {
     expect(agentsJobRetrySeconds(new AgentsResourceConflictError())).toBe(5);
     expect(agentsJobRetrySeconds(new AgentsApiError(409, 'Session has failed', 'conflict'))).toBeUndefined();

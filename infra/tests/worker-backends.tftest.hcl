@@ -299,6 +299,10 @@ run "ec2_only_storage" {
     error_message = "Durable credential cleanup must reach the outbox even when no Session was created."
   }
   assert {
+    condition     = anytrue([for selector in jsondecode(one(one(aws_lambda_event_source_mapping.agents_outbox.filter_criteria).filter).pattern).dynamodb.NewImage.collection.S : try(selector.prefix == "session_feedback:", false)])
+    error_message = "Per-Session feedback inboxes must wake the execution outbox."
+  }
+  assert {
     condition     = length(aws_launch_template.session_worker) == 1 && length(awscc_lambda_network_connector.s3_files) == 0
     error_message = "EC2-only storage must not provision a Lambda network connector."
   }
