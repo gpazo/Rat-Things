@@ -95,20 +95,29 @@ live('shares real execution and progress across verified team identities with re
     expect(forbidden.status).toBe(403);
     await forbidden.body?.cancel();
     const duplicateKey = `${proof}-same-client-key`;
+    const contributions = [
+      { person: alice, marker: `${proof}-alice`, text: `Alice contributes: prioritize correctness. Remember my contribution marker ${proof}-alice.` },
+      { person: bob, marker: `${proof}-bob`, text: `Bob contributes: consider the operational cost too. Remember my contribution marker ${proof}-bob.` },
+    ];
     const send = async (person: TestTeamIdentity, text: string) => fetch(`${baseURL}/agents/sessions/${session.id}/events`, {
       method: 'POST', redirect: 'error', signal: AbortSignal.timeout(180_000),
       headers: { authorization: `Bearer ${await person.accessTokenForRequest()}`, 'X-Rat-Space': spaceId!, 'content-type': 'application/json', 'idempotency-key': duplicateKey },
       body: JSON.stringify(events(text)),
     });
-    const replies = await Promise.all([send(alice, 'Alice contributes: prioritize correctness.'), send(bob, 'Bob contributes: consider the operational cost too.')]);
+    const replies = await Promise.all(contributions.map(({ person, text }) => send(person, text)));
     for (const response of replies) { expect(response.ok).toBe(true); await response.body?.cancel(); }
     const accepted = await activity();
-    const aliceReceipts = accepted.inputs.filter(input => input.actor.subject === alice.subject);
-    const bobReceipts = accepted.inputs.filter(input => input.actor.subject === bob.subject);
-    expect(aliceReceipts.length).toBeGreaterThanOrEqual(1);
-    expect(bobReceipts.length).toBeGreaterThanOrEqual(1);
+    const newInputs = accepted.inputs.filter(input => !start.inputs.some(previous => previous.id === input.id));
+    expect(newInputs).toHaveLength(2);
+    for (const { person, text } of contributions) {
+      const receipts = newInputs.filter(input => input.actor.subject === person.subject);
+      expect(receipts).toHaveLength(1);
+      const savedText = accepted.items.flatMap(item => item.type === 'message' && item.role === 'user' && receipts[0]!.message_ids.includes(item.id)
+        ? item.content.flatMap(part => part.type === 'input_text' ? [part.text] : []) : []).join('\n');
+      expect(savedText).toBe(text);
+    }
     expect(new Set(accepted.inputs.map(input => input.sequence)).size).toBe(accepted.inputs.length);
-    const replayedSubmission = await send(alice, 'Alice contributes: prioritize correctness.');
+    const replayedSubmission = await send(alice, contributions[0]!.text);
     expect(replayedSubmission.ok).toBe(true);
     await replayedSubmission.body?.cancel();
     expect((await activity()).inputs.map(input => input.id)).toEqual(accepted.inputs.map(input => input.id));
@@ -122,7 +131,7 @@ live('shares real execution and progress across verified team identities with re
     for (const subscription of subscriptions) await subscription.stop();
 
     await client(alice).beta.agents.sessions.events.create(session.id, {
-      events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text: 'Repeat our shared marker and acknowledge both contributions.' }] }] }],
+      events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text: 'Repeat our shared goal marker and the exact contribution markers Alice and Bob each provided, then acknowledge both contributions.' }] }] }],
     }, { headers: { 'Idempotency-Key': `${proof}-unattended` } });
     // Simulate all clients being absent; the next observation cannot drive execution.
     await delay(10_000);
@@ -132,6 +141,7 @@ live('shares real execution and progress across verified team identities with re
     const answer = unattended.items.flatMap(item => item.type === 'message' && item.role === 'assistant' && item.turn_id === lastTurn.id
       ? item.content.flatMap(part => part.type === 'output_text' ? [part.text] : []) : []).join('\n');
     expect(answer).toContain(proof);
+    for (const { marker } of contributions) expect(answer).toContain(marker);
     const replay = watchActivity(baseURL, spaceId, session.id, await follower.accessTokenForRequest(), start.cursor);
     subscriptions.push(replay);
     await replay.ready;
