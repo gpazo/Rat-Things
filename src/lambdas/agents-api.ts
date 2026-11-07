@@ -24,7 +24,9 @@ export const handler = typeof lambdaRuntime?.streamifyResponse !== 'function' ? 
     });
     const team = getTeamAuthentication();
     if (method === 'GET' && event.rawPath === '/.well-known/agents-api') {
-      response = Response.json(agentsApiDiscovery(), { headers: { 'cache-control': 'no-store' } });
+      // Function URL identity comes from AWS invocation context, never the Host header.
+      const invocationBaseURL = team ? `https://${event.requestContext.domainName}/v1` : undefined;
+      response = Response.json(agentsApiDiscovery(invocationBaseURL), { headers: { 'cache-control': 'no-store' } });
     } else if (team) {
       if (event.rawPath === '/v1/auth/tokens') throw new AgentsApiError(404, 'Route not found.', 'not_found');
       response = await routeAgentsRequest(request, await team.verifier.authenticate(request.headers.get('authorization')), getAgentsApiServices(), context.awsRequestId);

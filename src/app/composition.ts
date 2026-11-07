@@ -552,8 +552,8 @@ export function getTeamAuthentication() {
   teamAuthentication ??= (() => { const providers = parseOidcProviders(process.env.TEAM_OIDC_PROVIDERS_JSON); if (!providers.length) throw new Error('OIDC authentication requires at least one provider.'); return { providers, verifier: new OidcAuthenticator(providers) }; })();
   return teamAuthentication;
 }
-export function agentsApiDiscovery() {
+export function agentsApiDiscovery(invocationBaseURL?: string) {
   const team = getTeamAuthentication();
-  return { base_url: requiredEnv('AGENTS_PUBLIC_BASE_URL'), ...(team ? { authentication: 'oidc', login_providers: oidcLoginDiscovery(team.providers) }
+  return { base_url: process.env.AGENTS_PUBLIC_BASE_URL || invocationBaseURL || requiredEnv('AGENTS_PUBLIC_BASE_URL'), ...(team ? { authentication: 'oidc', login_providers: oidcLoginDiscovery(team.providers) }
     : { issuer_url: requiredEnv('AGENTS_TOKEN_ISSUER_URL') }) };
 }

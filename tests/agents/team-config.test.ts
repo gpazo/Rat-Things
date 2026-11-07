@@ -19,4 +19,8 @@ it('exposes safe login discovery without composing execution or publishing API g
   expect(discovery).toMatchObject({ authentication: 'oidc', base_url: 'https://api.test/v1', login_providers: [{ id: 'test', client_id: 'desktop' }] });
   expect(JSON.stringify(discovery)).not.toContain('private-api-scope');
   expect(JSON.stringify(discovery)).not.toContain('api.agents.read');
+  vi.stubEnv('AGENTS_PUBLIC_BASE_URL', '');
+  expect(agentsApiDiscovery('https://team.lambda-url.us-west-2.on.aws/v1')).toMatchObject({
+    authentication: 'oidc', base_url: 'https://team.lambda-url.us-west-2.on.aws/v1',
+  });
 });
