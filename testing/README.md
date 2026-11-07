@@ -9,6 +9,12 @@ The [disposable AWS controller](performance-aws/README.md) measures the deployed
 OIDC API and real model progress. Both retain rejected and missing observations;
 an observed-sample percentile alone is not a passing result.
 
+The [Share controller](performance-share/README.md) measures the production
+transfer coordinator with a fixture source and real AWS destination at several
+payload sizes. Use the [cost calculator](performance-cost/README.md) with complete
+exported Lambda logs and an explicit regional rate card; its measured subtotal
+does not include all deployment or model charges.
+
 Start with 1, 5, 10, 20 and 50 viewers, concurrent contributor bursts, short and
 long histories, and separate persistent-stream and desktop-request modes. Keep
 rate limits unchanged and record the deployed revision. Local execution is a
