@@ -14,8 +14,8 @@ interface SharePlan { id: string; source_session_id: string; destination_session
 export interface ShareSource { sessionId: string; model: string; files: { path: string; bytes: number; sha256: string }[] }
 export type LocalResponse = (path: string, method?: string, body?: unknown) => Promise<Response>;
 
-export async function shareScenario({ source, endpoint, region, operatorEndpoint, fixture, store }: {
-  source: ShareSource; endpoint: string; region: string; operatorEndpoint: string; fixture: TeamIdentityFixture; store: TeamConnectionStore;
+export async function shareScenario({ source, endpoint, region, operatorEndpoint, fixture, store, contextMarker }: {
+  contextMarker?: string; source: ShareSource; endpoint: string; region: string; operatorEndpoint: string; fixture: TeamIdentityFixture; store: TeamConnectionStore;
 }, { start, stop, localResponse, record, signal }: {
   start(): Promise<void>; stop(): Promise<void>; localResponse: LocalResponse;
   record(name: string, value: unknown): Promise<void>; signal: AbortSignal;
@@ -87,6 +87,12 @@ export async function shareScenario({ source, endpoint, region, operatorEndpoint
     const beforeTurns = await localJson<{ data: Turn[]; has_more: boolean }>(`/agents/sessions/${source.sessionId}/turns?limit=100&order=asc`);
     assert(!beforeItems.has_more && !beforeTurns.has_more && beforeTurns.data.length === 2
       && beforeTurns.data.every(turn => turn.status === 'completed'));
+    if (contextMarker !== undefined) {
+      assert(!beforeItems.data.some(item => item.type === 'command_execution' && JSON.stringify(item).includes(contextMarker)),
+        'Conversation-only marker appeared in a source command.');
+      assert(!JSON.stringify({ agent: before.agent, environment: before.environment, metadata: before.metadata }).includes(contextMarker),
+        'Conversation-only marker appeared in source configuration.');
+    }
     const shareId = randomUUID();
     phase = 'share';
     const plan = await localJson<SharePlan>('/workspace/shares', 'POST', { id: shareId, session_id: source.sessionId, endpoint, region, space_id: spaceId, connection_id: connectionId });
@@ -120,7 +126,7 @@ export async function shareScenario({ source, endpoint, region, operatorEndpoint
     phase = 'hosted_continuation';
     await stop();
     await team(`/agents/sessions/${source.sessionId}/events`, 'POST', {
-      events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text: `Continue our shared workspace. Run this exact command once, then report the output.\n${proof.command}` }] }] }],
+      events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text: hostedContinuationInput(proof.command, contextMarker !== undefined) }] }] }],
     }, collaborator);
     await delay(10_000, undefined, { signal });
     const finished = await until(() => team<Activity>(`/rat/sessions/${source.sessionId}/activity`, 'GET', undefined, viewer), value => {
@@ -133,6 +139,10 @@ export async function shareScenario({ source, endpoint, region, operatorEndpoint
     assert.deepEqual(finished.items.slice(0, beforeItems.data.length), beforeItems.data);
     const turn = newTurns[0]!;
     await record('hostedCommand', commandProof(finished.items, turn.id, proof));
+    if (contextMarker !== undefined) {
+      phase = 'conversation_recall';
+      await record('conversationRecall', conversationRecallProof(finished.items, turn.id, contextMarker));
+    }
     await record('sourceFiles', source.files);
   } catch (error) {
     operationError = error;
@@ -155,6 +165,25 @@ export async function shareScenario({ source, endpoint, region, operatorEndpoint
       ...(operationError === undefined ? [] : [operationError]), ...cleanupErrors,
     ], 'Share cleanup could not be confirmed; inspect the retained evidence.');
   }
+}
+
+export function hostedContinuationInput(command: string, recallContext = false): string {
+  const recall = recallContext ? ' In your final answer, recall the exact conversation-only marker from our earlier messages on a line of its own formatted RAT_CONVERSATION_RECALL followed by a space and the marker. Recover it only from the conversation. Do not search files or put the marker in a command.' : '';
+  return `Continue our shared workspace.${recall} Run this exact command once, then report the output.\n${command}`;
+}
+
+export function conversationRecallProof(items: readonly AgentSessionItem[], turnId: string, marker: string) {
+  assert(/^context_[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(marker), 'Invalid conversation-only marker.');
+  const answers = items.filter(item => item.type === 'message').filter(item => item.role === 'assistant'
+    && item.status === 'completed' && item.phase === 'final_answer' && item.turn_id === turnId);
+  const matches = answers.flatMap(item => {
+    assert(typeof item.id === 'string' && item.id.length <= 200, 'Conversation recall message has no bounded identity.');
+    const text = item.content.filter(part => part.type === 'output_text').map(part => part.text).join('\n');
+    assert(Buffer.byteLength(text) <= 64 * 1024, 'Conversation recall answer exceeded its limit.');
+    return text.split(/\r?\n/).filter(line => line.trim() === `RAT_CONVERSATION_RECALL ${marker}`).map(() => item.id);
+  });
+  assert.equal(matches.length, 1, 'Hosted final answer did not recall the exact conversation-only marker.');
+  return { turnId, messageId: matches[0]!, markerSha256: sha256(marker), source: 'assistant.final_answer', recalled: true };
 }
 
 export async function until<T>(read: () => Promise<T>, predicate: (value: T) => boolean, milliseconds: number, signal?: AbortSignal): Promise<T> {

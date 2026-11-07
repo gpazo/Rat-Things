@@ -75,7 +75,9 @@ This controller refuses profiles containing installed runtime storage or an
 existing service connection. It uses the current public local HTTP service and
 integrity-checked development assets. It requires two successful subscription
 Turns with a service restart, workspace hashes, setup-once behavior, and guest
-isolation before the same browser login and Share checks. Evidence records the
+isolation before the same browser login and Share checks. The hosted continuation
+must also recall a random marker supplied only in the earlier local conversation,
+without the marker in its new prompt or workspace commands. Evidence records the
 host version and guest manifest identity. Cached development assets may predate
 the current source. A pass proves command compatibility for those named assets;
 it does not establish signed distribution or current packaged guest acceptance.

@@ -127,14 +127,16 @@ export function listedFiles(value, environmentId, expected) {
   return { source: 'environment.files', files: listed };
 }
 
-export async function subscriptionScenario({ nonce, directory, model }, { request, restart, record, signal, now = Date.now, sleep = delay }) {
+export async function subscriptionScenario({ nonce, directory, model, contextMarker = '' }, { request, restart, record, signal, now = Date.now, sleep = delay }) {
+  check(typeof contextMarker === 'string' && (!contextMarker || /^context_[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(contextMarker)), 'Invalid conversation-only marker.');
+  const reminder = contextMarker ? ` Remember this conversation-only marker for later: ${contextMarker}. Keep it only in our conversation, never in commands, code, files, or metadata.` : '';
   const program = verificationProgram(nonce, directory);
   const session = await request('POST', '/agents/sessions', {
     agent: { model, multi_agent: { enabled: false } },
     environment: { type: 'openai_hosted', network: { access: 'disabled' },
       setup_commands: [{ command: 'node -e "require(\'node:fs\').appendFileSync(\'/workspace/setup-count\',\'once\')"' }],
       files: [{ type: 'inline', path: '/workspace/rat-acceptance.cjs', data: Buffer.from(program).toString('base64') }] },
-    input: 'Run exactly `node /workspace/rat-acceptance.cjs first` using the environment command tool. Do not edit the script or create its output yourself. Report the command output. This is a local runtime acceptance check.',
+    input: 'Run exactly `node /workspace/rat-acceptance.cjs first` using the environment command tool. Do not edit the script or create its output yourself. Report the command output. This is a local runtime acceptance check.' + reminder,
   });
   check(object(session) && identifier(session.id) && session.id.startsWith('sess_') && session.agent?.model === model
     && session.environment?.type === 'openai_hosted' && identifier(session.environment.id) && session.environment.id.startsWith('env_'), 'The API did not create the requested managed Session.');
@@ -166,7 +168,7 @@ export async function subscriptionScenario({ nonce, directory, model }, { reques
   check(restored?.id === sessionId && restored.agent?.model === model && restored.environment?.id === environmentId
     && restored.environment.type === 'openai_hosted', 'The same Session and environment did not survive the packaged service restart.');
   await request('POST', `/agents/sessions/${sessionId}/events`, { events: [{ type: 'agent.session.input.message',
-    input: [{ role: 'user', content: [{ type: 'input_text', text: 'After the restart, run exactly `node /workspace/rat-acceptance.cjs resume` using the environment command tool. Do not edit the script or its output. Report the command output.' }] }] }] });
+    input: [{ role: 'user', content: [{ type: 'input_text', text: 'After the restart, run exactly `node /workspace/rat-acceptance.cjs resume` using the environment command tool. Do not edit the script or its output. Report the command output.' + reminder }] }] }] });
   const resumedTurnId = await completedTurn(firstTurnId);
   const resumed = await proof('resume', resumedTurnId);
   return { sessionId, environmentId, model,

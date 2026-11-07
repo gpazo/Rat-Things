@@ -75,8 +75,10 @@ async function main() {
   const work = await mkdtemp(join(directory, 'development-share-'));
   const evidencePath = join(work, 'evidence.json');
   const nonce = randomUUID();
+  const contextMarker = `context_${randomUUID()}`;
   const evidence: Record<string, unknown> = { version: 1, status: 'running', runtime: 'native-development',
     startedAt: new Date().toISOString(), directory, assets, model: options.model, nonce, endpoint, region,
+    conversationMarkerSha256: sha256(Buffer.from(contextMarker)),
     host: { source: 'current-checkout', controller: fileURLToPath(import.meta.url), binary, version: stdout.trim() },
     guest: { ...assetIdentity, manifestSha256: sha256(manifestBytes) }, observations: {},
     limits: ['development assets may predate current source; runtime integrity and command compatibility are checked independently',
@@ -135,14 +137,14 @@ async function main() {
     console.log(`Development Share evidence: ${evidencePath}`);
     await start();
     await record('account', signedAccount(await request('GET', '/workspace/subscription')));
-    const local = await subscriptionScenario({ nonce, directory, model: options.model }, {
+    const local = await subscriptionScenario({ nonce, directory, model: options.model, contextMarker }, {
       request, restart: async () => { await stop(); await start(); }, record, signal,
     });
     Object.assign(evidence, local);
     const source = { ...local, nonce, files: expectedProof(nonce, verificationProgram(nonce, directory), 'resume').files };
     await record('localSubscription', { sessionId: source.sessionId, environmentId: source.environmentId, ...local.local });
     await stop();
-    await shareScenario({ source, endpoint, region, operatorEndpoint, fixture, store }, { start, stop, localResponse, record, signal });
+    await shareScenario({ source, endpoint, region, operatorEndpoint, fixture, store, contextMarker }, { start, stop, localResponse, record, signal });
     evidence.status = 'passed';
   } catch (error) {
     failure = true;
