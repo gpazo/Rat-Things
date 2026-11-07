@@ -1,7 +1,12 @@
 import { createHash } from 'node:crypto';
+import { sessionAgent } from '../core/session-planning.js';
+import { THREAD_RELEASE_TOOL } from '../core/thread-release-tool.js';
+import type { SessionState } from '../core/session-ports.js';
+import type { StoredEnvironment } from '../core/environment-service.js';
+import { CODEX_RUNTIME, type RuntimePin } from '../domain/session-runtime.js';
 import { planConfigurationRevision, configurationRef } from '../core/configuration-history.js';
 import type { Agent, AgentSession, EnvironmentParam } from '../domain/agents-api.js';
-import type { AgentObservation, AgentsStore } from '../core/agents-ports.js';
+import type { AgentObservation, AgentResource, AgentsStore } from '../core/agents-ports.js';
 import { AgentsApiError, invalid, parseAgentsContract } from '../domain/agents-api-validation.js';
 import { resolveAgentConfiguration } from '../domain/agent-configuration.js';
 import { canonicalJson } from '../domain/json.js';
@@ -20,7 +25,26 @@ export interface ExecutionRole {
   max_subagents?: number;
 }
 export interface WorkloadAssignment { agent_id: string; execution_role_id: string; agent_digest: string }
-export interface WorkloadAdmission { observations: AgentObservation[]; evidence: { execution_role_id: string; agent_digest: string; capability_digest: string; capability_profile_ids: string[]; connection_grant_ids: string[]; ceiling: ExecutionRole } }
+export interface WorkloadConfiguration {
+  agent: AgentSession['agent'];
+  environment: EnvironmentParam;
+  vault_ids: string[];
+  runtime: RuntimePin;
+}
+export interface WorkloadAdmission {
+  observations: AgentObservation[];
+  evidence: {
+    execution_role_id: string;
+    execution_role_revision: number;
+    agent_digest: string;
+    source_agent_digest: string;
+    capability_digest: string;
+    configuration: WorkloadConfiguration;
+    capability_profile_ids: string[];
+    connection_grant_ids: string[];
+    ceiling: ExecutionRole;
+  };
+}
 
 /** Capability roles admit saved configurations. Human roles never become runtime tool authority. */
 export class WorkloadAdmissionService {
@@ -79,12 +103,35 @@ export class WorkloadAdmissionService {
     if (!role) denied('The assigned execution role is unavailable.');
     validateAgentCeiling(agent.value, role.value);
     validateEnvironmentCeiling(input.environment, input.vault_ids ?? [], role.value);
-    return { observations: [observation(agent), observation(assignment), observation(role)], evidence: {
-      execution_role_id: role.id, agent_digest: assignment.value.agent_digest,
-      capability_digest: digest({ agent: agentConfigurationDigest(agent.value), environment: input.environment, vault_ids: input.vault_ids ?? [], policy: role.value }),
-      capability_profile_ids: role.value.capability_profile_ids, connection_grant_ids: role.value.connection_grant_ids, ceiling: role.value,
-    } };
+    return admittedWorkload(role, agent.value, agent.value, {
+      agent: sessionAgent(undefined, agent.id, agent.createdAt, agent.value), environment: input.environment, vault_ids: input.vault_ids ?? [], runtime: CODEX_RUNTIME,
+    }, [observation(agent), observation(assignment)]);
   }
+  public async admitFork(authority: SpaceAuthority, sourceId: string): Promise<WorkloadAdmission> {
+    const source = await this.store.get<SessionState>(authority.ownerId, 'sessions', sourceId);
+    if (!source) throw new AgentsApiError(404, 'Session not found.', 'resource_not_found');
+    const session = source.value.session;
+    if (session.environment.type !== 'openai_hosted') invalid('Forks require a managed environment.', 'environment');
+    const [agent, assignment] = await Promise.all([
+      this.store.get<Agent>(authority.ownerId, 'agents', session.agent.id), this.store.get<WorkloadAssignment>(authority.ownerId, 'agent_workloads', session.agent.id),
+    ]);
+    if (!agent || !assignment || assignment.value.agent_digest !== agentConfigurationDigest(agent.value)) denied('This Agent configuration needs a current workload assignment.');
+    const role = await this.store.get<ExecutionRole>(authority.ownerId, 'execution_roles', assignment.value.execution_role_id);
+    if (!role) denied('The assigned execution role is unavailable.');
+    const childAgent = { ...session.agent, tools: session.agent.tools.filter(tool => tool.type !== 'function' || tool.name !== THREAD_RELEASE_TOOL.name) };
+    const effective = parseAgentsContract('Agent', { ...agent.value, ...childAgent });
+    validateAgentCeiling(agent.value, role.value);
+    validateAgentCeiling(effective, role.value);
+    const runtime = source.value.runtime ?? CODEX_RUNTIME;
+    if (runtime.kind !== 'codex') denied('This execution ceiling has not admitted an alternate runtime.');
+    const storedEnvironment = await this.store.get<StoredEnvironment>(authority.ownerId, 'environments', session.environment.id);
+    if (!storedEnvironment?.value.configuration || storedEnvironment.value.environment.type !== 'openai_hosted') denied('The source environment configuration is unavailable for fork admission.');
+    const environment: EnvironmentParam = { type: 'openai_hosted', ...storedEnvironment.value.configuration, network: session.environment.network };
+    validateEnvironmentCeiling(environment, session.vault_ids, role.value);
+    return admittedWorkload(role, agent.value, effective, { agent: childAgent, environment, vault_ids: session.vault_ids, runtime },
+      [observation(source), observation(storedEnvironment), observation(agent), observation(assignment)]);
+  }
+
   public async validateSessionUpdate(authority: SpaceAuthority, id: string, raw: unknown): Promise<void> {
     const input = parseAgentsContract('SessionUpdate', raw);
     if (input.agent?.model === undefined) return;
@@ -92,22 +139,33 @@ export class WorkloadAdmissionService {
     if (!stored) throw new AgentsApiError(404, 'Session not found.', 'resource_not_found');
     if (input.agent.model !== stored.value.session.agent.model) denied('Changing the admitted model requires a new Session.');
   }
-  public async admitShare(authority: SpaceAuthority, manifest: { source_agent?: Agent; session: Pick<AgentSession, 'agent' | 'vault_ids' | 'created_at'>; environment: EnvironmentParam }): Promise<WorkloadAdmission> {
+  public async admitShare(authority: SpaceAuthority, manifest: { source_agent?: Agent; session: Pick<AgentSession, 'agent' | 'vault_ids' | 'created_at'>; environment: EnvironmentParam; runtime?: RuntimePin }): Promise<WorkloadAdmission> {
     const source = manifest.source_agent ?? parseAgentsContract('Agent', { ...manifest.session.agent, object: 'agent', created_at: manifest.session.created_at, updated_at: manifest.session.created_at, metadata: {} });
     if (source.id !== manifest.session.agent.id) denied('Share requires the continuing Agent’s saved configuration.');
     const effective = parseAgentsContract('Agent', { ...source, ...manifest.session.agent });
     parseAgentsContract('Agent', source);
     const target = await this.store.get<Agent>(authority.ownerId, 'agents', source.id);
     if (target && agentConfigurationDigest(target.value) !== agentConfigurationDigest(source)) denied('The destination Agent identity has incompatible configuration.');
-    const roles = await this.store.list<ExecutionRole>(authority.ownerId, 'execution_roles', { limit: 100, order: 'asc' });
-    const role = roles.data.find(candidate => {
-      try { validateAgentCeiling(source, candidate.value); validateAgentCeiling(effective, candidate.value); validateEnvironmentCeiling(manifest.environment, manifest.session.vault_ids, candidate.value); return true; }
-      catch (error) { if (error instanceof AgentsApiError && error.status === 403) return false; throw error; }
-    });
-    if (!role) denied('The continuing Agent exceeds every configured execution ceiling.');
+    const runtime = manifest.runtime ?? CODEX_RUNTIME;
+    if (runtime.kind !== 'codex') denied('This execution ceiling has not admitted an alternate runtime.');
     const previous = await this.store.get<WorkloadAssignment>(authority.ownerId, 'agent_workloads', source.id);
+    let role: AgentResource<ExecutionRole> | undefined;
+    if (previous) {
+      if (!target || previous.value.agent_digest !== agentConfigurationDigest(target.value)) denied('The existing Agent workload assignment is incompatible.');
+      role = await this.store.get<ExecutionRole>(authority.ownerId, 'execution_roles', previous.value.execution_role_id);
+      if (!role) denied('The assigned execution role is unavailable.');
+      validateAgentCeiling(source, role.value);
+      validateAgentCeiling(effective, role.value);
+      validateEnvironmentCeiling(manifest.environment, manifest.session.vault_ids, role.value);
+    } else {
+      const roles = await this.store.list<ExecutionRole>(authority.ownerId, 'execution_roles', { limit: 100, order: 'asc' });
+      role = roles.data.find(candidate => {
+        try { validateAgentCeiling(source, candidate.value); validateAgentCeiling(effective, candidate.value); validateEnvironmentCeiling(manifest.environment, manifest.session.vault_ids, candidate.value); return true; }
+        catch (error) { if (error instanceof AgentsApiError && error.status === 403) return false; throw error; }
+      });
+      if (!role) denied('The continuing Agent exceeds every configured execution ceiling.');
+    }
     const assignment: WorkloadAssignment = { agent_id: source.id, execution_role_id: role.id, agent_digest: agentConfigurationDigest(source) };
-    if (target && previous && previous.value.agent_digest !== assignment.agent_digest) denied('The existing Agent workload assignment is incompatible.');
     const now = Math.floor(Date.now() / 1000);
     const writes: Parameters<AgentsStore['commit']>[0] = [];
     if (!target) {
@@ -119,7 +177,10 @@ export class WorkloadAdmissionService {
       await authority.revalidate(); requireUnexpired(authority);
       await this.store.commit(writes, [...authority.observations, observation(role), ...(target ? [observation(target)] : []), ...(previous ? [observation(previous)] : [])]);
     }
-    return this.admit(authority, { agent_id: source.id, environment: manifest.environment, vault_ids: manifest.session.vault_ids });
+    return admittedWorkload(role, source, effective, {
+      agent: manifest.session.agent, environment: manifest.environment, vault_ids: manifest.session.vault_ids, runtime,
+    }, [target ? observation(target) : { ownerId: authority.ownerId, collection: 'agents', id: source.id, revision: 1 },
+      previous ? observation(previous) : { ownerId: authority.ownerId, collection: 'agent_workloads', id: source.id, revision: 1 }]);
   }
 }
 export function agentConfigurationDigest(agent: Agent): string {
@@ -132,7 +193,7 @@ function validateAgentCeiling(agent: Agent, role: ExecutionRole) {
   if (!role.models.includes(agent.model) || agent.tools.some(tool => !role.tools.some(allowed => canonicalJson(allowed) === canonicalJson(tool)))) denied('Agent tools or model exceed the execution role.');
 }
 function validateEnvironmentCeiling(environment: EnvironmentParam, vaultIds: string[], role: ExecutionRole) {
-  if (!role.environments.some(allowed => canonicalJson(allowed) === canonicalJson(environment)) || vaultIds.some(id => !role.vault_ids.includes(id))) denied('Environment or Vault access exceeds the execution role.');
+  if (!role.environments.some(allowed => canonicalJson(environmentPolicy(allowed)) === canonicalJson(environmentPolicy(environment))) || vaultIds.some(id => !role.vault_ids.includes(id))) denied('Environment or Vault access exceeds the execution role.');
 }
 function rejectEnvironmentSecrets(environment: unknown) {
   if (!environment || typeof environment !== 'object') return;
@@ -142,3 +203,22 @@ function rejectEnvironmentSecrets(environment: unknown) {
 }
 function digest(value: unknown) { return createHash('sha256').update(canonicalJson(value)).digest('hex'); }
 function denied(message: string): never { throw new AgentsApiError(403, message, 'insufficient_permissions'); }
+
+function admittedWorkload(role: AgentResource<ExecutionRole>, source: Agent, effective: Agent, configuration: WorkloadConfiguration, dependencies: AgentObservation[]): WorkloadAdmission {
+  return { observations: [...dependencies, observation(role)], evidence: {
+    execution_role_id: role.id, execution_role_revision: role.revision,
+    source_agent_digest: agentConfigurationDigest(source), agent_digest: agentConfigurationDigest(effective),
+    capability_digest: digest({ configuration, policy: role.value }), configuration,
+    capability_profile_ids: role.value.capability_profile_ids, connection_grant_ids: role.value.connection_grant_ids, ceiling: role.value,
+  } };
+}
+function environmentPolicy(environment: EnvironmentParam): unknown {
+  if (environment.type === 'none') return environment;
+  if (environment.type === 'self_hosted') return { ...environment, capability_directories: environment.capability_directories ?? [] };
+  return { ...environment,
+    capability_directories: environment.capability_directories ?? [], env: environment.env ?? {},
+    network: { access: environment.network?.access ?? 'disabled', allowed_domains: environment.network?.allowed_domains ?? [] },
+    packages: { npm: environment.packages?.npm ?? [], python: environment.packages?.python ?? [], system: environment.packages?.system ?? [] },
+    files: environment.files ?? [], plugins: environment.plugins ?? [], skills: environment.skills ?? [], setup_commands: environment.setup_commands ?? [],
+  };
+}

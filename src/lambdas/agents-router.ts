@@ -224,7 +224,11 @@ async function routeSession(request: Request, principal: ApiPrincipal, parts: st
   if (id && collection === 'fork' && parts.length === 2 && method === 'POST') {
     const body = await requestBody(request);
     requireInferencePermission(principal, body, 'create');
-    return json(201, await sessions.fork(ownerId, id, teamForkInput(body, authority), authority), requestId);
+    const input = teamForkInput(body, authority);
+    const admitted = authority ? await admission?.admitFork(authority, id) : undefined;
+    if (authority && !admitted) throw new AgentsApiError(503, 'Workload admission is unavailable.', 'service_unavailable');
+    const caller = authority && admitted ? { ...authority, observations: [...authority.observations, ...admitted.observations], admission: admitted.evidence } : undefined;
+    return json(201, await sessions.fork(ownerId, id, input, caller), requestId);
   }
   if (id && collection === 'runtime' && parts.length === 2 && method === 'GET') return json(200, await sessions.runtime(ownerId, id), requestId);
   if (id && collection === 'lineage' && parts.length === 2 && method === 'GET') return json(200, await sessions.lineage(ownerId, id), requestId);
