@@ -69,6 +69,9 @@ bundle; the controller does not claim to have done so.
   explicitly `ambiguous_same_turn`; this is shared progress, not proof of which
   input caused that output. Public reasoning Items are not counted as progress.
 - Raw samples preserve timeouts, missing observations, and rejected submissions.
+  Observations arriving after the round deadline remain censored. Scenario summaries
+  retain the planned submission count and the count that never started after an earlier
+  failure. Scenarios absent from the artifact were not run; compare the recorded options.
   Nearest-rank percentiles use observed values only; always report their counts
   and the rejected/error/censored denominators together. Small bursts cannot
   establish a stable population p99.

@@ -20,6 +20,14 @@ function sample(overrides: Partial<Sample> = {}): Sample {
 }
 
 describe('exact client observations', () => {
+  it('keeps late observations censored and counts planned submissions that never started', () => {
+    const bounded = { ...work, deadlineMs: 110 };
+    expect(observePeer(peer, activity(), bounded, 111)).toEqual(peer);
+    expect(observePeer(peer, activity(), bounded, 110).input.state).toBe('observed');
+    const finished = finishSample(sample({ deadlineMs: 110 }), 300, activity(), 'timeout');
+    expect(finished.peers[0]?.input).toEqual({ state: 'censored', elapsedMs: 10, reason: 'timeout' });
+    expect(summarize([finished], 20)).toMatchObject({ submissions: 1, expectedSubmissions: 20, notStartedSubmissions: 19 });
+  });
   it('requires both actor and exact receipt-linked message, not a substring elsewhere', () => {
     const snapshot = activity();
     expect(receiptFor(snapshot, work)).toHaveLength(1);

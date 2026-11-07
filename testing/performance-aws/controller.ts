@@ -171,7 +171,8 @@ export async function run(options: Options, environment: NodeJS.ProcessEnv = pro
       const drain = async (deadlineMs: number, predicate: (value: Activity) => boolean, requestSignal = signal) => {
         while (now() < deadlineMs) {
           if (requestSignal.aborted) throw new Error('interrupted');
-          const activity = await read(requestSignal);
+          const activity = await read(AbortSignal.any([requestSignal, AbortSignal.timeout(Math.max(1, Math.ceil(deadlineMs - now())))]));
+          if (now() > deadlineMs) throw new Error('timeout');
           if (predicate(activity)) return activity;
           await delay(500, undefined, { signal: requestSignal });
         }
@@ -232,6 +233,7 @@ export async function run(options: Options, environment: NodeJS.ProcessEnv = pro
           const roundStart = now();
           await Promise.all(entries.map(async ({ sample, work, body, token }) => {
             sample.startedMs = work.startedMs = now();
+            sample.deadlineMs = work.deadlineMs = roundStart + options.timeoutMs;
             const timeout = AbortSignal.timeout(Math.min(180_000, options.timeoutMs));
             try {
               const response = await fetch(`${configuration.baseURL}/agents/sessions/${session.id}/events`, { method: 'POST', redirect: 'error',
@@ -274,7 +276,7 @@ export async function run(options: Options, environment: NodeJS.ProcessEnv = pro
         Object.assign(result.cleanup, await cleanupActions(actions));
         if (Object.values(result.cleanup).includes('failed')) result.status = 'failed';
         result.turns = latest?.turns.map(turn => ({ id: turn.id, status: turn.status, baseline: baselineTurnIds.includes(turn.id), usage: turn.usage })) ?? [];
-        result.summary = summarize(result.samples);
+        result.summary = summarize(result.samples, size.writers * options.rounds);
         const connections = result.observers.flatMap(observer => observer.connections);
         result.cost = { streamConnectionMs: connections.filter(connection => connection.kind === 'stream').reduce((sum, value) => sum + (value.occupancyMs ?? 0), 0),
           streamBytes: connections.filter(connection => connection.kind === 'stream').reduce((sum, value) => sum + value.bytes, 0),

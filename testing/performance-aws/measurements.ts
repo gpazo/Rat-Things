@@ -8,6 +8,7 @@ export interface Workload {
   subject: string;
   text: string;
   startedMs: number;
+  deadlineMs?: number;
   baselineTurns: readonly string[];
   baselineItems: readonly string[];
 }
@@ -25,6 +26,7 @@ export interface Sample {
   writer: string;
   round: number;
   startedMs: number;
+  deadlineMs?: number;
   payloadBytes: number;
   textSha256: string;
   acknowledgement: { state: 'pending' } | { state: 'accepted' | 'rejected'; latencyMs: number; httpStatus: number }
@@ -47,6 +49,7 @@ function actualProgress(item: AgentSessionItem): boolean {
 
 /** Full snapshots are inspected, but only exact attributed receipts and fresh output qualify. */
 export function observePeer(previous: PeerSample, activity: Activity, work: Workload, nowMs: number): PeerSample {
+  if (work.deadlineMs !== undefined && nowMs > work.deadlineMs) return previous;
   const receipts = receiptFor(activity, work);
   if (receipts.length !== 1 || nowMs < work.startedMs) return previous;
   const receipt = receipts[0]!;
@@ -61,13 +64,14 @@ export function observePeer(previous: PeerSample, activity: Activity, work: Work
 }
 
 export function finishSample(sample: Sample, nowMs: number, activity: Activity | undefined, reason: string): Sample {
+  const finishedMs = Math.min(nowMs, sample.deadlineMs ?? nowMs);
   const attribution = (progress: Extract<Progress, { state: 'observed' }>): typeof progress.attribution => {
     const count = activity?.inputs.filter(input => input.turn_ids.includes(progress.turnId)).length ?? 0;
     return count === 0 ? 'unclassified' : count === 1 ? 'unique_receipt_for_turn' : 'ambiguous_same_turn';
   };
   return { ...sample, peers: sample.peers.map(peer => ({ ...peer,
-    input: peer.input.state === 'pending' ? { state: 'censored', elapsedMs: Math.max(0, nowMs - sample.startedMs), reason } : peer.input,
-    progress: peer.progress.state === 'pending' ? { state: 'censored', elapsedMs: Math.max(0, nowMs - sample.startedMs), reason }
+    input: peer.input.state === 'pending' ? { state: 'censored', elapsedMs: Math.max(0, finishedMs - sample.startedMs), reason } : peer.input,
+    progress: peer.progress.state === 'pending' ? { state: 'censored', elapsedMs: Math.max(0, finishedMs - sample.startedMs), reason }
       : peer.progress.state === 'observed' ? { ...peer.progress, attribution: attribution(peer.progress) } : peer.progress,
   })) };
 }
@@ -81,10 +85,12 @@ export function distribution(values: readonly number[]) {
   return { count: sorted.length, min: sorted[0] ?? null, p50: percentile(0.5), p95: percentile(0.95), p99: percentile(0.99), max: sorted.at(-1) ?? null };
 }
 
-export function summarize(samples: readonly Sample[]) {
+export function summarize(samples: readonly Sample[], expectedSubmissions = samples.length) {
   const peers = samples.flatMap(sample => sample.peers);
   return {
     submissions: samples.length,
+    expectedSubmissions,
+    notStartedSubmissions: Math.max(0, expectedSubmissions - samples.length),
     accepted: samples.filter(sample => sample.acknowledgement.state === 'accepted').length,
     rejected: samples.filter(sample => sample.acknowledgement.state === 'rejected').length,
     errors: samples.filter(sample => ['error', 'timeout', 'pending'].includes(sample.acknowledgement.state)).length,
