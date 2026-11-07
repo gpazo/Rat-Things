@@ -1,3 +1,4 @@
+// Generated from spec/schemas/agents-api.schema.json by scripts/generate-agents-api-validators.mjs. Do not edit.
 import type { ValidateFunction } from 'ajv';
 import type { AgentsApiContracts } from './agents-api.js';
 export declare const validateTrace: ValidateFunction;

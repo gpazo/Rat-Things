@@ -20,8 +20,9 @@ for (const name of contractNames) {
 
 const source = standaloneCode(ajv, schemas);
 const map = `\nexport const validators = {\n${contractNames.map((name) => `  ${JSON.stringify(name)}: validate${name},`).join('\n')}\n};\n`;
-const generated = `${source}${map}`;
-const declaration = `import type { ValidateFunction } from 'ajv';\nimport type { AgentsApiContracts } from './agents-api.js';\n${contractNames.map((name) => `export declare const validate${name}: ValidateFunction;`).join('\n')}\nexport declare const validators: Readonly<Record<keyof AgentsApiContracts, ValidateFunction>>;\n`;
+const header = '// Generated from spec/schemas/agents-api.schema.json by scripts/generate-agents-api-validators.mjs. Do not edit.\n';
+const generated = `${header}${source}${map}`;
+const declaration = `${header}import type { ValidateFunction } from 'ajv';\nimport type { AgentsApiContracts } from './agents-api.js';\n${contractNames.map((name) => `export declare const validate${name}: ValidateFunction;`).join('\n')}\nexport declare const validators: Readonly<Record<keyof AgentsApiContracts, ValidateFunction>>;\n`;
 const outputPath = 'src/domain/agents-api-validators.generated.mjs';
 const declarationPath = 'src/domain/agents-api-validators.generated.d.mts';
 
