@@ -24,6 +24,7 @@ export async function shareScenario({ source, endpoint, region, operatorEndpoint
   let identitiesAttempted = false;
   let connectionId: string | undefined;
   let operationError: unknown;
+  let phase = 'identities';
   const localJson = async <T>(path: string, method = 'GET', body?: unknown): Promise<T> => {
     const response = await localResponse(path, method, body);
     if (!response.ok) throw new Error(`Local ${method} ${path} returned ${response.status}.`);
@@ -44,9 +45,11 @@ export async function shareScenario({ source, endpoint, region, operatorEndpoint
       return (response.status === 204 ? undefined : await response.json()) as T;
     };
     const operator = createAgentsClient({ baseURL: operatorEndpoint, region }).withOptions({ maxRetries: 0 });
+    phase = 'space';
     const space = await operator.post<{ id: string }>('/rat/spaces', { body: { name: `Share ${randomUUID()}`, manager: { issuer: manager.issuer, subject: manager.subject } } });
     spaceId = space.id;
     await record('space', { id: spaceId });
+    phase = 'team_policy';
     for (const [person, role] of [[collaborator, 'collaborator'], [viewer, 'viewer']] as const) {
       await team(`/rat/spaces/${spaceId}/bindings`, 'POST', { issuer: person.issuer, subject: person.subject, role, label: person.username });
     }
@@ -54,6 +57,7 @@ export async function shareScenario({ source, endpoint, region, operatorEndpoint
       name: 'Portable workspace', models: [source.model], tools: [],
       environments: [{ type: 'openai_hosted', network: { access: 'disabled' } }], vault_ids: [], capability_profile_ids: [], connection_grant_ids: [],
     });
+    phase = 'login_discovery';
     const discovery = await discoverTeamLogin(endpoint);
     const provider = discovery.login_providers.find(value => value.profile === 'cognito_access');
     assert(provider, 'Disposable Cognito login provider missing.');
@@ -62,17 +66,21 @@ export async function shareScenario({ source, endpoint, region, operatorEndpoint
     try {
       browser = await chromium.launch({ headless: true });
       const page = await browser.newPage();
+      phase = 'login_form';
       await page.goto(attempt.url);
       await page.locator('input[name="username"]:visible').fill(collaborator.username);
       await page.locator('input[name="password"]:visible').fill(collaborator.loginPassword);
-      await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+      await page.locator('input[name="signInSubmitButton"]:visible').click();
+      phase = 'login_callback';
       const login = await attempt.result;
       assert.equal(login.identity.subject, collaborator.subject);
+      phase = 'login_refresh';
       const renewed = await refreshLogin(provider, login.tokens);
       const connection = await store.save(endpoint, provider, { ...login, tokens: renewed });
       connectionId = connection.id;
       await record('browserLogin', { provider: provider.id, verifiedSubject: login.identity.subject, flow: 'authorization_code_pkce', refresh: 'provider_accepted', credentialsSavedPrivately: true });
     } finally { attempt.close(); await browser?.close(); }
+    phase = 'source_start';
     await start();
     const before = await localJson<AgentSession>(`/agents/sessions/${source.sessionId}`);
     const beforeItems = await localJson<{ data: AgentSessionItem[]; has_more: boolean }>(`/agents/sessions/${source.sessionId}/items?limit=100&order=asc`);
@@ -80,6 +88,7 @@ export async function shareScenario({ source, endpoint, region, operatorEndpoint
     assert(!beforeItems.has_more && !beforeTurns.has_more && beforeTurns.data.length === 2
       && beforeTurns.data.every(turn => turn.status === 'completed'));
     const shareId = randomUUID();
+    phase = 'share';
     const plan = await localJson<SharePlan>('/workspace/shares', 'POST', { id: shareId, session_id: source.sessionId, endpoint, region, space_id: spaceId, connection_id: connectionId });
     assert.equal(plan.id, shareId);
     const complete = await until(() => localJson<SharePlan>(`/workspace/shares/${shareId}`), value => {
@@ -89,6 +98,7 @@ export async function shareScenario({ source, endpoint, region, operatorEndpoint
     assert.equal(complete.destination_session_id, source.sessionId);
     assert.equal(complete.can_abort, false);
     await record('share', complete);
+    phase = 'source_restart_fence';
     await stop();
     await start();
     const retried = await localJson<SharePlan>(`/workspace/shares/${shareId}`, 'POST');
@@ -99,6 +109,7 @@ export async function shareScenario({ source, endpoint, region, operatorEndpoint
     assert.equal(blocked.status, 409); await blocked.body?.cancel();
     const abort = await localResponse(`/workspace/shares/${shareId}`, 'DELETE');
     assert.equal(abort.status, 409); await abort.body?.cancel();
+    phase = 'restored_history';
     const hosted = await team<Activity>(`/rat/sessions/${source.sessionId}/activity`, 'GET', undefined, viewer);
     assert.equal(hosted.session.id, before.id); assert.deepEqual(hosted.session.agent, before.agent);
     assert.deepEqual(hosted.turns, beforeTurns.data);
@@ -106,6 +117,7 @@ export async function shareScenario({ source, endpoint, region, operatorEndpoint
     await record('restoredHistory', { sessionId: hosted.session.id, agentId: hosted.session.agent.id, model: hosted.session.agent.model,
       turns: hosted.turns.map(turn => turn.id), items: hosted.items.length, historySha256: sha256(JSON.stringify(hosted.items)), sourceRestartFenced: true });
     const proof = cloudCommand(randomUUID(), source);
+    phase = 'hosted_continuation';
     await stop();
     await team(`/agents/sessions/${source.sessionId}/events`, 'POST', {
       events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text: `Continue our shared workspace. Run this exact command once, then report the output.\n${proof.command}` }] }] }],
@@ -124,6 +136,7 @@ export async function shareScenario({ source, endpoint, region, operatorEndpoint
     await record('sourceFiles', source.files);
   } catch (error) {
     operationError = error;
+    await record('shareFailure', { phase, kind: error instanceof Error ? error.name : 'unknown' });
     throw error;
   } finally {
     const cleanup: Record<string, 'complete' | 'failed' | 'unconfirmed'> = {};
