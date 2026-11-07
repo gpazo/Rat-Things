@@ -46,7 +46,7 @@ export class FixtureMachine implements NativeMachine {
     this.kill();
     if (this.stopError) throw this.stopError;
   });
-  control = vi.fn(async (request: Parameters<NativeMachine['control']>[0], _timeoutMs?: number) => {
+  control = vi.fn(async (request: Parameters<NativeMachine['control']>[0], _timeoutMs?: number): Promise<unknown> => {
     await this.beforeControl?.(request.operation);
     if (request.operation === 'snapshot') return [];
     if (request.operation === 'start') this.registered = true;

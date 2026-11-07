@@ -76,6 +76,30 @@ it('is inert until requested and uses the pinned helper and fixed authenticated 
   } finally { await test.close(); }
 });
 
+it('excludes executor state from older pinned guest exports before validating retained files', async () => {
+  const test = await fixture();
+  const request = startRequest();
+  const files = [
+    { path: 'codex-bwrap-synthetic-mount-targets-10001/lock', data: '', mode: 0o644 },
+    { path: 'codex-bwrap-synthetic-mount-targets-42', data: '', mode: 0o755, directory: true },
+    { path: '.rat-transfer/part-0', data: '', mode: 0o600 },
+    { path: 'outputs/result', data: Buffer.from('work').toString('base64'), mode: 0o600 },
+    { path: 'nested/codex-bwrap-synthetic-mount-targets-10001', data: '', mode: 0o600 },
+    { path: 'codex-bwrap-synthetic-mount-targets-notes', data: '', mode: 0o600 },
+  ];
+  try {
+    await test.runtime.start(request, async () => {});
+    await test.runtime.stop(request.worker.sessionId);
+    test.onMachine.mockImplementation(machine => {
+      const control = machine.control.getMockImplementation()!;
+      machine.control.mockImplementation(async (...args) => args[0].operation === 'snapshot' ? files : control(...args));
+    });
+    await expect(test.runtime.snapshot(request.worker.sessionId)).resolves.toEqual(files.slice(3));
+    files.push({ path: '../escape', data: '', mode: 0o600 });
+    await expect(test.runtime.snapshot(request.worker.sessionId)).rejects.toThrow('Invalid workspace archive path');
+  } finally { await test.close(); }
+});
+
 it.each(['unhealthy', 'exited-during-health'] as const)('refuses turn admission when the worker is %s', async failure => {
   const test = await fixture(); const request = startRequest();
   try {

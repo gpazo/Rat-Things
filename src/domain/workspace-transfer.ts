@@ -11,6 +11,11 @@ function reservedWorkspacePath(path: string): boolean {
     || /^codex-bwrap-synthetic-mount-targets-[0-9]+(?:\/|$)/.test(path);
 }
 
+/** Older pinned guests can include executor scratch in their source export. */
+export function portableWorkspaceFiles(files: readonly PortableFile[]): PortableFile[] {
+  return files.filter(file => !reservedWorkspacePath(file.path));
+}
+
 /** The read-only exporter runs inside the VM; the host receives only bounded workspace data. */
 export const WORKSPACE_EXPORT_SCRIPT = `
 const fs = require('node:fs/promises');

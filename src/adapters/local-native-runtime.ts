@@ -9,7 +9,7 @@ import type { LocalRuntime, LocalStartRequest, LocalWorkerConfiguration } from '
 import type { PinnedNativeRelease } from '../core/native-installation-ports.js';
 import type { LocalRuntimeStatus } from '../domain/local-runtime.js';
 import { localWorkspaceIdentity, sameLocalWorkspace, type LocalWorkspaceIdentity, type LocalWorkspaceIntent } from '../domain/local-workspace.js';
-import { archiveWorkspace, type PortableFile } from '../domain/workspace-transfer.js';
+import { archiveWorkspace, portableWorkspaceFiles, type PortableFile } from '../domain/workspace-transfer.js';
 import { LocalRuntimeLifecycle } from './local-runtime-lifecycle.js';
 import { readNativeHostFacts } from './local-native-host.js';
 import { LocalRuntimeAdmissionError, nativeAdmission, linuxKvmAdmission, type NativeHostFacts, type NativeResources } from '../domain/local-native-admission.js';
@@ -579,7 +579,7 @@ export class LocalNativeRuntime implements LocalRuntime {
       await this.stopWorker(sessionId);
       const { vm } = await this.boot(sessionId, 'readonly', binding, resources, image);
       try {
-        const files = await vm.control({ operation: 'snapshot' }) as PortableFile[];
+        const files = portableWorkspaceFiles(await vm.control({ operation: 'snapshot' }) as PortableFile[]);
         archiveWorkspace(files);
         return files;
       } finally { await this.stopWorker(sessionId); }
