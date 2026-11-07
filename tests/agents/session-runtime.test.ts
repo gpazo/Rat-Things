@@ -56,7 +56,7 @@ const responseUsage = (threadId: string, turnId: string, responseId: string, inp
 describe('persistent native session runtime', () => {
   it('keeps the logical model while using its known Bedrock namespace for startup and continuation', async () => {
     const f = fixture(undefined, 'amazon-bedrock', 'gpt-6-astra');
-    const settings = { model: 'gpt-6-astra', reasoning: { effort: null }, service_tier: 'priority' };
+    const settings = { model: 'gpt-6-astra', reasoning: { effort: null }, service_tier: 'priority' as const };
     try {
       await f.runtime.initialize();
       await f.runtime.start(rootTurn('first'), message);
