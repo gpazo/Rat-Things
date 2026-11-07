@@ -10,6 +10,7 @@ import type { AgentListOrdering, AgentListQuery, AgentObservation, AgentResource
 import type { ArtifactStore } from '../core/ports.js';
 import { performanceCount } from '../core/performance.js';
 import { measuredDynamo } from './aws-performance.js';
+import { ImmutableHydrationCache, type HydrationCacheOptions } from './immutable-hydration-cache.js';
 
 interface ResourceIndex {
   id: string;
@@ -25,11 +26,13 @@ interface ResourceIndex {
 
 /** Strongly consistent indexes; complete definitions and content stay in encrypted S3. */
 export class DynamoAgentsStore implements AgentsStore {
+  private readonly hydrationCache: ImmutableHydrationCache;
   public constructor(
     private readonly client: DynamoDBDocumentClient,
     private readonly tableName: string,
     private readonly objects: Pick<ArtifactStore, 'putJson' | 'getJson'>,
-  ) {}
+    cacheOptions: HydrationCacheOptions = {},
+  ) { this.hydrationCache = new ImmutableHydrationCache(cacheOptions); }
 
   public async get<T>(ownerId: string, collection: string, id: string): Promise<AgentResource<T> | undefined> {
     const index = await this.index(ownerId, collection, id);
@@ -156,7 +159,7 @@ export class DynamoAgentsStore implements AgentsStore {
       revision: index.revision, createdAt: index.createdAt,
       ...(index.listOrder ? { listOrder: index.listOrder } : {}),
       ...(index.expiresAt !== undefined ? { expiresAt: index.expiresAt } : {}),
-      value: await this.objects.getJson<T>(index.reference),
+      value: await (isWriterOwnedReference(index) ? this.hydrationCache.get(cacheKey(index.reference), () => this.objects.getJson<T>(index.reference)) : this.objects.getJson<T>(index.reference)),
     };
   }
 }
@@ -172,6 +175,12 @@ function confirmedContention(error: unknown): boolean {
 }
 
 function hash(value: string): string { return createHash('sha256').update(value).digest('hex'); }
+function isWriterOwnedReference(index: ResourceIndex): boolean {
+  if (typeof index.reference?.key !== 'string') return false;
+  const prefix = `owners/${hash(index.ownerId)}/agents/${hash(index.collection)}/${index.id}/`;
+  return index.reference.key.startsWith(prefix) && /^[a-f0-9]{64}\.json$/.test(index.reference.key.slice(prefix.length));
+}
+function cacheKey(reference: ArtifactReference): string { return JSON.stringify([reference.bucket, reference.key, reference.sha256]); }
 function listScope(ownerId: string, collection: string): string { return `list:${hash(ownerId)}:${hash(collection)}`; }
 function rootKey(ownerId: string, collection: string, id: string) {
   return { scope: `resource:${hash(ownerId)}:${hash(collection)}:${id}`, key: 'root' };

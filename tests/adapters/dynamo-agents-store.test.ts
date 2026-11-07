@@ -166,3 +166,21 @@ it('guards deletion with the same current membership transaction', async () => {
   expect(transaction.input.TransactItems).toHaveLength(3);
   expect(transaction.input.TransactItems?.[2]?.ConditionCheck?.ExpressionAttributeValues).toEqual({ ':expected': 3 });
 });
+
+it('hydrates only the current consistent head and immediately observes its tombstone', async () => {
+  let head: Record<string, unknown> | undefined;
+  const bodies = new Map<string, unknown>(); let reads = 0;
+  const send = vi.fn(async (command: unknown) => command instanceof GetCommand ? { Item: head } : {});
+  const store = new DynamoAgentsStore({ send } as unknown as DynamoDBDocumentClient, 'agents', {
+    putJson: async (key, value) => { bodies.set(key, value); return { bucket: 'private', key, sha256: 'digest' }; },
+    getJson: async <T>(reference: ArtifactReference) => { reads++; return bodies.get(reference.key) as T; },
+  });
+  await store.put(resource, 0);
+  const transaction = send.mock.calls.find(([command]) => command instanceof TransactWriteCommand)![0] as TransactWriteCommand;
+  head = transaction.input.TransactItems![0]!.Put!.Item as Record<string, unknown>;
+  expect(await store.get('alice', 'agents', 'agent')).toEqual(resource);
+  expect(await store.get('alice', 'agents', 'agent')).toEqual(resource);
+  expect(reads).toBe(1);
+  head = { ...head, deleted: true, revision: 2 };
+  expect(await store.get('alice', 'agents', 'agent')).toBeUndefined();
+});

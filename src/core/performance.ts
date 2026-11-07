@@ -9,6 +9,7 @@ const units = {
   DynamoAttempts: 'Count', DynamoErrors: 'Count', DynamoCapacityReports: 'Count', DynamoCapacityMissing: 'Count',
   S3GetCount: 'Count', S3PutCount: 'Count', S3Attempts: 'Count', S3Errors: 'Count',
   S3ReadBytes: 'Bytes', S3WriteBytes: 'Bytes',
+  HydrationCacheHits: 'Count', HydrationCacheMisses: 'Count', HydrationCacheCoalesced: 'Count', HydrationCacheEvictions: 'Count', HydrationCacheBytes: 'Bytes',
   AuthorizationCount: 'Count', ActivityPollCount: 'Count', ActivityEventCount: 'Count',
   SubmissionConflicts: 'Count', SubmissionAcceptedDuration: 'Milliseconds',
   ShareQuiesceDuration: 'Milliseconds', ShareSnapshotDuration: 'Milliseconds',
