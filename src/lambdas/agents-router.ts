@@ -76,6 +76,9 @@ export async function routeAgentsRequest(request: Request, principal: ApiPrincip
     if (!readOnly && !explicitAcceptance && parts[1] !== 'rat') await services.access.accept(authority, actions, parts.join('/'));
     const response = explicitAcceptance || !readOnly && parts[1] !== 'rat' ? await dispatch() : await services.guardedStore.run(authority, readOnly, dispatch);
     await authority.revalidate();
+    // Activity owns per-frame and idle authorization, including producer cancellation.
+    // Wrapping it again duplicates storage reads and obscures its terminal state.
+    if (request.method === 'GET' && parts.length === 6 && parts[1] === 'rat' && parts[2] === 'sessions' && parts[4] === 'activity' && parts[5] === 'events') return response;
     return reauthorizedResponse(response, authority, request.signal);
   } catch (error) { return agentsErrorResponse(error, requestId); }
 }
@@ -365,7 +368,8 @@ function reauthorizedResponse(response: Response, authority: SpaceAuthority, sig
   let closed = false;
   let timer: ReturnType<typeof setInterval> | undefined;
   const cleanup = () => { closed = true; if (timer) clearInterval(timer); signal.removeEventListener('abort', abort); };
-  const abort = () => { cleanup(); void reader.cancel(); };
+  const cancel = () => { void reader.cancel().catch(() => undefined); };
+  const abort = () => { cleanup(); cancel(); };
   signal.addEventListener('abort', abort, { once: true });
   return new Response(new ReadableStream({
     start(controller) {
@@ -373,7 +377,7 @@ function reauthorizedResponse(response: Response, authority: SpaceAuthority, sig
       timer = setInterval(() => {
         if (checking || closed) return;
         checking = true;
-        void authority.revalidate().catch(error => { if (!closed) { cleanup(); controller.error(error); void reader.cancel(); } }).finally(() => { checking = false; });
+        void authority.revalidate().catch(error => { if (!closed) { cleanup(); controller.error(error); cancel(); } }).finally(() => { checking = false; });
       }, 1000);
       timer.unref?.();
     },
@@ -385,7 +389,7 @@ function reauthorizedResponse(response: Response, authority: SpaceAuthority, sig
         await authority.revalidate();
         if (closed) return;
         if (next.done) { cleanup(); controller.close(); } else controller.enqueue(next.value);
-      } catch (error) { if (!closed) { cleanup(); controller.error(error); void reader.cancel(); } }
+      } catch (error) { if (!closed) { cleanup(); controller.error(error); cancel(); } }
     },
     async cancel() { cleanup(); await reader.cancel(); },
   }), { status: response.status, headers: response.headers });

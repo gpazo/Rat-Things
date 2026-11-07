@@ -37,7 +37,9 @@ there is no approval prompt that can widen it during execution.
 
 Removing a participant blocks new access and new submissions. Open activity
 streams recheck access, including while idle, and close when access expires or is
-removed. A request accepted before removal remains durable and can finish. To
+removed. Deleting a Session also closes its activity streams. Closing a viewer's
+stream stops that viewer's polling; it does not cancel the agent's work.
+A request accepted before removal remains durable and can finish. To
 stop that work, a controller cancels it separately. Removing access cannot recall
 content already read or remove contributions already included in model context.
 

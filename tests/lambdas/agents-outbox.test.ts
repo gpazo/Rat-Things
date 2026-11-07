@@ -17,9 +17,11 @@ beforeEach(() => { vi.resetAllMocks(); vi.stubEnv('AGENTS_QUEUE_URL', 'https://s
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 
 it('releases a Session FIFO promptly after a rejected write and acknowledges successful redelivery', async () => {
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {});
   f.dispatch.mockRejectedValueOnce(new AgentsResourceConflictError()).mockResolvedValueOnce(undefined);
   const event = { Records: [{ ...queueEvent.Records[0]!, body: JSON.stringify({ type: 'dispatch', ownerId: 'alice', id: 'session' }) }] } as SQSEvent;
   expect(await handler(event)).toEqual({ batchItemFailures: [{ itemIdentifier: 'message-1' }] });
+  expect(info.mock.calls.map(([value]) => JSON.parse(value as string))).toContainEqual(expect.objectContaining({ event: 'agents.outbox.retry', errorCode: 'conflict', retrySeconds: 5 }));
   expect(f.completeReadyTurns).not.toHaveBeenCalled();
   expect(f.send.mock.calls[0]![0]).toBeInstanceOf(ChangeMessageVisibilityCommand);
   expect(f.send.mock.calls[0]![0].input).toEqual({ QueueUrl: 'https://sqs.example/agents', ReceiptHandle: 'receipt', VisibilityTimeout: 5 });

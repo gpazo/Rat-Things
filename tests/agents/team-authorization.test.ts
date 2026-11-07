@@ -175,7 +175,7 @@ describe('team router', () => {
       expect(permission).toContain('rat.space.permissions');
       expect(permission).toContain('"role":"viewer"');
       await s.access.revoke(s.authority, principal('bob').actor!.id);
-      await expect(reader.read()).rejects.toThrow();
+      await expect(reader.read()).resolves.toEqual({ done: true, value: undefined });
     } finally { abort.abort(); await reader.cancel().catch(() => {}); }
   });
   it('rejects viewers and missing selectors before invoking effects and preserves IAM bootstrap', async () => {

@@ -7,7 +7,7 @@ const allowed = { role: 'editor', permissions: ['read'] };
 describe('activity stream shutdown', () => {
   it('closes when the Session disappears during iteration', async () => {
     const failure = new AgentsApiError(404, 'Session not found.', 'resource_not_found');
-    const response = activityStream({ async *[Symbol.asyncIterator]() { throw failure; } }, new AbortController().signal, undefined, async () => allowed);
+    const response = activityStream(() => ({ async *[Symbol.asyncIterator]() { throw failure; } }), new AbortController().signal, undefined, async () => allowed);
     const reader = response.body!.getReader();
     await expect(reader.read()).resolves.toEqual({ done: true, value: undefined });
   });
@@ -20,7 +20,7 @@ describe('activity stream shutdown', () => {
       return: returned,
     };
     const controller = new AbortController();
-    const response = activityStream({ [Symbol.asyncIterator]: () => iterator }, controller.signal, undefined, async () => allowed);
+    const response = activityStream(() => ({ [Symbol.asyncIterator]: () => iterator }), controller.signal, undefined, async () => allowed);
     const reader = response.body!.getReader();
     const read = reader.read();
     await vi.waitFor(() => expect(resolveNext).toBeTypeOf('function'));
@@ -33,14 +33,31 @@ describe('activity stream shutdown', () => {
   it('closes without exposing a queued event after authorization revocation', async () => {
     const revoked = new AgentsApiError(403, 'Access revoked.', 'insufficient_permissions');
     const authorize = vi.fn().mockResolvedValueOnce(allowed).mockRejectedValueOnce(revoked);
-    const response = activityStream({ async *[Symbol.asyncIterator]() { yield { event_id: 'must-not-leak' }; } }, new AbortController().signal, undefined, authorize);
+    const response = activityStream(() => ({ async *[Symbol.asyncIterator]() { yield { event_id: 'must-not-leak' }; } }), new AbortController().signal, undefined, authorize);
     const reader = response.body!.getReader();
     await expect(reader.read()).resolves.toEqual({ done: true, value: undefined });
   });
 
   it('preserves unknown iterator failures', async () => {
     const failure = new Error('storage unavailable');
-    const response = activityStream({ async *[Symbol.asyncIterator]() { throw failure; } }, new AbortController().signal, undefined, async () => allowed);
+    const response = activityStream(() => ({ async *[Symbol.asyncIterator]() { throw failure; } }), new AbortController().signal, undefined, async () => allowed);
     await expect(response.body!.getReader().read()).rejects.toBe(failure);
+  });
+
+  it('aborts a cooperative producer and settles a pending read when its reader cancels', async () => {
+    let producerSignal: AbortSignal | undefined;
+    let finished = false;
+    const response = activityStream(signal => ({ async *[Symbol.asyncIterator]() {
+      producerSignal = signal;
+      try { await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true })); }
+      finally { finished = true; }
+    } }), new AbortController().signal, undefined, async () => allowed);
+    const reader = response.body!.getReader();
+    const pending = reader.read();
+    await vi.waitFor(() => expect(producerSignal).toBeDefined());
+    await reader.cancel();
+    await expect(pending).resolves.toEqual({ done: true, value: undefined });
+    await vi.waitFor(() => expect(finished).toBe(true));
+    expect(producerSignal!.aborted).toBe(true);
   });
 });

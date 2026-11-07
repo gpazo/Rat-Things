@@ -7,7 +7,7 @@ import { createAwsClients } from '../adapters/aws-runtime.js';
 import { requiredEnv } from '../adapters/executors.js';
 import { getAgentsApiServices, getSessionIntegrationService, getScheduleService, getEventCandidateService } from '../app/composition.js';
 import { AgentsApiError } from '../domain/agents-api-validation.js';
-import { PerformanceScope } from '../core/performance.js';
+import { PerformanceScope, performanceCount } from '../core/performance.js';
 
 
 const queue = createAwsClients().sqs;
@@ -38,6 +38,8 @@ async function handle(event: DynamoDBStreamEvent | SQSEvent) {
             // Revisit long waits hourly. The SQS twelve-hour ceiling starts at
             // receipt, so requesting the full twelve hours here can be rejected.
             await queue.send(new ChangeMessageVisibilityCommand({ QueueUrl: requiredEnv('AGENTS_QUEUE_URL'), ReceiptHandle: record.receiptHandle, VisibilityTimeout: Math.min(3600, Math.max(1, Math.ceil(attempt.retryAfterSeconds))) }));
+            performanceCount('OutboxRetryCount');
+            console.info(JSON.stringify({ event: 'agents.outbox.retry', stage: 'job', reason: 'deferred', type: job.type }));
             batchItemFailures.push({ itemIdentifier: record.messageId });
           }
         }
@@ -56,10 +58,12 @@ async function handle(event: DynamoDBStreamEvent | SQSEvent) {
         const retrySeconds = error instanceof AgentsApiError ? agentsJobRetrySeconds(error) : undefined;
         if (retrySeconds !== undefined) {
           await queue.send(new ChangeMessageVisibilityCommand({ QueueUrl: requiredEnv('AGENTS_QUEUE_URL'), ReceiptHandle: record.receiptHandle, VisibilityTimeout: retrySeconds }));
+          performanceCount('OutboxRetryCount');
+          console.info(JSON.stringify({ event: 'agents.outbox.retry', stage: 'job', retrySeconds, ...agentsOutboxFailure(error) }));
         } else {
+          performanceCount('OutboxFailureCount');
           console.warn(JSON.stringify({ event: 'agents.outbox.failure', stage: 'job', messageId: record.messageId,
             ...agentsOutboxFailure(error),
-            ...(error instanceof AgentsApiError ? { status: error.status, code: error.code } : {}),
           }));
         }
         batchItemFailures.push({ itemIdentifier: record.messageId });
@@ -77,6 +81,7 @@ async function handle(event: DynamoDBStreamEvent | SQSEvent) {
       }));
       }
     } catch (error) {
+      performanceCount('OutboxFailureCount');
       console.warn(JSON.stringify({ event: 'agents.outbox.failure', stage: 'stream_enqueue', ...agentsOutboxFailure(error), jobCount: jobs.length }));
       if (record.dynamodb.SequenceNumber) batchItemFailures.push({ itemIdentifier: record.dynamodb.SequenceNumber });
       else throw new Error('Session outbox failed without a stream sequence number');
