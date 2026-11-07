@@ -32,8 +32,21 @@ it.each(['persistent', 'desktop'] as const)('measures exact correlated messages 
   expect(result.stream.initialBytes).toBeGreaterThan(0);
   expect(result.stream.workloadBytes).toBeGreaterThan(0);
   expect(result.cleanup.completed).toBe(true);
-  if (mode === 'desktop') expect(result.stream.viewers.every(viewer => viewer.connections > 1)).toBe(true);
+  if (mode === 'desktop') {
+    expect(result.stream.viewers.every(viewer => viewer.connections > 1 && viewer.snapshotRequests >= 1 && viewer.runtimeRequests === viewer.snapshotRequests && viewer.authRefreshes >= 1)).toBe(true);
+    expect(result.stream.viewers.every(viewer => viewer.snapshotBytes > 0 && viewer.runtimeBytes > 0 && viewer.authorityBytes > 0)).toBe(true);
+    expect(result.stream.totalResponseBodyBytes).toBeGreaterThan(result.stream.bytes);
+  }
 }, 20_000);
+
+it('never claims confirmed cleanup when fixture setup throws before returning its cleanup handle', async () => {
+  const result = await runScenario({ ...defaults, writers: 1, rounds: 1 }, 1, 0, 'persistent', 0, performance.now() + 1000,
+    async () => { throw new Error('Fixture setup and cleanup failed'); });
+  expect(result.cleanup).toMatchObject({ completed: false, error: 'fixture_setup_cleanup_unconfirmed' });
+  expect(result.submission.summary).toMatchObject({ expected: 1, observed: 0, notStarted: 1 });
+  expect(result.peerVisibility.summary).toMatchObject({ expected: 1, notStarted: 1 });
+  expect(result.correctness.passed).toBe(false);
+});
 
 it('retains timed-out output samples and fails correctness instead of treating accepted state as agent progress', async () => {
   const result = await runScenario({ ...defaults, writers: 1, rounds: 1, idleMs: 100, streamIntervalMs: 10, syntheticDelayMs: 300, timeoutMs: 100, durationMs: 5000 }, 1, 0, 'persistent');

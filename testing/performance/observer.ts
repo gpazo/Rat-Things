@@ -32,6 +32,7 @@ export function inspectActivity(activity: SessionActivity, expected: readonly Ex
 
 export interface Observer {
   viewer: number; ready: boolean; bytes: number; connections: number; authRefreshes: number; frames: number; cursor?: string;
+  snapshotBytes: number; runtimeBytes: number; authorityBytes: number; snapshotRequests: number; runtimeRequests: number;
   accepted: Map<string, { at: number; messageId: string; receiptId: string }>; outputs: Map<string, number>;
   errors: string[]; semanticErrors: Set<string>; done: Promise<void>; stop(): void;
 }
@@ -40,7 +41,8 @@ export interface Observer {
 export function observe(fixture: PerformanceFixture, viewer: number, expected: ExpectedInput[], mode: 'persistent' | 'desktop', deadline: AbortSignal): Observer {
   const stop = new AbortController();
   const signal = AbortSignal.any([deadline, stop.signal]);
-  const state: Observer = { viewer, ready: false, bytes: 0, connections: 0, authRefreshes: 0, frames: 0, accepted: new Map(), outputs: new Map(), errors: [], semanticErrors: new Set(), done: Promise.resolve(), stop: () => stop.abort() };
+  const state: Observer = { viewer, ready: false, bytes: 0, connections: 0, authRefreshes: 0, frames: 0, snapshotBytes: 0, runtimeBytes: 0, authorityBytes: 0, snapshotRequests: 0, runtimeRequests: 0,
+    accepted: new Map(), outputs: new Map(), errors: [], semanticErrors: new Set(), done: Promise.resolve(), stop: () => stop.abort() };
   const actor = `viewer-${viewer}`;
   const consume = (data: string) => {
     const event = JSON.parse(data) as { type: string; event_id?: string; activity?: SessionActivity };
@@ -59,16 +61,30 @@ export function observe(fixture: PerformanceFixture, viewer: number, expected: E
   };
   const refresh = mode === 'desktop' ? (async () => {
     while (!signal.aborted) {
-      await delay(2000, undefined, { signal });
       const response = await fixture.request('/v1/rat/spaces', actor, { signal });
-      state.authRefreshes++; await response.arrayBuffer();
+      state.authRefreshes++; state.authorityBytes += (await response.arrayBuffer()).byteLength;
       if (!response.ok) throw new Error(`Permission refresh HTTP ${response.status}`);
+      await delay(2000, undefined, { signal });
     }
   })().catch(error => { if (!signal.aborted) { state.errors.push(`auth:${errorCode(error)}`); stop.abort(); } }) : Promise.resolve();
   const stream = (async () => {
     let nextSnapshot = performance.now() + 15_000;
     while (!signal.aborted) {
-      if (mode === 'desktop' && performance.now() >= nextSnapshot) { delete state.cursor; nextSnapshot = performance.now() + 15_000; }
+      if (mode === 'desktop' && (state.cursor === undefined || performance.now() >= nextSnapshot)) {
+        state.snapshotRequests++;
+        const snapshot = await fixture.request(`/v1/rat/sessions/${fixture.sessionId}/activity`, actor, { signal });
+        const bytes = await snapshot.arrayBuffer(); state.snapshotBytes += bytes.byteLength;
+        if (!snapshot.ok) throw new Error(`Snapshot HTTP ${snapshot.status}`);
+        const activity = JSON.parse(new TextDecoder().decode(bytes)) as SessionActivity;
+        state.runtimeRequests++;
+        const runtime = await fixture.request(`/v1/agents/sessions/${fixture.sessionId}/runtime`, actor, { signal });
+        state.runtimeBytes += (await runtime.arrayBuffer()).byteLength;
+        if (!runtime.ok) state.errors.push(`runtime:HTTP_${runtime.status}`);
+        consume(JSON.stringify({ type: 'rat.session.activity', event_id: activity.cursor, activity }));
+        nextSnapshot = performance.now() + 15_000;
+        await delay(50, undefined, { signal });
+        continue;
+      }
       const connection = new AbortController();
       const idle = mode === 'desktop' ? AbortSignal.timeout(20_000) : undefined;
       const connectionSignal = AbortSignal.any([signal, connection.signal, ...(idle ? [idle] : [])]);
@@ -76,6 +92,7 @@ export function observe(fixture: PerformanceFixture, viewer: number, expected: E
       try {
         state.connections++;
         const response = await fixture.request(`/v1/rat/sessions/${fixture.sessionId}/activity/events`, actor, { signal: connectionSignal, ...(state.cursor ? { cursor: state.cursor } : {}) });
+        if (mode === 'desktop' && [409, 410].includes(response.status)) { state.bytes += (await response.arrayBuffer()).byteLength; delete state.cursor; continue; }
         if (!response.ok || !response.body) throw new Error(`Stream HTTP ${response.status}`);
         const reader = response.body.getReader();
         const decoder = new TextDecoder(); let buffer = '';
@@ -108,3 +125,5 @@ export function observe(fixture: PerformanceFixture, viewer: number, expected: E
   state.done = Promise.all([stream, refresh]).then(() => undefined);
   return state;
 }
+
+export const observerBytes = (observer: Observer) => observer.bytes + observer.snapshotBytes + observer.runtimeBytes + observer.authorityBytes;

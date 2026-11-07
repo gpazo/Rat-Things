@@ -45,7 +45,6 @@ export async function createPerformanceFixture(config: PerformanceConfig, viewer
   const agents = new AgentService({ store });
   const runtimes = new SessionRuntimeStore(store);
   const stopping = new AbortController();
-  const streams = new Set<Promise<void>>();
   const handlers = new Set<Promise<void>>();
   const operations = new Map<string, Promise<void>>();
   const executed = new Map<string, { count: number; emittedAt: number }>();
@@ -93,10 +92,7 @@ export async function createPerformanceFixture(config: PerformanceConfig, viewer
   };
   const sessions = new SessionService({ store, agents, execution, streamIntervalMs: config.streamIntervalMs, rateLimit: new OwnerRateLimiter(store) });
   const services: AgentsApiServices = { agents, sessions, access, admission, guardedStore,
-    activity: { snapshot: (owner, id, caller) => sessions.activity(owner, id, caller), follow: async function* (owner, id, signal, options) {
-      let finish!: () => void; const done = new Promise<void>(resolve => { finish = resolve; }); streams.add(done);
-      try { yield* sessions.activityEvents(owner, id, signal, options); } finally { streams.delete(done); finish(); }
-    } } };
+    activity: { snapshot: (owner, id, caller) => sessions.activity(owner, id, caller), follow: (owner, id, signal, options) => sessions.activityEvents(owner, id, signal, options) } };
   const kick = () => {
     pending = true;
     if (busy || stopping.signal.aborted || !session) return;
@@ -127,9 +123,11 @@ export async function createPerformanceFixture(config: PerformanceConfig, viewer
     stopping.abort();
     const closed = new Promise<void>(resolve => server.close(() => resolve())); server.closeAllConnections();
     const deadline = new AbortController();
-    try { await Promise.race([Promise.allSettled([closed, busy, ...handlers, ...streams]), delay(3000, undefined, { signal: deadline.signal }).then(() => { throw new Error('Performance fixture cleanup exceeded3s'); })]); }
-    finally { deadline.abort(); }
-    await sqlite.drainServerLease(); sqlite.close(true); await rm(directory, { recursive: true, force: true });
+    try { await Promise.race([Promise.allSettled([closed, busy, ...handlers]), delay(3000, undefined, { signal: deadline.signal }).then(() => { throw new Error('Performance fixture cleanup exceeded 3s'); })]); }
+    finally {
+      deadline.abort();
+      await sqlite.drainServerLease(); sqlite.close(true); await rm(directory, { recursive: true, force: true });
+    }
   };
   try {
     server.listen(0, '127.0.0.1'); await once(server, 'listening');
