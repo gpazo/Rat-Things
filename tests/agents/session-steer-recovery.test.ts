@@ -181,7 +181,7 @@ it('atomically moves an integration delivery with its rejected input while retai
 it('starts rehomed older input before steering a newer accepted input to that Turn', async () => {
   const f = await fixture();
   const applied: string[] = [];
-  f.execution.steer = vi.fn(async (_owner, _session, turnId, input) => {
+  f.execution.steer = vi.fn<typeof f.execution.steer>(async (_owner, _session, turnId, input) => {
     if (turnId === f.original.turn.id) throw new SessionSteerRejectedError();
     expect(f.observations.has(turnId)).toBe(true);
     applied.push(...input.map(message => (message.content.at(-1) as { text: string }).text));
