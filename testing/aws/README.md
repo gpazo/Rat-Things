@@ -58,6 +58,29 @@ after release. Hosted continuation runs with the local service stopped. The
 controller removes its saved login and test users; retained cloud resources are
 removed by deployment teardown. The source profile and evidence are retained.
 
+To validate the current source host with a native development guest, use a separate
+private profile signed in through the source CLI. Supply the current host Codex
+executable, the explicit native-proof asset directory, and a model supported by
+both providers. Source the same deployment's `runtime.env` first.
+
+```sh
+CODEX_BINARY=/absolute/path/to/current/codex \
+RAT_DEVELOPMENT_SHARE_ACCEPTANCE=1 AWS_E2E_REAL_CODEX=true \
+  node --import tsx testing/local-runtime/development-share.ts \
+  --directory /absolute/private/source-profile \
+  --assets /absolute/path/to/native-proof-assets --model YOUR_SHARED_MODEL
+```
+
+This controller refuses profiles containing installed runtime storage or an
+existing service connection. It uses the current public local HTTP service and
+integrity-checked development assets. It requires two successful subscription
+Turns with a service restart, workspace hashes, setup-once behavior, and guest
+isolation before the same browser login and Share checks. Evidence records the
+host version and guest manifest identity. Cached development assets may predate
+the current source. A pass proves command compatibility for those named assets;
+it does not establish signed distribution or current packaged guest acceptance.
+The controller retains the source profile, workspace, and private evidence.
+
 This live controller exercises normal handoff and completed retry. Deterministic
 Share tests separately inject lost acknowledgements, delayed staging, retirement
 and activation races. Browser login here exercises the host helper, while native
