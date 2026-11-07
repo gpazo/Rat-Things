@@ -9,6 +9,7 @@ const nonce = '11111111-2222-4333-8444-555555555555';
 const marker = 'context_aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 const directory = '/private/source-profile';
 const model = 'proof-model';
+const verifiedCommand: AgentSessionItem = { id: 'cmd_hosted', type: 'command_execution', turn_id: 'turn_hosted', status: 'completed', command: 'verified fixture', output: 'verified output', exit_code: 0, cwd: '/workspace', duration_ms: 1 };
 const program = verificationProgram(nonce, directory);
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 
@@ -74,13 +75,13 @@ it('keeps the marker out of the hosted input and exact workspace command', () =>
 
 it('requires exact recall in the new completed assistant final answer and retains only bounded proof metadata', () => {
   const text = `Workspace verified.\nRAT_CONVERSATION_RECALL ${marker}\n`;
-  expect(conversationRecallProof([answer(text)], 'turn_hosted', marker)).toEqual({ turnId: 'turn_hosted', messageId: 'msg_hosted',
+  expect(conversationRecallProof([verifiedCommand, answer(text)], 'turn_hosted', marker, 'cmd_hosted')).toEqual({ turnId: 'turn_hosted', messageId: 'msg_hosted',
     markerSha256: sha256(marker), source: 'assistant.final_answer', recalled: true });
   for (const wrong of [answer(text, { turn_id: 'turn_source' }), answer(text, { role: 'user' }), answer(text, { phase: 'commentary' }),
     answer(text, { status: 'in_progress' }), answer(`${text.trim()}-extra`), answer('Workspace verified.'), answer('x'.repeat(65 * 1024))]) {
-    expect(() => conversationRecallProof([wrong], 'turn_hosted', marker)).toThrow();
+    expect(() => conversationRecallProof([verifiedCommand, wrong], 'turn_hosted', marker, 'cmd_hosted')).toThrow();
   }
-  expect(() => conversationRecallProof([answer(text), answer(text)], 'turn_hosted', marker)).toThrow();
+  expect(() => conversationRecallProof([verifiedCommand, answer(text), answer(text)], 'turn_hosted', marker, 'cmd_hosted')).toThrow();
 });
 
 it('rejects visible-history-only continuation even when the hosted workspace command succeeds', () => {
@@ -89,5 +90,14 @@ it('rejects visible-history-only continuation even when the hosted workspace com
     command: proof.command, output: proof.output, exit_code: 0, cwd: '/workspace', duration_ms: 1 };
   const items = [answer(`RAT_CONVERSATION_RECALL ${marker}`, { turn_id: 'turn_source' }), command, answer('Workspace verified.')];
   expect(commandProof(items, 'turn_hosted', proof).turnId).toBe('turn_hosted');
-  expect(() => conversationRecallProof(items, 'turn_hosted', marker)).toThrow('did not recall');
+  expect(() => conversationRecallProof(items, 'turn_hosted', marker, 'cmd_hosted')).toThrow('did not recall');
+});
+
+it('rejects recall obtained by an extra hosted command or other tool activity', () => {
+  const recalled = answer(`RAT_CONVERSATION_RECALL ${marker}`);
+  const extra = { ...verifiedCommand, id: 'cmd_read_marker', command: 'cat /workspace/context.txt', output: marker };
+  expect(() => conversationRecallProof([verifiedCommand, extra, recalled], 'turn_hosted', marker, 'cmd_hosted')).toThrow('additional retrieval');
+  expect(() => conversationRecallProof([{ ...verifiedCommand, output: marker }, recalled], 'turn_hosted', marker, 'cmd_hosted')).toThrow('hosted tool activity');
+  const otherTool = { id: 'call_extra', type: 'function_call' as const, turn_id: 'turn_hosted', call_id: 'call_extra', name: 'read_file', arguments: '{}', status: 'completed' as const };
+  expect(() => conversationRecallProof([verifiedCommand, otherTool, recalled], 'turn_hosted', marker, 'cmd_hosted')).toThrow('additional retrieval');
 });

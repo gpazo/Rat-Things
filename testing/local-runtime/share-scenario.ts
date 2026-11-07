@@ -138,10 +138,11 @@ export async function shareScenario({ source, endpoint, region, operatorEndpoint
     assert.equal(newTurns.length, 1);
     assert.deepEqual(finished.items.slice(0, beforeItems.data.length), beforeItems.data);
     const turn = newTurns[0]!;
-    await record('hostedCommand', commandProof(finished.items, turn.id, proof));
+    const hostedCommand = commandProof(finished.items, turn.id, proof);
+    await record('hostedCommand', hostedCommand);
     if (contextMarker !== undefined) {
       phase = 'conversation_recall';
-      await record('conversationRecall', conversationRecallProof(finished.items, turn.id, contextMarker));
+      await record('conversationRecall', conversationRecallProof(finished.items, turn.id, contextMarker, hostedCommand.commandId));
     }
     await record('sourceFiles', source.files);
   } catch (error) {
@@ -172,8 +173,12 @@ export function hostedContinuationInput(command: string, recallContext = false):
   return `Continue our shared workspace.${recall} Run this exact command once, then report the output.\n${command}`;
 }
 
-export function conversationRecallProof(items: readonly AgentSessionItem[], turnId: string, marker: string) {
+export function conversationRecallProof(items: readonly AgentSessionItem[], turnId: string, marker: string, commandId: string) {
   assert(/^context_[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(marker), 'Invalid conversation-only marker.');
+  const tools = items.filter(item => item.turn_id === turnId && !['message', 'reasoning'].includes(item.type));
+  assert.equal(tools.length, 1, 'Conversation recall must not use additional retrieval tools.');
+  assert(tools[0]?.type === 'command_execution' && tools[0].id === commandId, 'Conversation recall must use only the verified workspace command.');
+  assert(!JSON.stringify(tools[0]).includes(marker), 'Conversation-only marker appeared in hosted tool activity.');
   const answers = items.filter(item => item.type === 'message').filter(item => item.role === 'assistant'
     && item.status === 'completed' && item.phase === 'final_answer' && item.turn_id === turnId);
   const matches = answers.flatMap(item => {
