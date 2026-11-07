@@ -11,6 +11,7 @@ import { AgentsApiError, resourceNotFound } from '../domain/agents-api-validatio
 import { orderedTurnItems } from '../core/session-planning.js';
 import { CODEX_RUNTIME } from '../domain/session-runtime.js';
 import { canonicalJson } from '../domain/json.js';
+import { PerformanceScope, performanceCount, performancePhase } from '../core/performance.js';
 
 export interface ShareDestination { baseURL: string; space_id: string; connection_id?: string; region?: string }
 export interface LocalSharePlan {
@@ -137,7 +138,9 @@ export class LocalShareService {
     const cancel = new AbortController();
     this.cancellations.set(id, cancel);
     const signal = AbortSignal.any([this.stopped.signal, cancel.signal]);
-    const work = this.run(id, signal).catch(async error => {
+    const scope = new PerformanceScope('share-transfer');
+    const work = scope.run(() => this.run(id, signal)).then(() => { scope.finish('success'); }).catch(async error => {
+      scope.finish(signal.aborted ? 'aborted' : 'error');
       await this.update(id, value => ({ ...value, plan: { ...value.plan, status: 'failed',
         error: error instanceof AgentsApiError ? error.message : 'Share is interrupted. Retry to continue. Local execution remains fenced.' } }));
     }).finally(() => { this.active.delete(id); this.cancellations.delete(id); });
@@ -151,6 +154,7 @@ export class LocalShareService {
     if (!record.manifest) {
       await this.options.sessions.beginShare(this.options.owner, record.plan.source_session_id, id);
       await this.update(id, value => ({ ...value, plan: { ...value.plan, status: 'quiescing', error: null } }));
+      const quiesceStarted = performance.now();
       while (!signal.aborted) {
         try { await this.snapshot(id); break; }
         catch (error) {
@@ -158,6 +162,7 @@ export class LocalShareService {
           await delay(200, undefined, { signal });
         }
       }
+      performanceCount('ShareQuiesceDuration', performance.now() - quiesceStarted);
       record = (await this.required(id)).value;
     }
     signal.throwIfAborted();
@@ -170,24 +175,26 @@ export class LocalShareService {
     if (!record.staged) {
       await this.update(id, value => ({ ...value, plan: { ...value.plan, status: 'staging', error: null } }));
       const archive = Buffer.from(record.archive!, 'base64');
+      performanceCount('ShareArchiveBytes', archive.length);
+      performanceCount('ShareWorkspaceBytes', manifest.workspace.bytes);
       for (let index = record.workspaceFileIds.length; index < manifest.workspace.parts.length; index++) {
-        const file = await this.upload(connection, archive.subarray(index * CHUNK_BYTES, (index + 1) * CHUNK_BYTES), `share-${id}-${index}`, signal);
+        const file = await performancePhase('ShareUploadDuration', () => this.upload(connection, archive.subarray(index * CHUNK_BYTES, (index + 1) * CHUNK_BYTES), `share-${id}-${index}`, signal));
         record = await this.update(id, value => ({ ...value, workspaceFileIds: [...value.workspaceFileIds, file] }));
       }
       for (const artifact of manifest.artifacts) {
         if (record.artifactFileIds[artifact.artifact.id]) continue;
-        const file = await this.upload(connection, Buffer.from(record.artifactData![artifact.artifact.id]!, 'base64'), `share-${id}-${artifact.artifact.id}`, signal);
+        const file = await performancePhase('ShareUploadDuration', () => this.upload(connection, Buffer.from(record.artifactData![artifact.artifact.id]!, 'base64'), `share-${id}-${artifact.artifact.id}`, signal));
         record = await this.update(id, value => ({ ...value, artifactFileIds: { ...value.artifactFileIds, [artifact.artifact.id]: file } }));
       }
       const request: ShareStageRequest = { manifest, digest, workspace_file_ids: record.workspaceFileIds, artifact_file_ids: record.artifactFileIds };
-      const status = await this.request<ShareStatus>(connection, '/rat/shares', { method: 'POST', body: JSON.stringify(request), headers: { 'content-type': 'application/json' } }, signal);
+      const status = await performancePhase('ShareStageDuration', () => this.request<ShareStatus>(connection, '/rat/shares', { method: 'POST', body: JSON.stringify(request), headers: { 'content-type': 'application/json' } }, signal));
       this.checkStatus(record, status);
       record = await this.update(id, value => ({ ...value, staged: true }));
     }
     signal.throwIfAborted();
-    await this.options.sessions.releaseShare(this.options.owner, record.plan.source_session_id, id, record.digest!, { endpoint: destination.baseURL, spaceId: destination.space_id });
+    await performancePhase('ShareReleaseDuration', () => this.options.sessions.releaseShare(this.options.owner, record.plan.source_session_id, id, record.digest!, { endpoint: destination.baseURL, spaceId: destination.space_id }));
     record = await this.update(id, value => ({ ...value, plan: { ...value.plan, status: 'released', error: null } }));
-    const status = await this.request<ShareStatus>(connection, `/rat/shares/${id}/activate`, { method: 'POST', body: JSON.stringify({ digest: record.digest, release_token: record.releaseToken }), headers: { 'content-type': 'application/json' } }, signal);
+    const status = await performancePhase('ShareActivateDuration', () => this.request<ShareStatus>(connection, `/rat/shares/${id}/activate`, { method: 'POST', body: JSON.stringify({ digest: record.digest, release_token: record.releaseToken }), headers: { 'content-type': 'application/json' } }, signal));
     this.checkStatus(record, status);
     if (status.status !== 'active') throw new Error('Destination has not activated');
     await this.update(id, value => ({ ...value, plan: { ...value.plan, status: 'complete', destination_session_id: status.session_id, error: null } }));
@@ -201,7 +208,7 @@ export class LocalShareService {
     const snapshot = await this.options.sessions.snapshotForShare(this.options.owner, record.plan.source_session_id, id, async session => {
       const configuration = session.environment.type === 'openai_hosted' ? (await this.options.environments.managedLaunch(this.options.owner, session.environment.id)).hostedConfiguration : undefined;
       if (Object.keys(configuration?.env ?? {}).length) throw new AgentsApiError(400, 'Source environment values cannot migrate through Share.', 'share_incompatible');
-      const files = session.environment.type === 'openai_hosted' ? await this.options.snapshot(session.id) : [];
+      const files = session.environment.type === 'openai_hosted' ? await performancePhase('ShareSnapshotDuration', () => this.options.snapshot(session.id)) : [];
       const { env: _env, setup_commands: _setup, files: _files, ...safeConfiguration } = configuration ?? {};
       return { environment: session.environment.type === 'none' ? { type: 'none' as const } : { ...safeConfiguration, type: 'openai_hosted' as const }, ...archiveWorkspace(files) };
     });

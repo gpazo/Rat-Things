@@ -1,4 +1,5 @@
 import { SessionSteerRejectedError } from '../domain/session-errors.js';
+import { performanceCount } from './performance.js';
 import { planRejectedSteer } from './session-steer-planning.js';
 import { importedSessionMessage, importedSessionReceipts, participantContext } from './session-attribution.js';
 import { restoreWorkspaceCommand } from '../domain/workspace-transfer.js';
@@ -412,12 +413,14 @@ export class SessionService {
     while (!signal.aborted) {
       await options.revalidate?.();
       await this.required(ownerId, id);
+      performanceCount('ActivityPollCount');
       const head = await this.options.store.get<SessionStreamSnapshot>(ownerId, 'session_observations', id) ?? resourceNotFound();
       while (revision < head.revision && !signal.aborted) {
         const batch = await this.options.store.get<SessionEventBatch>(ownerId, 'session_event_batches', sessionEventBatchId(id, revision + 1));
         if (!batch?.value.activity) throw new AgentsApiError(409, 'Activity history expired. Retrieve a new snapshot.', 'stream_history_expired');
         await options.revalidate?.();
         const activity = sessionActivity(batch.value.activity, ++revision);
+        performanceCount('ActivityEventCount');
         yield { type: 'rat.session.activity' as const, event_id: activity.cursor, activity };
       }
       try { await delay(Math.min(this.options.streamIntervalMs ?? 500, 2_000), undefined, { signal }); }
@@ -546,6 +549,7 @@ export class SessionService {
   }
 
   public async events(ownerId: string, id: string, raw: unknown, idempotencyKey?: string, response?: { waitForConnection: boolean; signal?: AbortSignal; caller?: SessionCaller }): Promise<void> {
+    const acceptedStarted = performance.now();
     const { events } = parseAgentsContract('SessionEvents', raw);
     if (idempotencyKey !== undefined && (!idempotencyKey || idempotencyKey.length > 256)) invalid('Idempotency-Key must contain 1–256 characters', 'Idempotency-Key');
     const caller = response?.caller;
@@ -576,9 +580,12 @@ export class SessionService {
         // Background dispatch/history writes share this revision. Re-read and
         // replan only a rejected CAS; ambiguous writes retain the same receipt
         // for a caller retry, and a deletion must remain a 404.
-        if (!(error instanceof AgentsApiError) || error.status !== 409 || error.code !== 'conflict' || attempt === 9) throw error;
+        if (!(error instanceof AgentsApiError) || error.status !== 409 || error.code !== 'conflict') throw error;
+        performanceCount('SubmissionConflicts');
+        if (attempt === 9) throw error;
       }
     }
+    performanceCount('SubmissionAcceptedDuration', performance.now() - acceptedStarted);
     if (response?.waitForConnection) await this.waitForInputConnection(ownerId, id, key, response.signal);
   }
 

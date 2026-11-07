@@ -56,6 +56,8 @@ import { validatePublicationManifest, validateShareGrant } from '../domain/publi
 import { emitMetric } from '../core/metrics.js';
 import type { SecretReader } from '../credentials/types.js';
 import type { ResultReader } from '../delivery/types.js';
+import { performanceCount } from '../core/performance.js';
+import { measuredS3 } from './aws-performance.js';
 
 export interface AwsClients {
   dynamodb: DynamoDBDocumentClient;
@@ -540,25 +542,27 @@ export class S3ArtifactStore implements ArtifactStore {
   public async getBytes(
     reference: Pick<ArtifactReference, 'bucket' | 'key'>,
   ): Promise<Uint8Array> {
-    const result = await this.client.send(
+    const result = await measuredS3(() => this.client.send(
       new GetObjectCommand({ Bucket: reference.bucket, Key: reference.key }),
-    );
+    ), 'get');
     if (!result.Body) throw new Error(`artifact s3://${reference.bucket}/${reference.key} is empty`);
-    return result.Body.transformToByteArray();
+    const bytes = await result.Body.transformToByteArray();
+    performanceCount('S3ReadBytes', bytes.length);
+    return bytes;
   }
 
   public async getStream(
     reference: Pick<ArtifactReference, 'bucket' | 'key'>,
   ): Promise<AsyncIterable<Uint8Array>> {
-    const result = await this.client.send(
+    const result = await measuredS3(() => this.client.send(
       new GetObjectCommand({ Bucket: reference.bucket, Key: reference.key }),
-    );
+    ), 'get');
     if (!result.Body) throw new Error(`artifact s3://${reference.bucket}/${reference.key} is empty`);
     const body = result.Body as unknown as AsyncIterable<Uint8Array>;
     if (typeof body[Symbol.asyncIterator] !== 'function') {
       throw new Error(`artifact s3://${reference.bucket}/${reference.key} is not streamable`);
     }
-    return body;
+    return (async function* () { for await (const chunk of body) { performanceCount('S3ReadBytes', chunk.length); yield chunk; } })();
   }
 
   public async putBytes(
@@ -567,7 +571,8 @@ export class S3ArtifactStore implements ArtifactStore {
     contentType: string,
   ): Promise<ArtifactReference> {
     const digest = createHash('sha256').update(value).digest();
-    await this.client.send(
+    performanceCount('S3WriteBytes', value.length);
+    await measuredS3(() => this.client.send(
       new PutObjectCommand({
         Bucket: this.bucket,
         Key: key,
@@ -576,7 +581,7 @@ export class S3ArtifactStore implements ArtifactStore {
         ...encryptionHeaders(this.encryption),
         ChecksumSHA256: digest.toString('base64'),
       }),
-    );
+    ), 'put');
     return { bucket: this.bucket, key, sha256: digest.toString('hex') };
   }
 

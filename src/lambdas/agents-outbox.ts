@@ -7,12 +7,21 @@ import { createAwsClients } from '../adapters/aws-runtime.js';
 import { requiredEnv } from '../adapters/executors.js';
 import { getAgentsApiServices, getSessionIntegrationService, getScheduleService, getEventCandidateService } from '../app/composition.js';
 import { AgentsApiError } from '../domain/agents-api-validation.js';
+import { PerformanceScope } from '../core/performance.js';
 
 
 const queue = createAwsClients().sqs;
 
 /** Streams wake independent FIFO groups. An absent executor cannot block the DynamoDB shard. */
 export async function handler(event: DynamoDBStreamEvent | SQSEvent) {
+  const scope = new PerformanceScope('outbox-batch');
+  try {
+    const result = await scope.run(() => handle(event));
+    scope.finish(result.batchItemFailures.length ? 'error' : 'success');
+    return result;
+  } catch (error) { scope.finish('error'); throw error; }
+}
+async function handle(event: DynamoDBStreamEvent | SQSEvent) {
   const batchItemFailures: Array<{ itemIdentifier: string }> = [];
   for (const record of event.Records) {
     if ('body' in record) {

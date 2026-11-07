@@ -1,5 +1,6 @@
 import { iamApiPrincipal } from '../domain/api-permissions.js';
-import { Readable } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
+import { PerformanceScope, performanceCount, performanceHeaders, requestPerformanceOperation, responsePerformanceOutcome, type PerformanceOutcome } from '../core/performance.js';
 import { finished, pipeline } from 'node:stream/promises';
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 import { getAgentsApiServices, getApiTokenService, getTeamAuthentication, agentsApiDiscovery } from '../app/composition.js';
@@ -11,6 +12,8 @@ import { principal } from './runtime.js';
 // AWS SDK invocation tracking can create this namespace outside the Lambda runtime.
 const lambdaRuntime = globalThis.awslambda;
 export const handler = typeof lambdaRuntime?.streamifyResponse !== 'function' ? unavailableOutsideLambda : lambdaRuntime.streamifyResponse<APIGatewayProxyEventV2>(async (event, output, context) => {
+  const scope = new PerformanceScope(requestPerformanceOperation(event.requestContext.http.method, event.rawPath));
+  await scope.run(async () => {
   const abort = new AbortController();
   output.once('close', () => abort.abort());
   const timer = setTimeout(() => abort.abort(), Math.max(1, context.getRemainingTimeInMillis() - 1000));
@@ -46,8 +49,12 @@ export const handler = typeof lambdaRuntime?.streamifyResponse !== 'function' ? 
   const headers: Record<string, string> = {};
   response.headers.forEach((value, key) => { headers[key] = value; });
   const stream = lambdaRuntime.HttpResponseStream.from(output, { statusCode: response.status, headers });
+  performanceHeaders();
+  let outcome: PerformanceOutcome = responsePerformanceOutcome(response.status);
   try {
-    if (response.body) await pipeline(Readable.fromWeb(response.body as import('node:stream/web').ReadableStream<Uint8Array>), stream);
+    if (response.body) await pipeline(Readable.fromWeb(response.body as import('node:stream/web').ReadableStream<Uint8Array>), new Transform({ transform(chunk: Buffer, _encoding, callback) {
+      performanceCount('ResponseBytes', chunk.length); callback(null, chunk);
+    } }), stream);
     else {
       const completion = finished(stream, { readable: false });
       // AWS emits HTTP metadata on the first write, including a zero-byte write.
@@ -55,7 +62,9 @@ export const handler = typeof lambdaRuntime?.streamifyResponse !== 'function' ? 
       stream.end();
       await completion;
     }
-  } finally { clearTimeout(timer); abort.abort(); }
+  } catch (error) { outcome = abort.signal.aborted ? 'aborted' : 'error'; throw error; }
+  finally { clearTimeout(timer); abort.abort(); scope.finish(outcome); }
+  });
 });
 
 async function unavailableOutsideLambda(): Promise<never> { throw new Error('The Agents API streaming entry point requires the AWS Lambda runtime'); }

@@ -4,6 +4,7 @@ import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { randomUUID } from 'node:crypto';
 import { AgentsApiError } from '../domain/agents-api-validation.js';
+import { PerformanceScope, performanceCount, performanceHeaders, requestPerformanceOperation, responsePerformanceOutcome } from '../core/performance.js';
 
 /** A streaming HTTP transport avoids Lambda's request-size and invocation-duration limits. */
 export function createAgentsHttpServer(options: {
@@ -15,6 +16,8 @@ export function createAgentsHttpServer(options: {
   const origin = new URL(options.baseURL).origin;
   let largeRequests = 0;
   const server = createServer({ requestTimeout: 600_000, maxHeaderSize: 32_768 }, async (incoming, outgoing) => {
+    const scope = new PerformanceScope(requestPerformanceOperation(incoming.method ?? 'GET', (incoming.url ?? '/').split('?')[0]!));
+    await scope.run(async () => {
     const id = randomUUID();
     const abort = new AbortController();
     outgoing.once('close', () => abort.abort());
@@ -39,7 +42,11 @@ export function createAgentsHttpServer(options: {
     } catch (error) {
       if (!outgoing.headersSent) await send(outgoing, options.error(error, id));
       else outgoing.destroy();
-    } finally { if (reserved) largeRequests--; }
+    } finally {
+      if (reserved) largeRequests--;
+      scope.finish(!outgoing.writableFinished ? 'aborted' : responsePerformanceOutcome(outgoing.statusCode));
+    }
+    });
   });
   server.headersTimeout = 30_000;
   return server;
@@ -58,6 +65,9 @@ async function send(outgoing: ServerResponse, response: Response) {
   const headers: Record<string, string> = {};
   response.headers.forEach((value, name) => { headers[name] = value; });
   outgoing.writeHead(response.status, headers);
-  if (response.body) await pipeline(Readable.fromWeb(response.body as import('node:stream/web').ReadableStream<Uint8Array>), outgoing);
+  performanceHeaders();
+  if (response.body) await pipeline(Readable.fromWeb(response.body as import('node:stream/web').ReadableStream<Uint8Array>), new Transform({ transform(chunk: Buffer, _encoding, callback) {
+    performanceCount('ResponseBytes', chunk.length); callback(null, chunk);
+  } }), outgoing);
   else outgoing.end();
 }

@@ -8,6 +8,8 @@ import type { ArtifactReference } from '../domain/contracts.js';
 import { canonicalJson } from '../domain/json.js';
 import type { AgentListOrdering, AgentListQuery, AgentObservation, AgentResource, AgentsStore } from '../core/agents-ports.js';
 import type { ArtifactStore } from '../core/ports.js';
+import { performanceCount } from '../core/performance.js';
+import { measuredDynamo } from './aws-performance.js';
 
 interface ResourceIndex {
   id: string;
@@ -35,6 +37,7 @@ export class DynamoAgentsStore implements AgentsStore {
   }
 
   public async list<T>(ownerId: string, collection: string, query: AgentListQuery) {
+    performanceCount('StorageListCount');
     const cursor = query.after ? await this.index(ownerId, collection, query.after) : undefined;
     if (query.after && !cursor) invalid('Invalid pagination cursor', 'after');
     const data: Array<AgentResource<T>> = [];
@@ -45,16 +48,17 @@ export class DynamoAgentsStore implements AgentsStore {
     // Fetch one extra entry so has_more means another resource exists, including
     // across DynamoDB's byte-based pagination boundary.
     do {
-      const page = await this.client.send(new QueryCommand({
+      const page = await measuredDynamo(() => this.client.send(new QueryCommand({
         TableName: this.tableName,
         KeyConditionExpression: '#scope = :scope',
         ExpressionAttributeNames: { '#scope': 'scope' },
         ExpressionAttributeValues: { ':scope': scope },
         ConsistentRead: true,
+        ReturnConsumedCapacity: 'TOTAL',
         ScanIndexForward: query.order === 'asc',
         Limit: maximum + 1 - data.length,
         ...(key ? { ExclusiveStartKey: key } : {}),
-      }));
+      })), 'read');
       for (const item of page.Items ?? []) data.push(await this.hydrate<T>(item as ResourceIndex));
       key = page.LastEvaluatedKey as typeof key;
     } while (key && data.length <= maximum);
@@ -129,8 +133,9 @@ export class DynamoAgentsStore implements AgentsStore {
   }
 
   private async transact(items: NonNullable<TransactWriteCommandInput['TransactItems']>) {
+    performanceCount('StorageTransactionCount');
     try {
-      await this.client.send(new TransactWriteCommand({ TransactItems: items }));
+      await measuredDynamo(() => this.client.send(new TransactWriteCommand({ TransactItems: items, ReturnConsumedCapacity: 'TOTAL' })), 'write');
     } catch (error) {
       if (confirmedContention(error)) throw new AgentsResourceConflictError();
       throw error;
@@ -138,9 +143,10 @@ export class DynamoAgentsStore implements AgentsStore {
   }
 
   private async index(ownerId: string, collection: string, id: string): Promise<ResourceIndex | undefined> {
-    const response = await this.client.send(new GetCommand({
-      TableName: this.tableName, Key: rootKey(ownerId, collection, id), ConsistentRead: true,
-    }));
+    performanceCount('StorageGetCount');
+    const response = await measuredDynamo(() => this.client.send(new GetCommand({
+      TableName: this.tableName, Key: rootKey(ownerId, collection, id), ConsistentRead: true, ReturnConsumedCapacity: 'TOTAL',
+    })), 'read');
     return response.Item as ResourceIndex | undefined;
   }
 
