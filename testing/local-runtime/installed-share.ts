@@ -8,7 +8,7 @@ import { parseArgs } from 'node:util';
 import { chromium } from '@playwright/test';
 import { createAgentsClient } from '../../src/agents-client.js';
 import { TeamConnectionStore } from '../../src/client-connections.js';
-import { beginBrowserLogin, discoverTeamLogin } from '../../src/client-oidc.js';
+import { beginBrowserLogin, discoverTeamLogin, refreshLogin } from '../../src/client-oidc.js';
 import type { AgentSession, AgentSessionItem, Turn } from '../../src/domain/agents-api.js';
 import { createTeamIdentities, type TeamIdentityFixture } from '../aws/team-identities.js';
 import { connectionRecord, nativeIdentity } from './installed-subscription.mjs';
@@ -121,9 +121,10 @@ async function main() {
       await page.getByRole('button', { name: 'Sign in', exact: true }).click();
       const login = await attempt.result;
       assert.equal(login.identity.subject, collaborator.subject);
-      const connection = await store.save(endpoint, provider, login);
+      const renewed = await refreshLogin(provider, login.tokens);
+      const connection = await store.save(endpoint, provider, { ...login, tokens: renewed });
       connectionId = connection.id;
-      await record('browserLogin', { provider: provider.id, verifiedSubject: login.identity.subject, flow: 'authorization_code_pkce', credentialsSavedPrivately: true });
+      await record('browserLogin', { provider: provider.id, verifiedSubject: login.identity.subject, flow: 'authorization_code_pkce', refresh: 'provider_accepted', credentialsSavedPrivately: true });
     } finally { attempt.close(); await browser.close(); }
     await start();
     const before = await localJson<AgentSession>(`/agents/sessions/${source.sessionId}`);

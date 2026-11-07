@@ -44,8 +44,8 @@ resource "aws_cognito_user_pool_client" "multiplayer" {
   allowed_oauth_scopes                 = ["openid", "profile", "rat-things/access"]
   callback_urls                        = ["http://127.0.0.1:38173/callback"]
   explicit_auth_flows                  = ["ALLOW_USER_PASSWORD_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"]
-  access_token_validity                = 5
-  id_token_validity                    = 5
+  access_token_validity                = 15
+  id_token_validity                    = 15
   refresh_token_validity               = 1
   token_validity_units {
     access_token  = "minutes"

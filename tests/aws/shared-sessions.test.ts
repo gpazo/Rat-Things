@@ -113,7 +113,8 @@ live('shares real execution and progress across verified team identities with re
     await replayedSubmission.body?.cancel();
     expect((await activity()).inputs.map(input => input.id)).toEqual(accepted.inputs.map(input => input.id));
 
-    const completed = await until(activity, current => current.turns.length > 0 && current.turns.every(turn => turn.status === 'completed'), timeout);
+    const completed = await until(activity, current => current.turns.length > 0 && current.turns.every(turn => turn.status === 'completed')
+      && current.inputs.every(input => input.status === 'dispatched'), timeout);
     await until(async () => subscriptions.map(subscription => subscription.latest()), snapshots =>
       snapshots.every(snapshot => snapshot?.turns.some(turn => turn.status === 'completed')), 15_000);
     for (const subscription of subscriptions) subscription.check();
@@ -124,7 +125,8 @@ live('shares real execution and progress across verified team identities with re
     }, { headers: { 'Idempotency-Key': `${proof}-unattended` } });
     // Simulate all clients being absent; the next observation cannot drive execution.
     await delay(10_000);
-    const unattended = await until(activity, current => current.turns.length > completed.turns.length && current.turns.every(turn => turn.status === 'completed'), timeout);
+    const unattended = await until(activity, current => current.turns.length > completed.turns.length && current.turns.every(turn => turn.status === 'completed')
+      && current.inputs.every(input => input.status === 'dispatched'), timeout);
     const lastTurn = unattended.turns.at(-1)!;
     const answer = unattended.items.flatMap(item => item.type === 'message' && item.role === 'assistant' && item.turn_id === lastTurn.id
       ? item.content.flatMap(part => part.type === 'output_text' ? [part.text] : []) : []).join('\n');
