@@ -84,7 +84,7 @@ it('keeps ready cheap and returns validate success only after an isolated Codex 
   const [binary, args, options] = runtime.spawn.mock.calls[0]!;
   expect(binary).toBe('/usr/bin/unshare');
   expect(args).toEqual([
-    '--net', '--fork', '--kill-child=TERM', '--',
+    '--net', '--pid', '--mount-proc', '--fork', '--kill-child=KILL', '--',
     '/usr/bin/setpriv', '--reuid=10001', '--regid=10001', '--clear-groups',
     process.execPath, '/opt/agent-runtime/image-validation.mjs',
   ]);

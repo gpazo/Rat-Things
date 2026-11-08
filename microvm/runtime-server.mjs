@@ -222,7 +222,7 @@ function startImageValidation() {
   chmodSync(imageValidationHome, 0o700);
 
   const child = spawn(unshare, [
-    '--net', '--fork', '--kill-child=TERM', '--',
+    '--net', '--pid', '--mount-proc', '--fork', '--kill-child=KILL', '--',
     setpriv, `--reuid=${agentUid}`, `--regid=${agentGid}`, '--clear-groups',
     process.execPath, '/opt/agent-runtime/image-validation.mjs',
   ], {
