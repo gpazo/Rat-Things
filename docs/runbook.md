@@ -326,6 +326,19 @@ first two. The MicroVM's `agent runner started` entry reports `startupDurationMs
 measurements exclude Codex initialization. Compare fresh and resumed conversations before
 attributing a delay to model inference.
 
+The worker emits one `runner_startup_trace` record after it saves the first nonempty
+root assistant text, or a partial record when startup fails or the worker shuts down.
+Its `phases` contain monotonic millisecond offsets from `wallOrigin`. Compare
+`native_initialize_started` with `native_initialized` to isolate the native handshake,
+then `turn_requested` with `first_assistant_text` for response latency. The interval
+from `first_assistant_text` to `first_text_persisted` includes journal scheduling and
+storage. Persistence is earlier than a remote viewer observing the Item.
+
+Missing phases identify work that was not observed, not a zero-duration operation.
+Use the worker log stream to correlate the trace with host startup records; the trace
+contains no prompts or credentials. It describes one worker startup, not every Turn
+in a long-lived Session.
+
 For a Codex initialization failure, retain the exact binary version and bounded app-server stderr,
 and distinguish a child-process error from a test or caller deadline. Investigate using isolated
 state directories. Retain durable Codex journals; runtime-managed SQLite indexes and caches

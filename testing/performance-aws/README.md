@@ -185,41 +185,72 @@ hashes and the deployed source revisions.
 
 ## Compare fresh Session startup
 
-`startup.ts` compares two versions of one deployed MicroVM image through the same
-operator Web Function. It defaults to five fresh Sessions per version, alternating
-the order within each pair. Every Session gets the same one-word request and a
-new worker. It records acceptance, first observed assistant text, completion,
-correctness, token usage, and the image version returned by AWS for that worker.
+`startup.ts` measures fresh Sessions through a disposable operator Web Function.
+It records request acceptance, the first API-visible assistant text, completion,
+usage, and the actual image version of each worker. Use a deployment with no
+other callers. The controller restores its active image-version parameter on exit.
 
-Use a disposable deployment with no other callers. The controller temporarily
-changes its active image-version SSM parameter and restores it on exit. Verify
-both image versions and their source ZIP hashes before starting. Underlying AWS
-snapshot-cache residency is not controlled by creating a fresh MicroVM.
+Build test images with `startup-responses-proxy-image.mjs`. This overlay keeps the
+official native Codex binary and starts a loopback Responses endpoint. Fixture mode
+returns `OK` without inference. Bedrock mode forwards one request to the fixed
+us-west-2 Luna endpoint, with a 64 KiB request-body limit, a 128-output-token limit,
+no retries or redirects, and a 30-second forwarding deadline. These are test images;
+do not deploy them for user Sessions.
 
 ```sh
-AWS_E2E=true AWS_E2E_REAL_CODEX=true \
-  STARTUP_BEFORE_VERSION=1.0 STARTUP_AFTER_VERSION=2.0 \
+node testing/performance-aws/startup-responses-proxy-image.mjs \
+  /absolute/path/before-source.zip /absolute/path/before-fixture.zip --mode fixture
+node testing/performance-aws/startup-responses-proxy-image.mjs \
+  /absolute/path/after-source.zip /absolute/path/after-fixture.zip --mode fixture
+```
+
+Publish both overlaid ZIPs as versions of the same MicroVM image. Keep worker
+resources and the managed base-image version identical. Source the disposable
+stack's `runtime.env`, then install an explicit Bedrock and SageMaker inference
+deny policy on its worker execution role before fixture runs.
+
+```sh
+AWS_E2E=true AWS_E2E_REAL_CODEX=true STARTUP_MODE=fixture \
+  STARTUP_INFERENCE_DENIED=true \
+  STARTUP_BEFORE_VERSION=2.0 STARTUP_BEFORE_SOURCE_ZIP=/absolute/path/before-fixture.zip \
+  STARTUP_AFTER_VERSION=3.0 STARTUP_AFTER_SOURCE_ZIP=/absolute/path/after-fixture.zip \
   STARTUP_OUTPUT=/absolute/path/startup.json \
   node --import tsx testing/performance-aws/startup.ts
 ```
 
-Source the disposable deployment's `runtime.env` first. The controller requires
-`AWS_REGION`, `AWS_E2E_DEPLOYMENT_ID`, `AWS_E2E_CALLER_ACCOUNT`,
-`RAT_THINGS_AGENTS_API_URL`, and `AWS_E2E_CODEX_MODEL_ID=openai.gpt-5.6-luna`.
-Verify model availability and prices before use. The controller permits ten
-initial requests, no follow-ups or inference-request retries, a three-minute observation
-deadline per Session, and thirty minutes total. It stops on the first failure,
-missing usage, unexpected answer, or estimated inference cost of $0.05.
-The 256-byte observed-output guard is not a provider generation-token cap.
-Set `STARTUP_PAIRS` to an integer from one through five to reduce the sample count
-within a smaller budget. Report the actual counts and treat small samples as preliminary.
+The controller requires `AWS_REGION=us-west-2`, `AWS_E2E_DEPLOYMENT_ID`,
+`AWS_E2E_CALLER_ACCOUNT`, `RAT_THINGS_AGENTS_API_URL`, and
+`AWS_E2E_CODEX_MODEL_ID=openai.gpt-5.6-luna`. It compares each deployed source
+object's SHA-256 with the local ZIP, then verifies the overlay manifest and proxy
+hash before creating a Session. Fixture comparisons default to five alternating
+pairs. Set `STARTUP_PAIRS` from one through five for a smaller fixture run.
 
-First output is observed through the standard Items and Turns endpoints, queried
-concurrently with 500 ms between iterations. It is not the provider's first-token timestamp. Save worker logs
-to separate storage mount and Codex initialization from the remaining delay.
-Cleanup DELETE requests allow two bounded SDK retries for transient conflicts.
-The controller deletes its Sessions and Agent; destroy the disposable stack
-after exporting evidence. Infrastructure costs require separate accounting.
+For one diagnostic, replace the before/after variables with
+`STARTUP_DIAGNOSTIC_VERSION` and `STARTUP_DIAGNOSTIC_SOURCE_ZIP`. Do not also set
+`STARTUP_PAIRS`. A diagnostic is not a comparative performance result.
+
+Reserve Bedrock mode for a small provider integration check. Build both images
+with `--mode bedrock`, verify current model availability and pricing, and remove
+the fixture inference deny only for that check. Use `STARTUP_MODE=bedrock`.
+Bedrock comparisons permit one pair, or one Session in diagnostic mode. Each
+worker admits one request. The model's full context limit and higher long-context
+prices give a conservative two-request bound below $1.20. The request byte cap
+usually makes actual input far smaller, but is not a tokenizer measurement.
+The controller reports provider usage and an estimate separately from synthetic
+fixture usage. Infrastructure charges need separate accounting.
+
+All runs stop on the first failure, unexpected answer, missing usage, or deadline.
+Each Session has a three-minute observation deadline; the controller has thirty
+minutes total. Native and proxy inference retries are disabled. SDK cleanup
+DELETE requests permit two retries. Export evidence, then destroy the stack.
+
+First output means nonempty assistant text from the standard Items and Turns
+endpoints, polled concurrently with 500 ms between iterations. Startup status and
+protocol bytes do not count. Keep worker logs to correlate `runner_startup_trace`,
+`startup-responses-proxy`, and host storage timings. The loopback hop is test-only
+and both sides must use the same overlay. Fixture results exclude real model
+latency. Fresh MicroVMs do not control AWS snapshot-cache residency. Report small
+real-model samples as preliminary, without fleet percentiles or cold-start bounds.
 
 ## Probe fresh S3 Files mount startup without inference
 
