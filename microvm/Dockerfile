@@ -48,6 +48,7 @@ RUN /opt/codex-runtime/bin/codex --version \
     && ln -s /opt/codex-runtime/bin/codex /usr/local/bin/codex
 COPY pi-child.mjs /opt/agent-runtime/pi-child.mjs
 COPY runner.mjs /opt/agent-runtime/runner.mjs
+COPY image-validation.mjs /opt/agent-runtime/image-validation.mjs
 COPY terminate-microvm.mjs /opt/agent-runtime/terminate-microvm.mjs
 COPY runtime-server.mjs /opt/agent-runtime/runtime-server.mjs
 COPY native-startup-probe.py /opt/agent-runtime/native-startup-probe.py
@@ -61,6 +62,7 @@ COPY config/codex.toml /home/agent/.codex/config.toml
 RUN chown root:root \
       /opt/agent-runtime/pi-child.mjs \
       /opt/agent-runtime/runner.mjs \
+      /opt/agent-runtime/image-validation.mjs \
       /opt/agent-runtime/terminate-microvm.mjs \
       /opt/agent-runtime/runtime-server.mjs \
       /opt/agent-runtime/native-startup-probe.py \
@@ -72,6 +74,7 @@ RUN chown root:root \
     && chmod 0555 \
       /opt/agent-runtime/pi-child.mjs \
       /opt/agent-runtime/runner.mjs \
+      /opt/agent-runtime/image-validation.mjs \
       /opt/agent-runtime/terminate-microvm.mjs \
       /opt/agent-runtime/runtime-server.mjs \
       /opt/agent-runtime/native-startup-probe.py \

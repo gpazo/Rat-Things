@@ -27,6 +27,7 @@ await Promise.all([
   ),
   bundle('src/runner/pi-child.ts', 'dist/pi-child.mjs'),
   bundle('src/runner/entry.ts', 'dist/runner.mjs'),
+  bundle('src/runner/image-validation.ts', 'dist/image-validation.mjs'),
   bundle('src/runner/ec2-supervisor.ts', 'dist/ec2-supervisor.mjs'),
   bundle('src/agents-server.ts', 'dist/agents-server.mjs', { target: 'node24' }),
   bundle('src/runner/terminate-microvm.ts', 'dist/terminate-microvm.mjs'),

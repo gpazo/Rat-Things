@@ -24,6 +24,7 @@ const microvmEntries = [
   ...runtimeEntries,
   { source: 'dist/pi-child.mjs', target: 'pi-child.mjs', mode: 0o755 },
   { source: 'dist/runner.mjs', target: 'runner.mjs', mode: 0o755 },
+  { source: 'dist/image-validation.mjs', target: 'image-validation.mjs', mode: 0o755 },
   { source: 'dist/ec2-supervisor.mjs', target: 'ec2-supervisor.mjs', mode: 0o755 },
   { source: 'dist/terminate-microvm.mjs', target: 'terminate-microvm.mjs', mode: 0o755 },
   { source: 'config/codex.toml', target: 'config/codex.toml', mode: 0o644 },

@@ -24,6 +24,7 @@ const maximumControlEventBytes = 64 * 1024;
 const controlCommandTimeoutMs = 25_000;
 const controlChannel = 'rat-things-agent-control';
 const s3FilesMountTimeoutMs = 50_000;
+const imageValidationTimeoutMs = 150_000;
 const runnerEntry = process.env.AGENT_RUNNER_ENTRY ?? '/opt/agent-runtime/runner.mjs';
 const terminatorEntry = process.env.AGENT_TERMINATOR_ENTRY ?? '/opt/agent-runtime/terminate-microvm.mjs';
 const agentUid = Number(process.env.RUN_AGENT_UID ?? 10001);
@@ -41,6 +42,9 @@ let persistentMicrovmId;
 let persistentStorage;
 let mountWatchdog;
 let transientRunState;
+let imageValidationState = 'idle';
+let imageValidationChild;
+let imageValidationHome;
 
 const server = createServer(async (request, response) => {
   response.setHeader('cache-control', 'no-store');
@@ -88,9 +92,17 @@ const server = createServer(async (request, response) => {
     const body = await readJsonBody(request);
     switch (operation) {
       case 'ready':
-      case 'validate':
         validateImage();
         break;
+      case 'validate': {
+        validateImage();
+        const validation = validateCodexStartup();
+        if (validation === 'running') {
+          send(response, 503, { error: 'image_validation_in_progress' });
+          return;
+        }
+        break;
+      }
       case 'run':
         startRun(parseRunHook(body));
         break;
@@ -112,12 +124,13 @@ const server = createServer(async (request, response) => {
     send(response, 200, { ok: true, operation });
   } catch (error) {
     const invalid = error instanceof InvalidHookRequest;
+    const conflict = error instanceof RuntimeConflict;
     log('warn', 'lifecycle operation failed', {
       operation,
       error: error instanceof Error ? error.message : String(error),
     });
-    send(response, invalid ? 400 : 500, {
-      error: invalid ? 'invalid_lifecycle_request' : 'lifecycle_operation_failed',
+    send(response, invalid ? 400 : conflict ? 409 : 500, {
+      error: invalid ? 'invalid_lifecycle_request' : conflict ? 'lifecycle_operation_unavailable' : 'lifecycle_operation_failed',
     });
   }
 });
@@ -149,6 +162,137 @@ function validateImage() {
     throw new Error('unprivileged agent UID/GID are not configured');
   }
   ensureUntrustedUidCannotReachPort({ uid: agentUid, port: 8080 });
+}
+
+function validateCodexStartup() {
+  if (activeRun) throw new RuntimeConflict('Image validation is unavailable while a Run is active');
+  if (imageValidationState === 'passed') return 'passed';
+  if (imageValidationState === 'running') return 'running';
+  if (imageValidationState === 'failed') throw new Error('Image validation failed');
+
+  imageValidationState = 'running';
+  const startedAt = Date.now();
+  let completion;
+  try {
+    completion = startImageValidation();
+  } catch {
+    imageValidationState = 'failed';
+    cleanupImageValidationHome();
+    throw new Error('Image validation process failed to start');
+  }
+  const child = imageValidationChild;
+  void completion.then(
+    async () => {
+      if (child.pid) await cleanupValidationGroup(child.pid);
+      cleanupImageValidationHome();
+      imageValidationChild = undefined;
+      imageValidationState = 'passed';
+      logImageValidationResult('passed', startedAt);
+    },
+    async () => {
+      if (child.pid) await cleanupValidationGroup(child.pid);
+      cleanupImageValidationHome();
+      imageValidationChild = undefined;
+      imageValidationState = 'failed';
+      logImageValidationResult('failed', startedAt);
+    },
+  ).catch(() => {
+    imageValidationState = 'failed';
+    logImageValidationResult('failed', startedAt);
+  });
+  return 'running';
+}
+
+function logImageValidationResult(status, startedAt) {
+  log('info', 'Codex image validation completed', {
+    status,
+    elapsedMs: Math.min(180_000, Math.max(0, Date.now() - startedAt)),
+  });
+}
+
+function startImageValidation() {
+  const unshare = '/usr/bin/unshare';
+  const setpriv = '/usr/bin/setpriv';
+  if (!existsSync(unshare) || !existsSync(setpriv)) throw new Error('Network-isolated image validation tools are missing');
+
+  imageValidationHome = join('/tmp', `rat-image-validation-${randomUUID()}`);
+  mkdirSync(imageValidationHome, { mode: 0o700 });
+  chownSync(imageValidationHome, agentUid, agentGid);
+  chmodSync(imageValidationHome, 0o700);
+
+  const child = spawn(unshare, [
+    '--net', '--fork', '--kill-child=TERM', '--',
+    setpriv, `--reuid=${agentUid}`, `--regid=${agentGid}`, '--clear-groups',
+    process.execPath, '/opt/agent-runtime/image-validation.mjs',
+  ], {
+    cwd: imageValidationHome,
+    detached: true,
+    env: {
+      PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+      HOME: imageValidationHome,
+      CODEX_HOME: join(imageValidationHome, '.codex'),
+      CODEX_BINARY: '/opt/codex-runtime/bin/codex',
+    },
+    stdio: 'ignore',
+  });
+  imageValidationChild = child;
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
+      error ? reject(error) : resolve();
+    };
+    const deadline = setTimeout(() => {
+      finish(new Error('Image validation timed out'));
+      void stopImageValidation().catch(() => {});
+    }, imageValidationTimeoutMs);
+    child.once('error', () => finish(new Error('Image validation process failed to start')));
+    child.once('close', (code, signal) => {
+      finish(code === 0 && signal === null ? undefined : new Error('Codex initialization failed'));
+    });
+  });
+}
+
+async function stopImageValidation() {
+  const child = imageValidationChild;
+  if (child?.pid) await cleanupValidationGroup(child.pid);
+}
+
+function signalValidationGroup(pid, signal) {
+  try { process.kill(-pid, signal); } catch (error) {
+    if (error?.code !== 'ESRCH') throw error;
+  }
+}
+
+async function cleanupValidationGroup(pid) {
+  signalValidationGroup(pid, 'SIGTERM');
+  if (await waitForValidationGroupExit(pid, 1_000)) return;
+  signalValidationGroup(pid, 'SIGKILL');
+  if (!await waitForValidationGroupExit(pid, 2_000)) throw new Error('Image validation process group did not exit');
+}
+
+async function waitForValidationGroupExit(pid, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try { process.kill(-pid, 0); } catch (error) {
+      if (error?.code === 'ESRCH') return true;
+      throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  try { process.kill(-pid, 0); return false; } catch (error) {
+    if (error?.code === 'ESRCH') return true;
+    throw error;
+  }
+}
+
+function cleanupImageValidationHome() {
+  if (!imageValidationHome) return;
+  rmSync(imageValidationHome, { recursive: true, force: true });
+  imageValidationHome = undefined;
 }
 
 function parseRunHook(body) {
@@ -282,6 +426,7 @@ function startRun(run) {
   let storagePreparationDurationMs = 0;
   let storageAlreadyMounted = false;
   validateImage();
+  if (imageValidationState === 'running') throw new InvalidHookRequest('image validation is in progress');
   if (activeRun) {
     if (activeRun.runId === run.runId && activeRun.microvmId === run.microvmId) return;
     throw new InvalidHookRequest('a different run is already active');
@@ -837,6 +982,9 @@ function syncPersistentStorage() {
 async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
+  await stopImageValidation();
+  imageValidationChild = undefined;
+  cleanupImageValidationHome();
   log('info', 'lifecycle server shutting down', { signal });
   server.close();
   await terminateActiveRun();
