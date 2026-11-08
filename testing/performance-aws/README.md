@@ -183,6 +183,41 @@ or model-provider cost. Bundle SHA-256 values can be supplied with
 `--before-bundle-sha256` and `--after-bundle-sha256`; independently verify those
 hashes and the deployed source revisions.
 
+## Compare fresh Session startup
+
+`startup.ts` compares two versions of one deployed MicroVM image through the same
+operator Web Function. It creates five fresh Sessions per version, alternating
+the order within each pair. Every Session gets the same one-word request and a
+new worker. It records acceptance, first observed assistant text, completion,
+correctness, token usage, and the image version returned by AWS for that worker.
+
+Use a disposable deployment with no other callers. The controller temporarily
+changes its active image-version SSM parameter and restores it on exit. Verify
+both image versions and their source ZIP hashes before starting. Underlying AWS
+snapshot-cache residency is not controlled by creating a fresh MicroVM.
+
+```sh
+AWS_E2E=true AWS_E2E_REAL_CODEX=true \
+  STARTUP_BEFORE_VERSION=1.0 STARTUP_AFTER_VERSION=2.0 \
+  STARTUP_OUTPUT=/absolute/path/startup.json \
+  node --import tsx testing/performance-aws/startup.ts
+```
+
+Source the disposable deployment's `runtime.env` first. The controller requires
+`AWS_REGION`, `AWS_E2E_DEPLOYMENT_ID`, `AWS_E2E_CALLER_ACCOUNT`,
+`RAT_THINGS_AGENTS_API_URL`, and `AWS_E2E_CODEX_MODEL_ID=openai.gpt-5.6-luna`.
+Verify model availability and prices before use. The controller permits ten
+initial requests, no follow-ups or client retries, a three-minute observation
+deadline per Session, and thirty minutes total. It stops on the first failure,
+missing usage, unexpected answer, or estimated inference cost of $0.05.
+The 256-byte observed-output guard is not a provider generation-token cap.
+
+First output is observed through activity snapshots polled every 500 ms plus
+request time. It is not the provider's first-token timestamp. Save worker logs
+to separate storage mount and Codex initialization from the remaining delay.
+The controller deletes its Sessions and Agent; destroy the disposable stack
+after exporting evidence. Infrastructure costs require separate accounting.
+
 ## Focused checks
 
 ```sh

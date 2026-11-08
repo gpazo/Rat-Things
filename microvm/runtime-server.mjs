@@ -45,6 +45,7 @@ let transientRunState;
 let imageValidationState = 'idle';
 let imageValidationChild;
 let imageValidationHome;
+let imageValidationCleanup;
 
 const server = createServer(async (request, response) => {
   response.setHeader('cache-control', 'no-store');
@@ -180,17 +181,16 @@ function validateCodexStartup() {
     cleanupImageValidationHome();
     throw new Error('Image validation process failed to start');
   }
-  const child = imageValidationChild;
   void completion.then(
     async () => {
-      if (child.pid) await cleanupValidationGroup(child.pid);
+      await stopImageValidation();
       cleanupImageValidationHome();
       imageValidationChild = undefined;
       imageValidationState = 'passed';
       logImageValidationResult('passed', startedAt);
     },
     async () => {
-      if (child.pid) await cleanupValidationGroup(child.pid);
+      await stopImageValidation();
       cleanupImageValidationHome();
       imageValidationChild = undefined;
       imageValidationState = 'failed';
@@ -247,7 +247,6 @@ function startImageValidation() {
     };
     const deadline = setTimeout(() => {
       finish(new Error('Image validation timed out'));
-      void stopImageValidation().catch(() => {});
     }, imageValidationTimeoutMs);
     child.once('error', () => finish(new Error('Image validation process failed to start')));
     child.once('close', (code, signal) => {
@@ -258,7 +257,7 @@ function startImageValidation() {
 
 async function stopImageValidation() {
   const child = imageValidationChild;
-  if (child?.pid) await cleanupValidationGroup(child.pid);
+  if (child?.pid) await (imageValidationCleanup ??= cleanupValidationGroup(child.pid));
 }
 
 function signalValidationGroup(pid, signal) {
