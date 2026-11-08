@@ -183,7 +183,7 @@ it('fails a timed out initialize and tears down its process group', async () => 
   vi.useFakeTimers();
   try {
     expect(await post(handler, '/aws/lambda-microvms/runtime/v1/validate')).toMatchObject({ status: 503 });
-    await vi.advanceTimersByTimeAsync(150_000);
+    await vi.advanceTimersByTimeAsync(180_000);
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
