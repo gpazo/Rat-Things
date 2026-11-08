@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { planStartup, sourceArtifactLocation, startupLimits, validateStartupManifest } from '../../testing/performance-aws/startup-planning.js';
+import { hasUnconditionalInferenceDeny, planStartup, sourceArtifactLocation, startupLimits, validateStartupManifest } from '../../testing/performance-aws/startup-planning.js';
 
 const images = { beforeVersion: '1.0', beforeZip: '/before.zip', afterVersion: '2.0', afterZip: '/after.zip' };
 const manifest = {
   schema: 'rat-things.startup-responses-proxy.v1', mode: 'fixture',
   listenHost: '127.0.0.1', listenPort: 43188, endpointPath: '/openai/v1/responses',
   model: 'openai.gpt-5.6-luna', forwardURL: null, proxySha256: 'a'.repeat(64), limits: startupLimits,
+  requestPolicy: { tools: 'forced_empty', toolChoice: 'none' }, responsePolicy: 'message_or_reasoning_items_only',
+  nativeRetryConfiguration: 'built_in_amazon_bedrock_override_rejected', proxyRetries: 0,
 };
 
 describe('startup measurement plan', () => {
@@ -40,6 +42,16 @@ describe('startup measurement plan', () => {
 });
 
 describe('deployed startup source bounds', () => {
+  it('requires a role-wide unconditional deny for both inference providers', () => {
+    const deny = { Effect: 'Deny', Action: ['bedrock:*', 'bedrock-mantle:*', 'sagemaker:InvokeEndpoint*'], Resource: '*' };
+    expect(hasUnconditionalInferenceDeny({ Statement: [deny] })).toBe(true);
+    expect(hasUnconditionalInferenceDeny({ Statement: [{ ...deny, Effect: 'Allow' }] })).toBe(false);
+    expect(hasUnconditionalInferenceDeny({ Statement: [{ ...deny, Condition: { StringEquals: { Example: 'value' } } }] })).toBe(false);
+    expect(hasUnconditionalInferenceDeny({ Statement: [{ ...deny, Resource: 'arn:one-model' }] })).toBe(false);
+    expect(hasUnconditionalInferenceDeny({ Statement: [{ ...deny, Action: ['bedrock:*'] }] })).toBe(false);
+    expect(hasUnconditionalInferenceDeny({ Statement: [{ ...deny, Action: ['bedrock:*', 'sagemaker:InvokeEndpoint*'] }] })).toBe(false);
+    expect(hasUnconditionalInferenceDeny(null)).toBe(false);
+  });
   it('requires the requested mode and all fixed proxy limits', () => {
     expect(() => validateStartupManifest(manifest, 'fixture')).not.toThrow();
     expect(() => validateStartupManifest(manifest, 'bedrock')).toThrow();

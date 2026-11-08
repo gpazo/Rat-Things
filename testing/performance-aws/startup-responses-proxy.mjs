@@ -25,6 +25,7 @@ export function canonicalLunaModel(value) {
   return STARTUP_RESPONSES_PROXY.modelAliases.includes(value) ? STARTUP_RESPONSES_PROXY.model : null;
 }
 
+/** @returns {{ok: true, model: string, requestBytes: number, authorization: string | undefined, forwardedBody: Buffer} | {ok: false, reason: string, requestBytes: number, model: string | null}} */
 export function planStartupResponsesRequest({ method, url, headers, body, count }) {
   const requestBytes = body.byteLength;
   if (count > STARTUP_RESPONSES_PROXY.requestLimit) return rejected('requestLimit', requestBytes);
@@ -51,6 +52,7 @@ export function planStartupResponsesRequest({ method, url, headers, body, count 
   };
 }
 
+/** @param {{mode?: 'fixture' | 'bedrock', port?: number, fetchImpl?: typeof fetch, log?: (line: string) => void, onDecision?: (decision: unknown) => void}} [options] */
 export async function startStartupResponsesProxy({ mode, port = STARTUP_RESPONSES_PROXY.port, fetchImpl = fetch, log = (line) => console.log(line), onDecision = () => {} } = {}) {
   if (!allowedModes.has(mode)) throw new Error('Startup Responses proxy mode must be fixture or bedrock.');
   if (!Number.isInteger(port) || port < 0 || port > 65_535) throw new Error('Startup Responses proxy port is invalid.');

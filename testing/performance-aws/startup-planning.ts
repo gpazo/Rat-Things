@@ -9,8 +9,8 @@ export const startupLimits = {
   maxOutputTokens: 128,
   forwardTimeoutMs: 30_000,
   responseBytes: 1_048_576,
-  requestMaxRetries: 0,
-  streamMaxRetries: 0,
+  requestMaxRetries: null,
+  streamMaxRetries: null,
 } as const;
 
 export function planStartup(input: {
@@ -54,8 +54,11 @@ export function validateStartupManifest(value: unknown, mode: StartupMode): asse
 } {
   if (!isRecord(value) || value.schema !== 'rat-things.startup-responses-proxy.v1' || value.mode !== mode
     || value.listenHost !== '127.0.0.1' || value.listenPort !== 43188 || value.endpointPath !== '/openai/v1/responses'
-    || !['openai.gpt-5.6-luna', 'gpt-5.6-luna'].includes(String(value.model))
+    || value.model !== 'openai.gpt-5.6-luna'
     || value.forwardURL !== (mode === 'bedrock' ? 'https://bedrock-mantle.us-west-2.api.aws/openai/v1/responses' : null)
+    || !isRecord(value.requestPolicy) || value.requestPolicy.tools !== 'forced_empty' || value.requestPolicy.toolChoice !== 'none'
+    || value.responsePolicy !== 'message_or_reasoning_items_only'
+    || value.nativeRetryConfiguration !== 'built_in_amazon_bedrock_override_rejected' || value.proxyRetries !== 0
     || typeof value.proxySha256 !== 'string' || !/^[a-f0-9]{64}$/.test(value.proxySha256)
     || !isRecord(value.limits) || Object.keys(value.limits).length !== Object.keys(startupLimits).length
     || Object.entries(startupLimits).some(([key, expected]) => (value.limits as Record<string, unknown>)[key] !== expected)) {
@@ -67,6 +70,18 @@ export function sourceArtifactLocation(uri: string | undefined, deployment: stri
   const match = uri?.match(/^s3:\/\/([^/]+)\/(.+)$/);
   if (!match || !new RegExp(`^rat-things-${deployment}-mvm-src-[a-f0-9]{12}$`).test(match[1]!)) throw new Error('Image source must be in this disposable deployment artifact bucket');
   return { Bucket: match[1]!, Key: match[2]! };
+}
+
+export function hasUnconditionalInferenceDeny(policy: unknown): boolean {
+  if (!isRecord(policy)) return false;
+  const statements = Array.isArray(policy.Statement) ? policy.Statement : [policy.Statement];
+  return ['bedrock:*', 'bedrock-mantle:*', 'sagemaker:InvokeEndpoint*'].every(action => statements.some(statement => {
+    if (!isRecord(statement) || statement.Effect !== 'Deny' || statement.Condition !== undefined
+      || statement.NotAction !== undefined || statement.NotResource !== undefined) return false;
+    const actions = Array.isArray(statement.Action) ? statement.Action : [statement.Action];
+    const resources = Array.isArray(statement.Resource) ? statement.Resource : [statement.Resource];
+    return resources.includes('*') && (actions.includes('*') || actions.includes(action));
+  }));
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);

@@ -207,7 +207,10 @@ node testing/performance-aws/startup-responses-proxy-image.mjs \
 Publish both overlaid ZIPs as versions of the same MicroVM image. Keep worker
 resources and the managed base-image version identical. Source the disposable
 stack's `runtime.env`, then install an explicit Bedrock and SageMaker inference
-deny policy on its worker execution role before fixture runs.
+deny policy named `StartupFixtureNoInference` on its worker execution role before
+fixture runs. Use unconditional `Deny` statements for `bedrock:*`, `bedrock-mantle:*`, and
+`sagemaker:InvokeEndpoint*` on resource `*`. The controller checks the attached policy
+and the dispatcher's configured worker role before creating Sessions.
 
 ```sh
 AWS_E2E=true AWS_E2E_REAL_CODEX=true STARTUP_MODE=fixture \
@@ -241,7 +244,9 @@ fixture usage. Infrastructure charges need separate accounting.
 
 All runs stop on the first failure, unexpected answer, missing usage, or deadline.
 Each Session has a three-minute observation deadline; the controller has thirty
-minutes total. Native and proxy inference retries are disabled. SDK cleanup
+minutes total. The built-in native Bedrock provider rejects retry-setting
+overrides. Its retries reach the local proxy, which rejects every request after
+the first and never retries an upstream call. SDK cleanup
 DELETE requests permit two retries. Export evidence, then destroy the stack.
 
 First output means nonempty assistant text from the standard Items and Turns
@@ -249,7 +254,10 @@ endpoints, polled concurrently with 500 ms between iterations. Startup status an
 protocol bytes do not count. Keep worker logs to correlate `runner_startup_trace`,
 `startup-responses-proxy`, and host storage timings. The loopback hop is test-only
 and both sides must use the same overlay. Fixture results exclude real model
-latency. Fresh MicroVMs do not control AWS snapshot-cache residency. Report small
+latency. Bedrock mode also removes native tool definitions and forces
+`tool_choice: none` in the test request. Only assistant-message and reasoning Items
+may pass through the proxy. This provider check uses a narrowed test request.
+Fresh MicroVMs do not control AWS snapshot-cache residency. Report small
 real-model samples as preliminary, without fleet percentiles or cold-start bounds.
 
 ## Probe fresh S3 Files mount startup without inference

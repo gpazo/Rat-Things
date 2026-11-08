@@ -9,6 +9,7 @@ import { expect, it } from 'vitest';
 import { SessionRuntime } from '../../src/runner/session-runtime.js';
 import { bedrockTokenArguments } from '../../src/runner/agent-planning.js';
 import { planStartupResponsesRequest, startStartupResponsesProxy } from '../../testing/performance-aws/startup-responses-proxy.mjs';
+import { validateStartupManifest } from '../../testing/performance-aws/startup-planning.js';
 
 it('caps the provider request and removes Codex executor tools before forwarding', () => {
   const input = { model: 'openai.gpt-5.6-luna', stream: true, tools: [{ type: 'function', name: 'apply_patch' }], tool_choice: 'auto',
@@ -59,6 +60,7 @@ it('adds the same bounded overlay without changing other source ZIP entries or m
     }
     const proxy = execFileSync('unzip', ['-p', beforeZip, 'startup-responses-proxy.mjs']);
     const manifest = JSON.parse(execFileSync('unzip', ['-p', beforeZip, 'startup-responses-proxy-manifest.json'], { encoding: 'utf8' }));
+    validateStartupManifest(manifest, 'bedrock');
     expect(manifest).toMatchObject({ schema: 'rat-things.startup-responses-proxy.v1', mode: 'bedrock', listenHost: '127.0.0.1', listenPort: 43188,
       endpointPath: '/openai/v1/responses', providerBaseUrl: 'http://127.0.0.1:43188/openai/v1',
       forwardURL: 'https://bedrock-mantle.us-west-2.api.aws/openai/v1/responses', model: 'openai.gpt-5.6-luna',
@@ -76,6 +78,7 @@ it('adds the same bounded overlay without changing other source ZIP entries or m
       execFileSync('unzip', ['-p', afterZip, 'startup-responses-proxy-manifest.json']));
     expect(execFileSync('unzip', ['-p', beforeZip, 'runtime-server.mjs'])).toEqual(execFileSync('unzip', ['-p', afterZip, 'runtime-server.mjs']));
     const fixtureManifest = JSON.parse(execFileSync('unzip', ['-p', fixtureZip, 'startup-responses-proxy-manifest.json'], { encoding: 'utf8' }));
+    validateStartupManifest(fixtureManifest, 'fixture');
     expect(fixtureManifest).toMatchObject({ mode: 'fixture', forwardURL: null, proxySha256: manifest.proxySha256 });
     const dockerfile = execFileSync('unzip', ['-p', beforeZip, 'Dockerfile'], { encoding: 'utf8' });
     const executableList = dockerfile.match(/&& chmod 0555 \\\n([\s\S]*?)\n\s*&& chown -R agent:agent/)?.[1];

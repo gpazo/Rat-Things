@@ -1,10 +1,11 @@
-import { writeFile, rename, readFile } from 'node:fs/promises';
+import { writeFile, rename } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { execFileSync } from 'node:child_process';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
-import { planStartup, sourceArtifactLocation, startupLimits, validateStartupManifest } from './startup-planning.js';
+import { hasUnconditionalInferenceDeny, planStartup, sourceArtifactLocation, startupLimits, validateStartupManifest } from './startup-planning.js';
 import { SSMClient, GetParameterCommand, PutParameterCommand } from '@aws-sdk/client-ssm';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, ScanCommand } from '@aws-sdk/lib-dynamodb';
@@ -40,6 +41,18 @@ if (model !== 'openai.gpt-5.6-luna') throw new Error('This bounded comparison pe
 const output = required('STARTUP_OUTPUT');
 const account = required('AWS_E2E_CALLER_ACCOUNT');
 if (JSON.parse(execFileSync('aws', ['sts', 'get-caller-identity', '--region', region, '--output', 'json'], { encoding: 'utf8', timeout: 30_000 })).Account !== account) throw new Error('Wrong AWS account');
+const executionRoleArn = `arn:aws:iam::${account}:role/rat-things-${deployment}-microvm-execution`;
+const configuredRole = JSON.parse(execFileSync('aws', ['lambda', 'get-function-configuration', '--function-name', `rat-things-${deployment}-dispatcher`,
+  '--region', region, '--query', 'Environment.Variables.MICROVM_EXECUTION_ROLE_ARN', '--output', 'json'], { encoding: 'utf8', timeout: 30_000 }));
+if (configuredRole !== executionRoleArn) throw new Error('Dispatcher does not use the expected disposable worker role');
+let fixtureInferenceDeny: { roleArn: string; policyName: string; policySha256: string } | undefined;
+if (plan.mode === 'fixture') {
+  const policyName = 'StartupFixtureNoInference';
+  const policy = JSON.parse(execFileSync('aws', ['iam', 'get-role-policy', '--role-name', `rat-things-${deployment}-microvm-execution`,
+    '--policy-name', policyName, '--query', 'PolicyDocument', '--output', 'json'], { encoding: 'utf8', timeout: 30_000 }));
+  if (!hasUnconditionalInferenceDeny(policy)) throw new Error('Fixture worker role lacks the unconditional inference deny policy');
+  fixtureInferenceDeny = { roleArn: executionRoleArn, policyName, policySha256: createHash('sha256').update(JSON.stringify(policy)).digest('hex') };
+}
 const ssm = new SSMClient({ region, maxAttempts: 1 });
 const db = DynamoDBDocumentClient.from(new DynamoDBClient({ region, maxAttempts: 1 }));
 const microvms = new LambdaMicrovmsClient({ region, maxAttempts: 1 });
@@ -49,15 +62,23 @@ const parameter = `/rat-things-${deployment}/microvm/image-version`;
 const original = (await ssm.send(new GetParameterCommand({ Name: parameter }))).Parameter?.Value;
 if (!original) throw new Error('Active image version is missing');
 const imageArn = (await ssm.send(new GetParameterCommand({ Name: `/rat-things-${deployment}/microvm/image-arn` }))).Parameter?.Value;
-if (!imageArn?.startsWith(`arn:aws:lambda:${region}:${account}:microvm-image:`)) throw new Error('Wrong image account or region');
+if (imageArn !== `arn:aws:lambda:${region}:${account}:microvm-image:rat-things-${deployment}-agent`) throw new Error('Image does not belong to the configured disposable deployment');
 const imageProvenance = await Promise.all(plan.images.map(async selected => {
   const image = await microvms.send(new GetMicrovmImageVersionCommand({ imageIdentifier: imageArn, imageVersion: selected.version }));
   if (image.status !== 'ACTIVE' || image.state !== 'SUCCESSFUL') throw new Error('Image versions must have successful active builds');
-  const localBytes = await readFile(selected.sourceZip);
+  const localHash = createHash('sha256');
+  for await (const bytes of createReadStream(selected.sourceZip)) localHash.update(bytes);
   const remote = await s3.send(new GetObjectCommand(sourceArtifactLocation(image.codeArtifact?.uri, deployment)), { abortSignal: AbortSignal.timeout(30_000) });
   if (!remote.Body) throw new Error('Image source object is empty');
-  const sourceSha256 = sha256(localBytes);
-  if (sha256(await remote.Body.transformToByteArray()) !== sourceSha256) throw new Error('Deployed image source differs from the local verified ZIP');
+  const sourceSha256 = localHash.digest('hex');
+  const remoteHash = createHash('sha256');
+  const reader = remote.Body.transformToWebStream().getReader();
+  for (;;) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    remoteHash.update(chunk.value);
+  }
+  if (remoteHash.digest('hex') !== sourceSha256) throw new Error('Deployed image source differs from the local verified ZIP');
   const zipEntry = (name: string) => execFileSync('unzip', ['-p', selected.sourceZip, name], { timeout: 10_000, maxBuffer: 1_048_576 });
   const manifest: unknown = JSON.parse(zipEntry('startup-responses-proxy-manifest.json').toString('utf8'));
   validateStartupManifest(manifest, plan.mode);
@@ -86,8 +107,9 @@ async function attachExecution(sample: Record<string, unknown>, sessionId: strin
   sample.execution = execution;
   sample.microvmImageVersion = vm.imageVersion;
   sample.microvmImageArn = vm.imageArn;
+  sample.executionRoleArn = vm.executionRoleArn;
   sample.runCreatedAt = runs[0]!.createdAt;
-  if (vm.imageArn !== imageArn || vm.imageVersion !== selectedVersion) throw new Error('Observed worker image differs from selected image');
+  if (vm.imageArn !== imageArn || vm.imageVersion !== selectedVersion || vm.executionRoleArn !== executionRoleArn) throw new Error('Observed worker image or role differs from the selected deployment');
 }
 const client = createAgentsClient({ baseURL, region }).withOptions({ maxRetries: 0, timeout: 30_000 });
 const started = performance.now();
@@ -101,7 +123,7 @@ const artifact: Record<string, unknown> & { samples: Array<Record<string, unknow
   limits: { sessions: plan.samples.length, sessionDeadlineMs: 180_000, totalDeadlineMs: 30 * 60_000, observedOutputBytes: 256,
     ...startupLimits, maximumInferenceUsd: plan.maximumInferenceUsd, inferenceBudgetUsd: 1.20,
     inputTokenBound: 1_050_000, inputBoundBasis: 'model context limit; request body is additionally limited to 65536 bytes',
-    fixtureInferenceDenied: plan.mode === 'fixture', nativeAndProxyRetries: 0 }, samples: [],
+    fixtureInferenceDeny: fixtureInferenceDeny ?? null, nativeRetryOverridesSupported: false, upstreamRetries: 0 }, samples: [],
 };
 const save = async () => { await writeFile(`${output}.tmp`, JSON.stringify(artifact, null, 2), { mode: 0o600 }); await rename(`${output}.tmp`, output); };
 let agentId: string | undefined;
