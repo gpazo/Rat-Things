@@ -1,10 +1,10 @@
 import { expect, it } from 'vitest';
-import { liveConfiguration, parseArguments, run } from '../../testing/performance-aws/progress.js';
+import { cellCleanupHealthy, liveConfiguration, mapBounded, observersHealthy, parseArguments, receiptValidationAfter, sampleStatus, terminalRunStatus, run, type InputSample } from '../../testing/performance-aws/progress.js';
 
 const argumentsFor = (...rest: string[]) => parseArguments([
-  '--before-url', 'https://before.lambda-web.us-west-2.on.aws/api/v1',
-  '--after-url', 'https://after.lambda-web.us-west-2.on.aws/api/v1',
-  '--operator-url', 'https://operator.execute-api.us-west-2.amazonaws.com/v1',
+  '--before-url', 'https://before.lambda-web.us-west-2.on.aws/v1',
+  '--after-url', 'https://after.lambda-web.us-west-2.on.aws/v1',
+  '--operator-url', 'https://operator.lambda-web.us-west-2.on.aws/v1',
   '--output', '/tmp/aws-peer-progress.json',
   ...rest,
 ]);
@@ -40,4 +40,55 @@ it('rejects unsafe URL forms, same-side endpoints, and endpoint query strings', 
   expect(() => liveConfiguration(environment, { ...options, afterUrl: options.beforeUrl })).toThrow('different');
   expect(() => liveConfiguration(environment, { ...options, beforeUrl: 'https://user:pass@before.lambda-web.us-west-2.on.aws/api/v1' })).toThrow('endpoint URL');
   expect(() => liveConfiguration(environment, { ...options, afterUrl: `${options.afterUrl}?token=private` })).toThrow('endpoint URL');
+  expect(() => liveConfiguration(environment, { ...options, beforeUrl: 'https://before.lambda-web.us-west-2.on.aws/api/v1' })).toThrow('/v1 endpoint');
+  expect(() => liveConfiguration(environment, { ...options, operatorUrl: 'https://operator.execute-api.us-west-2.amazonaws.com/v1' })).toThrow('operator Lambda Web Function');
+  expect(liveConfiguration(environment, { ...options, beforeUrl: 'https://lm2trh10396zdh82.32l.lambda-web.us-west-2.on.aws/v1' }).beforeUrl)
+    .toBe('https://lm2trh10396zdh82.32l.lambda-web.us-west-2.on.aws/v1');
+});
+
+it('stops scheduling bounded setup work after an error and drains already-started requests', async () => {
+  const started: number[] = [];
+  let secondFinished = false;
+  await expect(mapBounded([0, 1, 2, 3], 2, async value => {
+    started.push(value);
+    if (value === 0) throw new Error('setup failure');
+    if (value === 1) { await new Promise(resolve => setTimeout(resolve, 10)); secondFinished = true; }
+  })).rejects.toThrow('setup failure');
+  expect(started).toEqual([0, 1]);
+  expect(secondFinished).toBe(true);
+});
+
+it('attributes observer failures to that viewer and makes auxiliary failures terminal', () => {
+  const sample: InputSample = { id: 'input', writer: 'writer-0', textSha256: 'hash', payloadBytes: 1, startedMs: 10, deadlineMs: 40,
+    acknowledgement: { state: 'accepted', httpStatus: 204, latencyMs: 1, acknowledgedAtMs: 11 }, receiptMatches: 1, receiptValidation: 'valid',
+    peers: ['viewer-0', 'viewer-1'].map(peer => ({ peer, observation: { state: 'pending' } })) };
+  const observers = [
+    { peer: 'viewer-0', mode: 'desktop' as const, connections: [], initialSnapshotBytes: 10, activityFrames: 1, errors: [], auxiliaryErrors: ['runtime_snapshot_failed'] },
+    { peer: 'viewer-1', mode: 'desktop' as const, connections: [], initialSnapshotBytes: 10, activityFrames: 1, errors: [], auxiliaryErrors: [] },
+  ];
+  const finished = sampleStatus(sample, 50, observers);
+  expect(finished.peers.map(peer => peer.observation.state)).toEqual(['error', 'censored']);
+  expect(finished.peers[0]?.observation).toMatchObject({ reason: 'observer_error' });
+  expect(observersHealthy(observers)).toBe(false);
+});
+
+it('keeps exact-receipt validation failures sticky across later snapshots', () => {
+  expect(receiptValidationAfter('pending', 2)).toBe('failed');
+  expect(receiptValidationAfter('failed', 1, true)).toBe('failed');
+  expect(receiptValidationAfter('pending', 1, false)).toBe('failed');
+  expect(receiptValidationAfter('pending', 1, true)).toBe('valid');
+});
+
+it('sets a terminal run status from completed cells and identity cleanup', () => {
+  expect(terminalRunStatus({ cells: [{ status: 'passed' }, { status: 'passed' }], plannedCells: 2, identities: 'complete' })).toBe('passed');
+  expect(terminalRunStatus({ cells: [{ status: 'running' }], plannedCells: 1, identities: 'complete' })).toBe('failed');
+  expect(terminalRunStatus({ cells: [{ status: 'passed' }], plannedCells: 2, identities: 'complete' })).toBe('failed');
+  expect(terminalRunStatus({ cells: [{ status: 'passed' }], plannedCells: 1, identities: 'failed' })).toBe('failed');
+  expect(terminalRunStatus({ cells: [{ status: 'passed' }], plannedCells: 1, identities: 'complete', priorFailure: true })).toBe('failed');
+});
+
+it('fails a cell when created resources could not be deleted', () => {
+  expect(cellCleanupHealthy({ sessionCreated: true, sessionStatus: 'complete', agentCreated: true, agentStatus: 'complete' })).toBe(true);
+  expect(cellCleanupHealthy({ sessionCreated: true, sessionStatus: 'http_409', agentCreated: true, agentStatus: 'complete' })).toBe(false);
+  expect(cellCleanupHealthy({ sessionCreated: false, sessionStatus: undefined, agentCreated: false, agentStatus: undefined })).toBe(true);
 });

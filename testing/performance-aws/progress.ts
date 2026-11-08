@@ -71,9 +71,9 @@ function endpoint(value: string, region: string, kind: 'web' | 'operator') {
   const url = new URL(value);
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.port) throw new Error(`Invalid ${kind} endpoint URL.`);
   if (kind === 'web') {
-    if (!url.hostname.endsWith(`.lambda-web.${region}.on.aws`) || !url.pathname.endsWith('/api/v1')) throw new Error('Use a deployed Lambda Web Function /api/v1 endpoint in the configured region.');
-  } else if (!url.hostname.endsWith(`.execute-api.${region}.amazonaws.com`) || !url.pathname.endsWith('/v1')) {
-    throw new Error('Use the IAM operator API Gateway /v1 endpoint in the configured region.');
+    if (!url.hostname.endsWith(`.lambda-web.${region}.on.aws`) || url.pathname !== '/v1') throw new Error('Use a deployed Lambda Web Function /v1 endpoint in the configured region.');
+  } else if (!url.hostname.endsWith(`.lambda-web.${region}.on.aws`) || url.pathname !== '/v1') {
+    throw new Error('Use the IAM operator Lambda Web Function /v1 endpoint in the configured region.');
   }
   return value.replace(/\/$/, '');
 }
@@ -102,12 +102,13 @@ type PeerState =
   | { state: 'pending' }
   | { state: 'observed'; latencyMs: number; acknowledgementToPeerMs: number | null; receiptId: string; messageIds: string[]; actorSubject: string }
   | { state: 'censored' | 'error' | 'notstarted'; reason: string; elapsedMs?: number };
-interface InputSample {
+export interface InputSample {
   id: string; writer: string; textSha256: string; payloadBytes: number; startedMs: number | null; deadlineMs: number;
   acknowledgement: { state: 'pending' } | { state: 'accepted' | 'rejected'; httpStatus: number; latencyMs: number; acknowledgedAtMs: number }
     | { state: 'timeout' | 'error'; latencyMs: number; error: string } | { state: 'notstarted'; reason: string };
   peers: Array<{ peer: string; observation: PeerState }>;
   receiptMatches: number;
+  receiptValidation: 'pending' | 'valid' | 'failed';
 }
 interface CellResult {
   id: string; side: Side; mode: Mode; pair: number; status: 'running' | 'passed' | 'failed'; phase: string;
@@ -122,15 +123,19 @@ const eventBody = (text: string) => ({ events: [{ type: 'agent.session.input.mes
 const safeError = (error: unknown) => error && typeof error === 'object' && 'status' in error && typeof error.status === 'number'
   ? `http_${error.status}` : 'controller_failure';
 
-async function mapBounded<T>(values: readonly T[], concurrency: number, task: (value: T) => Promise<void>) {
+export async function mapBounded<T>(values: readonly T[], concurrency: number, task: (value: T) => Promise<void>) {
   let next = 0;
+  let failed = false;
+  let firstError: unknown;
   const worker = async () => {
-    while (next < values.length) {
+    while (!failed && next < values.length) {
       const index = next++;
-      await task(values[index]!);
+      try { await task(values[index]!); }
+      catch (error) { if (!failed) { failed = true; firstError = error; } }
     }
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, worker));
+  if (failed) throw firstError;
 }
 
 async function consumeResponse(response: Response, maximumBytes = 64 * 1024) {
@@ -147,16 +152,33 @@ async function consumeResponse(response: Response, maximumBytes = 64 * 1024) {
   } finally { await reader.cancel().catch(() => undefined); }
 }
 
-function sampleStatus(sample: InputSample, nowMs: number, observers: readonly ObserverMeasurement[]): InputSample {
-  const failure = observers.find(observer => observer.errors.length > 0)?.errors[0];
+export function sampleStatus(sample: InputSample, nowMs: number, observers: readonly ObserverMeasurement[]): InputSample {
   return { ...sample, acknowledgement: sample.acknowledgement.state === 'pending'
     ? { state: 'notstarted', reason: 'submission_not_started' } : sample.acknowledgement,
   peers: sample.peers.map(peer => {
     if (peer.observation.state !== 'pending') return peer;
     if (sample.startedMs === null) return { ...peer, observation: { state: 'notstarted', reason: 'submission_not_started' } };
+    const observer = observers.find(candidate => candidate.peer === peer.peer);
+    const failure = observer?.errors[0] ?? observer?.auxiliaryErrors[0];
     const reason = failure ? 'observer_error' : nowMs >= sample.deadlineMs ? 'observation_deadline' : 'cell_ended';
     return { ...peer, observation: { state: failure ? 'error' : 'censored', reason, elapsedMs: Math.max(0, Math.min(nowMs, sample.deadlineMs) - sample.startedMs) } };
   }) };
+}
+
+export const observersHealthy = (observers: readonly ObserverMeasurement[]) => observers.every(observer => observer.errors.length === 0 && observer.auxiliaryErrors.length === 0);
+
+export function receiptValidationAfter(previous: InputSample['receiptValidation'], matches: number, helperMatched = true): InputSample['receiptValidation'] {
+  if (previous === 'failed') return 'failed';
+  if (matches > 1 || matches === 1 && !helperMatched) return 'failed';
+  return matches === 1 ? 'valid' : previous;
+}
+
+export function terminalRunStatus(input: { cells: readonly { status: CellResult['status'] }[]; plannedCells: number; identities: string | undefined; priorFailure?: boolean }): 'passed' | 'failed' {
+  return !input.priorFailure && input.cells.length === input.plannedCells && input.cells.every(cell => cell.status === 'passed') && input.identities === 'complete' ? 'passed' : 'failed';
+}
+
+export function cellCleanupHealthy(input: { sessionCreated: boolean; sessionStatus: string | undefined; agentCreated: boolean; agentStatus: string | undefined }) {
+  return (!input.sessionCreated || input.sessionStatus === 'complete') && (!input.agentCreated || input.agentStatus === 'complete');
 }
 
 export async function run(
@@ -282,10 +304,17 @@ export async function run(
                 const sample = cell.samples.find(candidate => candidate.id === id);
                 if (!sample || matches.length === 0) continue;
                 sample.receiptMatches = Math.max(sample.receiptMatches, matches.length);
-                if (matches.length !== 1 || sample.startedMs === null || receivedAtMs > sample.deadlineMs) continue;
+                if (matches.length !== 1) { sample.receiptValidation = receiptValidationAfter(sample.receiptValidation, matches.length); continue; }
+                if (sample.startedMs === null || receivedAtMs > sample.deadlineMs) continue;
                 const receipt = matches[0]!;
                 const previous = sample.peers[index]!.observation;
                 if (previous.state === 'pending') {
+                  const sharedObservation = observePeer({ peer: `viewer-${index}`, input: { state: 'pending' }, progress: { state: 'pending' } }, activity, work, receivedAtMs);
+                  if (sharedObservation.input.state !== 'observed' || sharedObservation.input.receiptId !== receipt.id) {
+                    sample.receiptValidation = receiptValidationAfter(sample.receiptValidation, 1, false);
+                    continue;
+                  }
+                  sample.receiptValidation = receiptValidationAfter(sample.receiptValidation, 1);
                   const elapsed = Math.max(0, receivedAtMs - sample.startedMs);
                   const ackAt = sample.acknowledgement.state === 'accepted' || sample.acknowledgement.state === 'rejected'
                     ? sample.acknowledgement.acknowledgedAtMs : null;
@@ -296,9 +325,6 @@ export async function run(
                   if (!times) { times = new Map(); observationsAt.set(id, times); }
                   times.set(peer, receivedAtMs);
                 }
-                // Keep the shared pure measurement contract aligned; progress remains intentionally unreported.
-                const sharedObservation = observePeer({ peer, input: { state: 'pending' }, progress: { state: 'pending' } }, activity, work, receivedAtMs);
-                if (sharedObservation.input.state !== 'observed' || sharedObservation.input.receiptId !== receipt.id) sample.receiptMatches = 0;
               }
             } });
           watches.push(watch);
@@ -321,7 +347,7 @@ export async function run(
             baselineTurns: baseline.turns.map(turn => turn.id), baselineItems: baseline.items.map(itemKey) };
           works.set(id, work);
           const sample: InputSample = { id, writer: `writer-${index}`, textSha256: digest(text), payloadBytes: Buffer.byteLength(body),
-            startedMs: null, deadlineMs: 0, acknowledgement: { state: 'pending' }, receiptMatches: 0,
+            startedMs: null, deadlineMs: 0, acknowledgement: { state: 'pending' }, receiptMatches: 0, receiptValidation: 'pending',
             peers: cellViewers.map((_viewer, viewerIndex) => ({ peer: `viewer-${viewerIndex}`, observation: { state: 'pending' } })) };
           cell.samples.push(sample);
           return { identity, sample, work, body };
@@ -362,9 +388,9 @@ export async function run(
         cell.samples = cell.samples.map(sample => sampleStatus(sample, now(), cell.observers));
         const allAccepted = cell.samples.every(sample => sample.acknowledgement.state === 'accepted');
         const allVisible = cell.samples.every(sample => sample.peers.every(peer => peer.observation.state === 'observed'));
-        const exact = cell.samples.every(sample => sample.receiptMatches === 1
+        const exact = cell.samples.every(sample => sample.receiptValidation === 'valid' && sample.receiptMatches === 1
           && sample.peers.every(peer => peer.observation.state !== 'observed' || peer.observation.actorSubject === writers[Number(sample.writer.slice('writer-'.length))]?.subject));
-        cell.status = allAccepted && allVisible && exact && cell.observers.every(observer => observer.errors.length === 0) ? 'passed' : 'failed';
+        cell.status = allAccepted && allVisible && exact && observersHealthy(cell.observers) ? 'passed' : 'failed';
         await phase('observed');
 
         // Check viewer write denial and membership revocation after measurement; any admitted probe input is retained as a failed security probe.
@@ -391,9 +417,8 @@ export async function run(
         cell.samples = cell.samples.map(sample => sampleStatus(sample, now(), cell.observers));
         for (const writer of writers) if (!cell.samples.some(sample => sample.writer === `writer-${writers.indexOf(writer)}`)) {
           cell.samples.push({ id: randomUUID(), writer: `writer-${writers.indexOf(writer)}`, textSha256: '', payloadBytes: 0, startedMs: null,
-            deadlineMs: now(), acknowledgement: { state: 'notstarted', reason: 'cell_setup_failed' }, receiptMatches: 0,
-          peers: cellViewers.map((_viewer, index) => ({ peer: `viewer-${index}`, observation: { state: 'notstarted', reason: 'submission_not_started' } })) });
-          artifact.notStartedSubmissions -= 1;
+            deadlineMs: now(), acknowledgement: { state: 'notstarted', reason: 'cell_setup_failed' }, receiptMatches: 0, receiptValidation: 'pending',
+            peers: cellViewers.map((_viewer, index) => ({ peer: `viewer-${index}`, observation: { state: 'notstarted', reason: 'submission_not_started' } })) });
         }
       } finally {
         await Promise.all(watches.map(watch => watch.stop().catch(() => undefined)));
@@ -402,18 +427,19 @@ export async function run(
           errors: observer.errors.length + observer.auxiliaryErrors.length + observer.connections.filter(connection => connection.outcome === 'failed' || connection.outcome === 'network_error').length,
           occupancyMs: observer.connections.reduce((sum, connection) => sum + (connection.occupancyMs ?? 0), 0) }));
         cell.cleanup.observers = 'complete';
-        const cleanupSignal = AbortSignal.timeout(30_000);
         for (const [name, path] of [['session', sessionId ? `/agents/sessions/${sessionId}` : ''], ['agent', agentId ? `/agents/${agentId}` : '']] as const) {
           if (!path) { cell.cleanup[name] = 'not_created'; continue; }
           try {
-            const response = await request(baseUrl, manager, spaceId!, path, 'DELETE', undefined, cleanupSignal);
+            const response = await request(baseUrl, manager, spaceId!, path, 'DELETE', undefined, AbortSignal.timeout(30_000));
             cell.cleanup[name] = response.ok ? 'complete' : `http_${response.status}`;
             await response.body?.cancel();
           } catch (error) { cell.cleanup[name] = safeError(error); }
         }
         cell.cleanup.space = 'retained_for_deployment_teardown';
         cell.finishedAt = new Date().toISOString();
-        cell.observers.forEach(observer => { if (observer.errors.length || observer.auxiliaryErrors.length) cell.status = 'failed'; });
+        if (!observersHealthy(cell.observers)) cell.status = 'failed';
+        if (!cellCleanupHealthy({ sessionCreated: Boolean(sessionId), sessionStatus: cell.cleanup.session,
+          agentCreated: Boolean(agentId), agentStatus: cell.cleanup.agent })) cell.status = 'failed';
         await phase('finished').catch(() => { cell.status = 'failed'; });
       }
       if (cell.status !== 'passed') artifact.errors.push(`${cell.id}:cell_failed`);
@@ -426,7 +452,8 @@ export async function run(
     try { await identities?.close(); artifact.cleanup.identities = 'complete'; }
     catch { artifact.cleanup.identities = identitiesAttempted ? 'failed' : 'not_started'; artifact.status = 'failed'; }
     if (identitiesAttempted && !identities) { artifact.cleanup.identities = 'unconfirmed'; artifact.status = 'failed'; }
-    if (artifact.cells.length !== plannedCells || artifact.cells.some(cell => cell.status !== 'passed')) artifact.status = 'failed';
+    artifact.status = terminalRunStatus({ cells: artifact.cells, plannedCells, identities: artifact.cleanup.identities,
+      priorFailure: artifact.status === 'failed' || artifact.errors.length > 0 });
     artifact.notStartedSubmissions = Math.max(0, plannedSubmissions - artifact.attemptedSubmissions);
     artifact.finishedAt = new Date().toISOString();
     await save('finished');

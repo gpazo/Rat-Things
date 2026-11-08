@@ -135,6 +135,48 @@ Spaces and the disposable stack require the deployment owner's normal teardown.
 Prompts, model answers, passwords, bearer tokens, raw response errors, and fixture
 credentials are never written to performance artifacts.
 
+## Zero-inference Lambda Web Function peer progress
+
+`progress.ts` measures accepted-input acknowledgement and exact peer receipt
+visibility through two deployed Lambda Web Function revisions. It exercises the
+normal OIDC create, input and SSE routes. Pass each Web Function's `/v1` URL for
+`--before-url`, `--after-url`, and the IAM-authorized operator Web Function URL
+for `--operator-url`. Each side of every pair gets a fresh space and Session.
+Persistent mode uses 20 writers and 50 viewers; desktop mode uses 20 writers and
+20 viewers.
+
+The harness never invokes a model. Before starting it, verify outbox dispatch and
+reconciliation are held, worker provisioning is denied, and model-provider access
+is denied. Leave the Web Function request path enabled so the measurement exercises
+the deployed API. The Luna model ID is required only because the API validates the
+Agent's admitted execution role; no inference request is made. Each fresh Session
+has one setup receipt, reported separately from measured workload inputs.
+
+```sh
+AWS_E2E_PROGRESS=true AWS_E2E_SHARED_SESSIONS=true \
+  node --import tsx testing/performance-aws/progress.ts \
+  --before-url https://before.lambda-web.us-west-2.on.aws/v1 \
+  --after-url https://after.lambda-web.us-west-2.on.aws/v1 \
+  --operator-url https://operator.lambda-web.us-west-2.on.aws/v1 \
+  --mode both --pairs 5 --output /absolute/path/aws-peer-progress.json
+```
+
+The controller also requires `AWS_REGION`, `AWS_E2E_CODEX_MODEL_ID` (an admitted
+Luna ID), and `TEAM_OIDC_FIXTURE_JSON`. It caps the run at five alternating
+before/after pairs per selected mode, 20 concurrent inputs, 30 seconds of
+observation per cell, and 60 minutes total. It makes no retries. The optional
+`run` dependency `prepareSession` is a trusted in-process fixture hook for direct
+storage setup such as older Session history; it is not a public route. Shared-space
+Session import is forbidden, so do not use the public import endpoint to seed it.
+
+The artifact includes submission-to-acknowledgement, exact receipt/message/actor
+visibility, acknowledgement-to-peer timing, and per-viewer HTTP bytes, errors and
+connection occupancy. Missing and failed observations remain explicit. It does
+not measure assistant progress or completion, native UI behavior, Lambda billing,
+or model-provider cost. Bundle SHA-256 values can be supplied with
+`--before-bundle-sha256` and `--after-bundle-sha256`; independently verify those
+hashes and the deployed source revisions.
+
 ## Focused checks
 
 ```sh
