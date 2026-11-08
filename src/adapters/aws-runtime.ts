@@ -569,7 +569,9 @@ export class S3ArtifactStore implements ArtifactStore {
     key: string,
     value: Uint8Array,
     contentType: string,
+    signal?: AbortSignal,
   ): Promise<ArtifactReference> {
+    signal?.throwIfAborted();
     const digest = createHash('sha256').update(value).digest();
     performanceCount('S3WriteBytes', value.length);
     await measuredS3(() => this.client.send(
@@ -580,8 +582,7 @@ export class S3ArtifactStore implements ArtifactStore {
         ContentType: contentType,
         ...encryptionHeaders(this.encryption),
         ChecksumSHA256: digest.toString('base64'),
-      }),
-    ), 'put');
+      }), signal ? { abortSignal: signal } : undefined), 'put');
     return { bucket: this.bucket, key, sha256: digest.toString('hex') };
   }
 
@@ -589,13 +590,15 @@ export class S3ArtifactStore implements ArtifactStore {
     key: string,
     value: AsyncIterable<Uint8Array>,
     contentType: string,
+    signal?: AbortSignal,
   ): Promise<ArtifactReference> {
+    signal?.throwIfAborted();
     const created = await this.client.send(new CreateMultipartUploadCommand({
       Bucket: this.bucket,
       Key: key,
       ContentType: contentType,
       ...encryptionHeaders(this.encryption),
-    }));
+    }), signal ? { abortSignal: signal } : undefined);
     if (!created.UploadId) throw new Error(`S3 did not create multipart upload for ${key}`);
     const uploadId = created.UploadId;
     const parts: Array<{ ETag: string; PartNumber: number }> = [];
@@ -606,6 +609,7 @@ export class S3ArtifactStore implements ArtifactStore {
     let cleanupAttempted = false;
     try {
       for await (const rawChunk of value) {
+        signal?.throwIfAborted();
         const chunk = Buffer.from(rawChunk);
         if (chunk.length === 0) continue;
         received = true;
@@ -615,24 +619,26 @@ export class S3ArtifactStore implements ArtifactStore {
         while (pendingBytes >= MULTIPART_PART_BYTES) {
           const part = takeBytes(pending, MULTIPART_PART_BYTES);
           pendingBytes -= part.length;
-          parts.push(await uploadPart(this.client, this.bucket, key, uploadId, parts.length + 1, part));
+          parts.push(await uploadPart(this.client, this.bucket, key, uploadId, parts.length + 1, part, signal));
         }
       }
       if (!received) {
         cleanupAttempted = true;
         await abortMultipartUpload(this.client, this.bucket, key, uploadId);
-        return this.putBytes(key, new Uint8Array(), contentType);
+        signal?.throwIfAborted();
+        return this.putBytes(key, new Uint8Array(), contentType, signal);
       }
       if (pendingBytes > 0) {
         const finalPart = takeBytes(pending, pendingBytes);
-        parts.push(await uploadPart(this.client, this.bucket, key, uploadId, parts.length + 1, finalPart));
+        parts.push(await uploadPart(this.client, this.bucket, key, uploadId, parts.length + 1, finalPart, signal));
       }
+      signal?.throwIfAborted();
       await this.client.send(new CompleteMultipartUploadCommand({
         Bucket: this.bucket,
         Key: key,
         UploadId: uploadId,
         MultipartUpload: { Parts: parts },
-      }));
+      }), signal ? { abortSignal: signal } : undefined);
       return { bucket: this.bucket, key, sha256: digest.digest('hex') };
     } catch (error) {
       if (!cleanupAttempted) {
@@ -700,6 +706,7 @@ async function uploadPart(
   uploadId: string,
   partNumber: number,
   body: Uint8Array,
+  signal?: AbortSignal,
 ): Promise<{ ETag: string; PartNumber: number }> {
   if (partNumber > 10_000) throw new Error(`artifact ${key} exceeds the S3 multipart part limit`);
   const uploaded = await client.send(new UploadPartCommand({
@@ -708,7 +715,7 @@ async function uploadPart(
     UploadId: uploadId,
     PartNumber: partNumber,
     Body: body,
-  }));
+  }), signal ? { abortSignal: signal } : undefined);
   if (!uploaded.ETag) throw new Error(`S3 returned no ETag for ${key} part ${partNumber}`);
   return { ETag: uploaded.ETag, PartNumber: partNumber };
 }

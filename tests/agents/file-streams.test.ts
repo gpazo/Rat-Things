@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { FileService } from '../../src/core/file-service.js';
 import { MemoryAgentsStore } from './fixtures.js';
 import { MemoryArtifacts } from '../runner/artifact-fixtures.js';
@@ -24,6 +24,23 @@ describe('streamed file uploads', () => {
     } })).rejects.toMatchObject({ status: 400 });
     expect(store.resources.size).toBe(0);
     expect(artifacts.values.size).toBe(0);
+  });
+
+  it('does not persist file metadata when the upload signal aborts during S3 streaming', async () => {
+    const store = new MemoryAgentsStore();
+    const artifacts = new MemoryArtifacts();
+    const service = new FileService({ store, artifacts });
+    const controller = new AbortController();
+    vi.spyOn(artifacts, 'putStream').mockImplementation(async (_key, value, _contentType, signal) => {
+      for await (const _chunk of value) controller.abort(new Error('client disconnected'));
+      signal?.throwIfAborted();
+      throw new Error('unreachable');
+    });
+
+    await expect(service.create('alice', { filename: 'binary.bin', purpose: 'user_data', data: {
+      byteLength: 4, chunks: chunks([0, 255], [128, 1]),
+    } }, controller.signal)).rejects.toThrow('client disconnected');
+    expect(store.resources.size).toBe(0);
   });
 });
 

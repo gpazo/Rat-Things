@@ -12,7 +12,8 @@ export class FileService {
   public constructor(private readonly options: { store: AgentsStore; artifacts: Pick<ArtifactStore, 'putBytes' | 'putStream' | 'getBytes' | 'getStream'>; clock?: AgentsClock }) {}
   private now() { return this.options.clock?.now() ?? Math.floor(Date.now() / 1000); }
 
-  public async create(ownerId: string, input: { filename: string; data: FileData; purpose: FileCreateParams['purpose']; expires_after?: FileCreateParams['expires_after'] }): Promise<FileObject> {
+  public async create(ownerId: string, input: { filename: string; data: FileData; purpose: FileCreateParams['purpose']; expires_after?: FileCreateParams['expires_after'] }, signal?: AbortSignal): Promise<FileObject> {
+    signal?.throwIfAborted();
     if (!['assistants', 'batch', 'fine-tune', 'vision', 'user_data', 'evals'].includes(input.purpose)) invalid('Invalid file purpose', 'purpose');
     if (!input.filename || input.filename.includes('\0') || Buffer.byteLength(input.filename) > 1024) invalid('Invalid filename', 'file');
     if (!Number.isSafeInteger(input.data.byteLength) || input.data.byteLength < 0 || input.data.byteLength > 512 * 1024 * 1024) invalid('Files must not exceed 512 MiB', 'file');
@@ -25,8 +26,9 @@ export class FileService {
     const owner = createHash('sha256').update(ownerId).digest('hex');
     const key = `owners/${owner}/files/${id}`;
     const content = input.data instanceof Uint8Array
-      ? await this.options.artifacts.putBytes(key, input.data, 'application/octet-stream')
-      : await this.options.artifacts.putStream(key, sizedChunks(input.data), 'application/octet-stream');
+      ? await this.options.artifacts.putBytes(key, input.data, 'application/octet-stream', signal)
+      : await this.options.artifacts.putStream(key, sizedChunks(input.data, signal), 'application/octet-stream', signal);
+    signal?.throwIfAborted();
     await this.options.store.put<StoredFile>({ id, ownerId, collection: 'files', createdAt: now, revision: 1, value: { file, content } }, 0);
     return file;
   }
@@ -60,12 +62,14 @@ export class FileService {
   }
 }
 
-async function* sizedChunks(data: Exclude<FileData, Uint8Array>) {
+async function* sizedChunks(data: Exclude<FileData, Uint8Array>, signal?: AbortSignal) {
   let received = 0;
   for await (const chunk of data.chunks) {
+    signal?.throwIfAborted();
     received += chunk.byteLength;
     if (received > data.byteLength) invalid('File content exceeds its declared size', 'file');
     yield chunk;
   }
+  signal?.throwIfAborted();
   if (received !== data.byteLength) invalid('File content does not match its declared size', 'file');
 }

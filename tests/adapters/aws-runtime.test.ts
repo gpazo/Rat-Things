@@ -186,6 +186,39 @@ describe('AWS runtime client configuration', () => {
     });
   });
 
+  it('aborts multipart work on request cancellation and cleans up without the aborted signal', async () => {
+    const controller = new AbortController();
+    const cancelled = new Error('client disconnected');
+    const commands: unknown[] = [];
+    const send = vi.fn(async (command: unknown, options?: { abortSignal?: AbortSignal }) => {
+      commands.push(command);
+      if (command instanceof CreateMultipartUploadCommand) return { UploadId: 'upload-cancelled' };
+      if (command instanceof UploadPartCommand) {
+        expect(options?.abortSignal).toBe(controller.signal);
+        controller.abort(cancelled);
+        throw cancelled;
+      }
+      if (command instanceof AbortMultipartUploadCommand) {
+        expect(options).toBeUndefined();
+        return {};
+      }
+      throw new Error('multipart upload should not complete after cancellation');
+    });
+    const store = new S3ArtifactStore({ send } as unknown as S3Client, 'artifact-bucket');
+
+    await expect(store.putStream(
+      'owners/abc/files/file-1',
+      (async function* () { yield Buffer.alloc(8 * 1024 * 1024); })(),
+      'application/octet-stream',
+      controller.signal,
+    )).rejects.toBe(cancelled);
+    expect(commands.map((command) => (command as object).constructor)).toEqual([
+      CreateMultipartUploadCommand,
+      UploadPartCommand,
+      AbortMultipartUploadCommand,
+    ]);
+  });
+
   it('preserves the upload error when S3 reports that its cleanup already completed', async () => {
     const uploadError = new Error('part upload failed');
     const client = {

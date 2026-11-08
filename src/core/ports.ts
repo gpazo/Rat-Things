@@ -33,12 +33,13 @@ export interface RunStore {
 export interface ArtifactStore {
   putJson(key: string, value: unknown): Promise<ArtifactReference>;
   getJson<T>(reference: Pick<ArtifactReference, 'bucket' | 'key'>): Promise<T>;
-  putBytes(key: string, value: Uint8Array, contentType: string): Promise<ArtifactReference>;
+  putBytes(key: string, value: Uint8Array, contentType: string, signal?: AbortSignal): Promise<ArtifactReference>;
   getBytes(reference: Pick<ArtifactReference, 'bucket' | 'key'>): Promise<Uint8Array>;
   putStream(
     key: string,
     value: AsyncIterable<Uint8Array>,
     contentType: string,
+    signal?: AbortSignal,
   ): Promise<ArtifactReference>;
   getStream(
     reference: Pick<ArtifactReference, 'bucket' | 'key'>,

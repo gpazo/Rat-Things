@@ -10,7 +10,9 @@ export class MemoryArtifacts {
     key: string,
     value: Uint8Array,
     _contentType: string,
+    signal?: AbortSignal,
   ): Promise<ArtifactReference> {
+    signal?.throwIfAborted();
     const bytes = Uint8Array.from(value);
     this.values.set(key, bytes);
     this.puts.push(key);
@@ -31,10 +33,12 @@ export class MemoryArtifacts {
     key: string,
     value: AsyncIterable<Uint8Array>,
     contentType: string,
+    signal?: AbortSignal,
   ): Promise<ArtifactReference> {
     const chunks: Uint8Array[] = [];
-    for await (const chunk of value) chunks.push(Uint8Array.from(chunk));
-    return this.putBytes(key, Buffer.concat(chunks), contentType);
+    for await (const chunk of value) { signal?.throwIfAborted(); chunks.push(Uint8Array.from(chunk)); }
+    signal?.throwIfAborted();
+    return this.putBytes(key, Buffer.concat(chunks), contentType, signal);
   }
 
   public async getStream(
