@@ -462,6 +462,9 @@ function startRun(run) {
       WORKSPACE_ROOT: stateRoot,
       RT_STARTUP_GATE_FD: '4',
     };
+    const mount = ensureS3FilesMounted(run.storage);
+    storageMountDurationMs = mount.durationMs;
+    storageAlreadyMounted = mount.alreadyMounted;
   }
   const runnerEnvironment = { ...process.env, ...run.environment };
   delete runnerEnvironment.RT_STARTUP_GATE_FD;
@@ -522,9 +525,6 @@ function startRun(run) {
 
   try {
     if (run.storage) {
-      const mount = ensureS3FilesMounted(run.storage);
-      storageMountDurationMs = mount.durationMs;
-      storageAlreadyMounted = mount.alreadyMounted;
       const preparationStartedAt = Date.now();
       const stateRoot = join(run.storage.mountRoot, run.storage.storageKey);
       if (run.environment.SESSION_CHECKPOINTS_ENABLED !== 'true') {

@@ -7,6 +7,7 @@ const runtime = vi.hoisted(() => ({
   handler: undefined as ((request: unknown, response: unknown) => Promise<void>) | undefined,
   spawn: vi.fn(),
   spawnSync: vi.fn(),
+  failPreparation: false,
   sequence: [] as string[],
   server: {
     on: vi.fn().mockReturnThis(),
@@ -27,7 +28,10 @@ vi.mock('node:child_process', () => ({
 }));
 vi.mock('node:fs', () => ({
   chownSync: vi.fn(), chmodSync: vi.fn(), copyFileSync: vi.fn(), existsSync: vi.fn(() => true),
-  lstatSync: vi.fn(() => ({ isDirectory: () => true, isSymbolicLink: () => false })), mkdirSync: (...args: unknown[]) => { runtime.sequence.push(`mkdir:${String(args[0])}`); }, rmSync: vi.fn(),
+  lstatSync: vi.fn(() => ({ isDirectory: () => true, isSymbolicLink: () => false })), mkdirSync: (...args: unknown[]) => {
+    runtime.sequence.push(`mkdir:${String(args[0])}`);
+    if (runtime.failPreparation && String(args[0]).includes('c'.repeat(64))) throw new Error('Session preparation failed');
+  }, rmSync: vi.fn(),
 }));
 vi.mock('../../microvm/runtime-network-policy.mjs', () => ({
   ensureUntrustedUidCannotReachPort: vi.fn(),
@@ -99,7 +103,7 @@ afterAll(() => {
   vi.unstubAllEnvs();
 });
 
-async function startRuntimeWithRunner(options: { storage?: boolean; checkpoint?: boolean; failMount?: boolean; holdFailedChildExit?: boolean } = {}) {
+async function startRuntimeWithRunner(options: { storage?: boolean; checkpoint?: boolean; failMount?: boolean; failPreparation?: boolean; holdFailedChildExit?: boolean } = {}) {
   vi.resetModules();
   ipc.removeAllListeners();
   vi.stubEnv('AGENT_RUNNER_ENTRY', '/fixture/runner.mjs');
@@ -108,6 +112,7 @@ async function startRuntimeWithRunner(options: { storage?: boolean; checkpoint?:
   vi.stubEnv('RUN_AGENT_GID', '10001');
   vi.stubGlobal('process', processProxy);
   runtime.sequence.length = 0;
+  runtime.failPreparation = Boolean(options.failPreparation);
   runtime.spawnSync.mockReset().mockImplementation((command: string) => command === 'findmnt'
     ? { status: options.failMount ? 1 : 0, stdout: options.failMount ? '' : '/mnt/state', stderr: '' }
     : { status: options.failMount ? 1 : 0, stdout: '', stderr: options.failMount ? 'mount failed' : '' });
@@ -169,7 +174,7 @@ async function startRuntimeWithRunner(options: { storage?: boolean; checkpoint?:
   const started = await post('/aws/lambda-microvms/runtime/v1/run', {
     microvmId: 'microvm-worker-exit-test', runHookPayload: JSON.stringify(hookPayload),
   });
-  expect(started.status).toBe(options.failMount ? 500 : 200);
+  expect(started.status).toBe(options.failMount || options.failPreparation ? 500 : 200);
   const startSameRun = () => post('/aws/lambda-microvms/runtime/v1/run', {
     microvmId: 'microvm-worker-exit-test', runHookPayload: JSON.stringify(hookPayload),
   });
@@ -186,14 +191,14 @@ function createGateStream() {
   return stream;
 }
 
-it('spawns before mount and releases storage-backed workers only after legacy preparation', async () => {
+it('spawns after mount and releases storage-backed workers only after legacy preparation', async () => {
   await startRuntimeWithRunner({ storage: true });
   const runnerOptions = runtime.spawn.mock.calls.find(call => call[0] === process.execPath)?.[2] as { env?: Record<string, string>; stdio?: unknown[] };
   expect(runnerOptions.env).toMatchObject({ RT_STARTUP_GATE_FD: '4', SESSION_STATE_ROOT: '/mnt/rat-things-state/' + 'c'.repeat(64) });
   expect(runnerOptions.stdio).toEqual(['inherit', 'inherit', 'inherit', 'ipc', 'pipe']);
-  expect(runtime.sequence.indexOf(`spawn:${process.execPath}`)).toBeLessThan(runtime.sequence.indexOf('sync:findmnt'));
+  expect(runtime.sequence.indexOf('sync:findmnt')).toBeLessThan(runtime.sequence.indexOf(`spawn:${process.execPath}`));
   expect(runtime.sequence.some(item => item === `mkdir:/mnt/rat-things-state/${'c'.repeat(64)}`)).toBe(true);
-  expect(runtime.sequence.indexOf('gate:release')).toBeGreaterThan(runtime.sequence.indexOf('sync:findmnt'));
+  expect(runtime.sequence.indexOf(`spawn:${process.execPath}`)).toBeLessThan(runtime.sequence.indexOf(`mkdir:/mnt/rat-things-state/${'c'.repeat(64)}`));
   expect(runtime.sequence.indexOf('gate:release')).toBeGreaterThan(runtime.sequence.indexOf(`mkdir:/mnt/rat-things-state/${'c'.repeat(64)}`));
 });
 
@@ -201,7 +206,7 @@ it('mounts checkpoint storage before release without legacy Session preparation'
   await startRuntimeWithRunner({ storage: true, checkpoint: true });
   const runnerOptions = runtime.spawn.mock.calls.find(call => call[0] === process.execPath)?.[2] as { stdio?: unknown[] };
   expect(runnerOptions.stdio).toEqual(['inherit', 'inherit', 'inherit', 'ipc', 'pipe']);
-  expect(runtime.sequence.indexOf(`spawn:${process.execPath}`)).toBeLessThan(runtime.sequence.indexOf('sync:findmnt'));
+  expect(runtime.sequence.indexOf('sync:findmnt')).toBeLessThan(runtime.sequence.indexOf(`spawn:${process.execPath}`));
   expect(runtime.sequence).not.toContain(`mkdir:/mnt/rat-things-state/${'c'.repeat(64)}`);
 });
 
@@ -217,17 +222,15 @@ it('joins a duplicate same-Run start without spawning or releasing twice', async
 it('closes the private gate and leaves no active runner when mount fails', async () => {
   await startRuntimeWithRunner({ storage: true, failMount: true });
   expect(runtime.sequence).not.toContain('gate:release');
-  expect(runnerChild.stdio?.[4]?.destroyed).toBe(true);
-  expect(runtime.spawn.mock.calls.some(call => call[0] === process.execPath && (call[2] as { stdio?: unknown[] })?.stdio?.[4] === 'pipe')).toBe(true);
-  expect(runtime.spawn).toHaveBeenCalledTimes(2);
+  expect(runtime.spawn.mock.calls.filter(call => call[0] === process.execPath)).toHaveLength(0);
 });
 
-it('retries failed storage startup and ignores the old child exit after the retry is active', async () => {
-  const { post, startSameRun } = await startRuntimeWithRunner({ storage: true, failMount: true, holdFailedChildExit: true });
+it('retries failed Session preparation and ignores the old child exit after the retry is active', async () => {
+  const { post, startSameRun } = await startRuntimeWithRunner({ storage: true, failPreparation: true, holdFailedChildExit: true });
   const failedChild = runnerChild;
-  runtime.spawnSync.mockImplementation((command: string) => command === 'findmnt'
-    ? { status: 0, stdout: '/mnt/state', stderr: '' }
-    : { status: 0, stdout: '', stderr: '' });
+  expect(runtime.sequence).not.toContain('gate:release');
+  expect(failedChild.stdio?.[4]?.destroyed).toBe(true);
+  runtime.failPreparation = false;
 
   expect((await startSameRun()).status).toBe(200);
   const retryChild = runnerChild;
