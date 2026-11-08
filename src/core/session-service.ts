@@ -814,7 +814,8 @@ export class SessionService {
           }
         }
       }
-      const feedback = await this.pendingFeedback(ownerId, id);
+      const feedback = (await this.pendingFeedback(ownerId, id)).sort((left, right) =>
+        left.value.acceptedAtMs - right.value.acceptedAtMs || left.id.localeCompare(right.id));
       let inputSequence = resource.value.inputSequence ?? 0;
       const receipts = { ...resource.value.receipts };
       const turns = [...resource.value.turns];

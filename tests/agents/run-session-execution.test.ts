@@ -92,6 +92,11 @@ describe('persistent harness input admission', () => {
       events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text: 'Accepted before upgrade' }] }] }],
       actor, acceptedAtMs: 100_500, messages: [message], turnId: 'turn_legacy_feedback', operationId: 'op_legacy_feedback' };
     await f.store.put({ ownerId: 'alice', id: 'receipt_legacy_feedback', collection: feedbackCollection(session.id), createdAt: 100_500, revision: 1, value: feedback }, 0);
+    const newerMessage = { ...message, id: 'msg_legacy_newer', content: [{ type: 'input_text' as const, text: 'Accepted later' }] };
+    const newerFeedback: SessionFeedback = { ...feedback, digest: 'legacy-feedback-newer-digest', acceptedAtMs: 101_500,
+      messages: [newerMessage], turnId: 'turn_legacy_feedback_newer', operationId: 'op_legacy_feedback_newer' };
+    // Equal storage sort keys expose the ID order, which is opposite acceptance chronology.
+    await f.store.put({ ownerId: 'alice', id: 'aaa_newer_feedback', collection: feedbackCollection(session.id), createdAt: 100_500, revision: 1, value: newerFeedback }, 0);
     const sessions = new SessionService({ store: f.store, agents: new AgentService({ store: f.store }), execution: f.execution, clock: f.clock });
     const commit = f.store.commit.bind(f.store);
     let failuresRemaining = 10;
@@ -105,16 +110,19 @@ describe('persistent harness input admission', () => {
 
     await expect(sessions.dispatch('alice', session.id)).rejects.toMatchObject({ code: 'conflict' });
     expect(await f.store.get('alice', feedbackCollection(session.id), 'receipt_legacy_feedback')).toBeDefined();
+    expect(await f.store.get('alice', feedbackCollection(session.id), 'aaa_newer_feedback')).toBeDefined();
     expect((await f.store.get<import('../../src/core/session-ports.js').SessionState>('alice', 'sessions', session.id))?.value.receipts.receipt_legacy_feedback).toBeUndefined();
 
     f.store.commit = commit;
     await sessions.dispatch('alice', session.id);
     expect(await f.store.get('alice', feedbackCollection(session.id), 'receipt_legacy_feedback')).toBeUndefined();
+    expect(await f.store.get('alice', feedbackCollection(session.id), 'aaa_newer_feedback')).toBeUndefined();
     const retired = (await f.store.get<import('../../src/core/session-ports.js').SessionState>('alice', 'sessions', session.id))!.value;
     expect(retired.receipts.receipt_legacy_feedback).toMatchObject({
       digest: feedback.digest, dispatched: true, failure: { code: 'unsupported_environment' }, actor,
       provenance: { kind: 'authenticated' }, messageIds: ['msg_legacy'], turnIds: ['turn_legacy_feedback'],
     });
+    expect(retired.receipts.receipt_legacy_feedback!.sequence).toBeLessThan(retired.receipts.aaa_newer_feedback!.sequence!);
     expect(retired.turns.find(binding => binding.turn.id === 'turn_legacy_feedback')).toMatchObject({
       turn: { status: 'failed' }, input: [{ id: 'msg_legacy', actor, content: [{ type: 'input_text', text: 'Accepted before upgrade' }] }],
     });
