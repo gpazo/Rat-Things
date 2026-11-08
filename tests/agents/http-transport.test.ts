@@ -228,6 +228,49 @@ describe('Lambda Web Function HTTP binding', () => {
       expect(uploads).toBe(4);
     } finally { cancelledRequest?.destroy(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
   });
+
+  it('does not reject while reporting an upload error after the client disconnects during cleanup', async () => {
+    const bodyConsumed = deferred();
+    const cleanupStarted = deferred();
+    const finishCleanup = deferred();
+    const unhandled: unknown[] = [];
+    const captureUnhandled = (reason: unknown) => { unhandled.push(reason); };
+    process.on('unhandledRejection', captureUnhandled);
+    const server = createAgentsHttpServer({ webFunctionRegion: 'us-west-2',
+      authenticate: async () => ({ ownerId: 'alice', scopes: [], authentication: 'token', expiresAt: 0, actor: { id: 'alice', kind: 'operator' } }),
+      route: async request => {
+        await request.text();
+        bodyConsumed.resolve();
+        await new Promise<void>(resolve => request.signal.addEventListener('abort', () => resolve(), { once: true }));
+        cleanupStarted.resolve();
+        await finishCleanup.promise;
+        throw new Error('multipart upload was aborted');
+      }, error: agentsErrorResponse,
+    });
+    server.listen(0, '127.0.0.1'); await once(server, 'listening');
+    let request: ReturnType<typeof httpRequest> | undefined;
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('Missing HTTP address');
+      request = httpRequest(`http://127.0.0.1:${address.port}/v1/agents/files`, {
+        method: 'POST', headers: { host, 'content-length': '4', authorization: 'Bearer test' },
+      });
+      request.on('error', () => undefined);
+      request.end('data');
+      await bodyConsumed.promise;
+      request.destroy();
+      await cleanupStarted.promise;
+      finishCleanup.resolve();
+      await new Promise(resolve => setTimeout(resolve, 25));
+      expect(unhandled).toEqual([]);
+    } finally {
+      request?.destroy();
+      finishCleanup.resolve();
+      process.removeListener('unhandledRejection', captureUnhandled);
+      server.closeAllConnections();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
 });
 
 function httpResponse(url: string, options: { method?: string; headers: Record<string, string>; body?: string }): Promise<IncomingMessage> {

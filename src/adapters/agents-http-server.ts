@@ -49,8 +49,11 @@ export function createAgentsHttpServer(options: {
       } as RequestInit);
       await send(outgoing, await options.route(request, owner, id));
     } catch (error) {
-      if (!outgoing.headersSent) await send(outgoing, options.error(error, id));
-      else outgoing.destroy();
+      if (outgoing.destroyed || outgoing.writableEnded) return;
+      if (!outgoing.headersSent) {
+        try { await send(outgoing, options.error(error, id)); }
+        catch { if (!outgoing.destroyed) outgoing.destroy(); }
+      } else outgoing.destroy();
     } finally {
       if (reserved) largeRequests--;
       scope.finish(!outgoing.writableFinished ? 'aborted' : responsePerformanceOutcome(outgoing.statusCode));
