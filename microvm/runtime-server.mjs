@@ -435,6 +435,7 @@ function parseRunHook(body) {
 
 function startRun(run) {
   const startupStartedAt = Date.now();
+  const startupStartedAtIso = new Date(startupStartedAt).toISOString();
   let storageMountDurationMs = 0;
   let storagePreparationDurationMs = 0;
   let storageAlreadyMounted = false;
@@ -449,35 +450,35 @@ function startRun(run) {
   }
   if (run.persistentSession) persistentMicrovmId = run.microvmId;
   if (run.storage) {
-    const mount = ensureS3FilesMounted(run.storage);
-    storageMountDurationMs = mount.durationMs;
-    storageAlreadyMounted = mount.alreadyMounted;
-    const preparationStartedAt = Date.now();
     const stateRoot = join(run.storage.mountRoot, run.storage.storageKey);
-    if (run.environment.SESSION_CHECKPOINTS_ENABLED !== 'true') {
-      prepareSessionState(stateRoot);
-      prepareTransientRunState(stateRoot, run.runId);
-    }
-    storagePreparationDurationMs = Date.now() - preparationStartedAt;
-    run.environment.SESSION_STATE_ROOT = stateRoot;
-    run.environment.CODEX_HOME = join(stateRoot, 'codex-home');
     // Ordinary runs bind this directory to worker-local storage. Checkpoint
-    // mode retains the databases and WAL beside the native home; paginated
-    // history cannot be reconstructed from legacy rollout files alone.
-    run.environment.CODEX_SQLITE_HOME = join(stateRoot, 'codex-home', 'sqlite');
-    run.environment.BROWSER_PROFILE_ROOT = join(stateRoot, 'codex-home', 'browser-profile');
-    run.environment.WORKSPACE_ROOT = stateRoot;
-    persistentStorage = run.storage;
+    // mode retains the databases and WAL beside the native home.
+    run.environment = {
+      ...run.environment,
+      SESSION_STATE_ROOT: stateRoot,
+      CODEX_HOME: join(stateRoot, 'codex-home'),
+      CODEX_SQLITE_HOME: join(stateRoot, 'codex-home', 'sqlite'),
+      BROWSER_PROFILE_ROOT: join(stateRoot, 'codex-home', 'browser-profile'),
+      WORKSPACE_ROOT: stateRoot,
+      RT_STARTUP_GATE_FD: '4',
+    };
   }
-
+  const runnerEnvironment = { ...process.env, ...run.environment };
+  delete runnerEnvironment.RT_STARTUP_GATE_FD;
+  if (run.storage) runnerEnvironment.RT_STARTUP_GATE_FD = '4';
   const child = spawn(process.execPath, [runnerEntry], trustedRunnerOptions({
     uid: agentUid,
     gid: agentGid,
-    environment: { ...process.env, ...run.environment },
+    startupGate: Boolean(run.storage),
+    environment: runnerEnvironment,
   }));
-  activeRun = {
+  const runnerSpawnedAt = Date.now();
+  const startingRun = {
     ...run,
     child,
+    startupState: 'starting',
+    childError: undefined,
+    gateError: undefined,
     control: {
       events: [],
       pendingRequests: new Map(),
@@ -488,17 +489,10 @@ function startRun(run) {
       responseAuthority: 'server-requests',
     },
   };
+  activeRun = startingRun;
   child.on('message', (message) => handleRunnerControlMessage(run.runId, message));
-  log('info', 'agent runner started', {
-    runId: run.runId,
-    microvmId: run.microvmId,
-    pid: child.pid,
-    startupDurationMs: Date.now() - startupStartedAt,
-    storageMountDurationMs,
-    storagePreparationDurationMs,
-    storageAlreadyMounted,
-  });
   child.once('error', (error) => {
+    startingRun.childError = error;
     log('error', 'agent runner process error', { runId: run.runId, error: error.message });
   });
   child.once('exit', (code, signal) => {
@@ -507,11 +501,104 @@ function startRun(run) {
       code,
       signal,
     });
-    rejectControlWaiters(activeRun, new Error('agent runner exited'));
-    activeRun = undefined;
-    if (run.environment.DEFAULT_EXECUTION_BACKEND === 'ec2') { void shutdown('worker_exit'); }
-    else if (!serviceTerminationRequested) selfTerminate(run);
+    rejectControlWaiters(startingRun, new Error('agent runner exited'));
+    if (activeRun === startingRun) activeRun = undefined;
+    if (startingRun.startupState === 'ready' && run.environment.DEFAULT_EXECUTION_BACKEND === 'ec2') { void shutdown('worker_exit'); }
+    else if (startingRun.startupState === 'ready' && !serviceTerminationRequested) selfTerminate(run);
   });
+
+  const abortStartingRun = (error) => {
+    if (startingRun.startupState === 'aborted') return;
+    startingRun.startupState = 'aborted';
+    log('error', 'agent runner startup gate failed', {
+      runId: run.runId,
+      error: error instanceof Error ? error.message.slice(0, 1_000) : 'startup gate failed',
+    });
+    failStartupGate(child.stdio?.[4]);
+    rejectControlWaiters(startingRun, error);
+    if (activeRun === startingRun) activeRun = undefined;
+    stopFailedStartupChild(child);
+  };
+
+  try {
+    if (run.storage) {
+      const mount = ensureS3FilesMounted(run.storage);
+      storageMountDurationMs = mount.durationMs;
+      storageAlreadyMounted = mount.alreadyMounted;
+      const preparationStartedAt = Date.now();
+      const stateRoot = join(run.storage.mountRoot, run.storage.storageKey);
+      if (run.environment.SESSION_CHECKPOINTS_ENABLED !== 'true') {
+        prepareSessionState(stateRoot);
+        prepareTransientRunState(stateRoot, run.runId);
+      }
+      storagePreparationDurationMs = Date.now() - preparationStartedAt;
+    }
+    if (activeRun !== startingRun || startingRun.childError || child.pid == null || child.exitCode != null || child.signalCode != null) {
+      throw startingRun.childError ?? new Error('agent runner exited before storage was ready');
+    }
+    if (run.storage && !releaseStartupGate(child.stdio?.[4], (error) => {
+      startingRun.gateError = error;
+      if (startingRun.startupState === 'ready') abortStartingRun(error);
+    })) throw new Error('agent runner startup gate could not be released');
+    if (startingRun.gateError) throw startingRun.gateError;
+    startingRun.startupState = 'ready';
+    if (run.storage) persistentStorage = run.storage;
+    log('info', 'agent runner started', {
+      runId: run.runId,
+      microvmId: run.microvmId,
+      pid: child.pid,
+      startupStartedAt: startupStartedAtIso,
+      runnerSpawnOffsetMs: runnerSpawnedAt - startupStartedAt,
+      storageCompleteOffsetMs: Date.now() - startupStartedAt,
+      startupDurationMs: Date.now() - startupStartedAt,
+      storageMountDurationMs,
+      storagePreparationDurationMs,
+      storageAlreadyMounted,
+    });
+  } catch (error) {
+    startingRun.startupState = 'aborted';
+    if (run.storage) failStartupGate(child.stdio?.[4]);
+    rejectControlWaiters(startingRun, error);
+    if (activeRun === startingRun) activeRun = undefined;
+    stopFailedStartupChild(child);
+    throw error;
+  }
+}
+
+function releaseStartupGate(stream, onError) {
+  if (!stream || stream.destroyed || stream.writableEnded || stream.writableFinished) return false;
+  let failed = false;
+  const fail = (error) => {
+    if (failed) return;
+    failed = true;
+    onError(error);
+  };
+  stream.once('error', fail);
+  try {
+    stream.write(Buffer.from([0x52]), (error) => { if (error) fail(error); });
+    stream.end();
+    return true;
+  } catch (error) {
+    fail(error);
+    stream.destroy();
+    return false;
+  }
+}
+
+function failStartupGate(stream) {
+  if (!stream || stream.destroyed || stream.writableEnded) return;
+  stream.once('error', () => {});
+  stream.destroy();
+}
+
+function stopFailedStartupChild(child) {
+  if (child.exitCode != null || child.signalCode != null) return;
+  child.kill('SIGTERM');
+  const deadline = setTimeout(() => {
+    if (child.exitCode == null && child.signalCode == null) child.kill('SIGKILL');
+  }, 10_000);
+  deadline.unref?.();
+  child.once('exit', () => clearTimeout(deadline));
 }
 
 function parseControlRoute(rawUrl) {
