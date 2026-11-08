@@ -27,8 +27,8 @@ import { parseArguments, run } from '../../testing/performance-aws/controller.js
 
 const environment = {
   AWS_E2E: 'true', AWS_E2E_SHARED_SESSIONS: 'true', AWS_E2E_REAL_CODEX: 'true', AWS_REGION: 'us-west-2',
-  SHARED_AGENTS_API_BASE_URL: 'https://fixture.lambda-url.us-west-2.on.aws/api/v1',
-  RAT_THINGS_AGENTS_API_URL: 'https://operator.lambda-url.us-west-2.on.aws/api/v1', AWS_E2E_CODEX_MODEL_ID: 'openai.gpt-6-luna',
+  SHARED_AGENTS_API_BASE_URL: 'https://fixture.a1.lambda-web.us-west-2.on.aws/api/v1',
+  RAT_THINGS_API_URL: 'https://operator.execute-api.us-west-2.amazonaws.com', AWS_E2E_CODEX_MODEL_ID: 'openai.gpt-6-luna',
   TEAM_OIDC_FIXTURE_JSON: '{}',
 };
 afterEach(() => { vi.unstubAllGlobals(); fixture.calls.length = 0; fixture.identityFailure = false; fixture.observersClosed = false; });

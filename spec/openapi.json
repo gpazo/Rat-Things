@@ -34,7 +34,7 @@
     },
     {
       "name": "Agents",
-      "description": "OpenAI Agents API resources implemented in this AWS deployment. Streaming uses agents_api_base_url."
+      "description": "OpenAI Agents API resources implemented in this AWS deployment. Use agents_api_base_url for all resource operations."
     }
   ],
   "paths": {

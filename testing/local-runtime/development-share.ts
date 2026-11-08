@@ -60,9 +60,9 @@ async function main() {
   const region = required('AWS_REGION');
   const url = new URL(endpoint);
   assert(/^[a-z]{2}(?:-[a-z]+)+-\d$/.test(region) && url.protocol === 'https:'
-    && url.hostname.endsWith(`.lambda-url.${region}.on.aws`) && url.pathname === '/v1'
+    && url.hostname.endsWith(`.lambda-web.${region}.on.aws`) && url.pathname === '/v1'
     && !url.username && !url.password && !url.search && !url.hash, 'Use the disposable shared API endpoint and region.');
-  const operatorEndpoint = required('RAT_THINGS_AGENTS_API_URL');
+  const operatorEndpoint = `${required('RAT_THINGS_API_URL').replace(/\/$/, '')}/v1`;
   const fixture = JSON.parse(required('TEAM_OIDC_FIXTURE_JSON')) as TeamIdentityFixture;
   assert(isAbsolute(required('CODEX_BINARY')), 'Set CODEX_BINARY to the current host Codex executable.');
   const binary = await realpath(required('CODEX_BINARY'));

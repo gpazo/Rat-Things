@@ -52,7 +52,7 @@ describe('scoped API authority', () => {
     const store = new MemoryAgentsStore(); const tokens = new ApiTokenService(store);
     const baseURL = 'https://rat.invalid/v1';
     const issued = await tokens.issue('alice', baseURL, { scopes: ['api.agents.read'] });
-    const server = createAgentsHttpServer({ baseURL, issuerURL: 'https://issuer.lambda-url.us-west-2.on.aws/v1/auth/tokens', authenticate: value => tokens.authenticate(value, baseURL), route: (request, principal) => routeAgentsRequest(request, principal, { agents: new AgentService({ store }) }), error: agentsErrorResponse });
+    const server = createAgentsHttpServer({ baseURL, issuerURL: 'https://issuer.execute-api.us-west-2.amazonaws.com/v1/auth/tokens', authenticate: value => tokens.authenticate(value, baseURL), route: (request, principal) => routeAgentsRequest(request, principal, { agents: new AgentService({ store }) }), error: agentsErrorResponse });
     server.listen(0, '127.0.0.1'); await once(server, 'listening');
     try {
       const address = server.address(); if (!address || typeof address === 'string') throw new Error('No HTTP address');
@@ -67,9 +67,9 @@ describe('scoped API authority', () => {
   });
   it.each([undefined, ['api.agents.write'], 'api.agents.read'])('rejects an issuer that returns invalid or excessive scopes: %j', async granted => {
     let resourceCalls = 0;
-    const client = createAgentsClient({ baseURL: 'https://rat.invalid/v1', region: 'us-west-2', scopes: ['api.agents.read'], credentials: { accessKeyId: 'test', secretAccessKey: 'test' }, tokenIssuerURL: 'https://issuer.lambda-url.us-west-2.on.aws/v1/auth/tokens', fetch: async (input, init) => {
+    const client = createAgentsClient({ baseURL: 'https://rat.invalid/v1', region: 'us-west-2', scopes: ['api.agents.read'], credentials: { accessKeyId: 'test', secretAccessKey: 'test' }, tokenIssuerURL: 'https://issuer.execute-api.us-west-2.amazonaws.com/v1/auth/tokens', fetch: async (input, init) => {
       const request = new Request(input, init);
-      if (request.url.includes('.lambda-url.')) {
+      if (request.url.includes('.execute-api.')) {
         expect(await request.json()).toEqual({ scopes: ['api.agents.read'] });
         return Response.json({ api_key: 'key', expires_at: Date.now() / 1000 + 900, base_url: 'https://rat.invalid/v1', scopes: granted });
       }

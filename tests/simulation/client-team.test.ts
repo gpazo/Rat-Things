@@ -22,8 +22,8 @@ it('binds bearer tokens and space to one origin, without IAM or foreign auth hea
     expect(request.headers.has('x-amz-security-token')).toBe(false);
     expect(request.redirect).toBe('error'); return Response.json({});
   });
-  const api = createAgentsFetch({ baseURL: 'https://example.lambda-url.us-west-2.on.aws/v1', accessToken, spaceId: 'space-a', fetch: transport });
-  await api('https://example.lambda-url.us-west-2.on.aws/v1/agents', { headers: { authorization: 'AWS4-HMAC-SHA256 stale', 'x-amz-security-token': 'stale', 'x-rat-space': 'untrusted' } });
+  const api = createAgentsFetch({ baseURL: 'https://example.a1.lambda-web.us-west-2.on.aws/v1', accessToken, spaceId: 'space-a', fetch: transport });
+  await api('https://example.a1.lambda-web.us-west-2.on.aws/v1/agents', { headers: { authorization: 'AWS4-HMAC-SHA256 stale', 'x-amz-security-token': 'stale', 'x-rat-space': 'untrusted' } });
   await expect(api('https://attacker.example/v1/agents')).rejects.toThrow('another origin');
   expect(accessToken).toHaveBeenCalledTimes(1); expect(transport).toHaveBeenCalledTimes(1);
 });

@@ -15,7 +15,8 @@ export function parseHttpListenAddress(value: string | undefined, fallback = '12
 
 export function agentsWebFunctionBaseURL(host: string | undefined, region: string): string {
   const escapedRegion = region.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const regionalEndpoint = new RegExp(`^[a-z0-9]{10,32}\\.[a-z0-9]{2,8}\\.lambda-web\\.${escapedRegion}\\.on\\.aws$`);
+  const label = '[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?';
+  const regionalEndpoint = new RegExp(`^${label}\\.${label}\\.lambda-web\\.${escapedRegion}\\.on\\.aws$`);
   if (!host || host !== host.toLowerCase() || !regionalEndpoint.test(host)) {
     throw new AgentsApiError(400, 'Invalid Web Function endpoint host.', 'invalid_request');
   }

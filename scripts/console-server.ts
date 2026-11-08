@@ -338,5 +338,5 @@ function requiredApiUrl(): string {
 }
 
 function regionFromHostname(hostname: string): string | undefined {
-  return hostname.match(/\.execute-api\.([a-z0-9-]+)\.amazonaws\.com$/)?.[1] ?? hostname.match(/\.lambda-url\.([a-z0-9-]+)\.on\.aws$/)?.[1];
+  return hostname.match(/\.execute-api\.([a-z0-9-]+)\.amazonaws\.com$/)?.[1] ?? hostname.match(/\.lambda-web\.([a-z0-9-]+)\.on\.aws$/)?.[1];
 }

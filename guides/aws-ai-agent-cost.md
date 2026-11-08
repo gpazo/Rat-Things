@@ -14,8 +14,9 @@ worker and storage costs. See [runtime choices](../docs/agent-runtimes.md).
 A Session can keep its harness and environment connected between Turns. Include
 that idle time in worker runtime. The dedicated EC2 backend requires S3 Files;
 its private network, encrypted EBS and instance lifetime all contribute to cost.
-The HTTP and relay services, load balancer, NAT and retained storage also remain
-provisioned independently of model requests.
+NAT and retained storage also remain provisioned independently of model requests.
+Agents API Web Functions incur request, active CPU and memory charges separately
+from the Session worker; see the [cost model](../docs/costs.md).
 
 Estimate these resources from the actual Terraform configuration and current
 regional prices. Delete disposable Sessions when their workers are no longer
@@ -30,7 +31,7 @@ needed, and verify termination separately from public Session deletion.
 | Suspended state | Snapshot reads, writes, retained duration | Snapshot inventory and billing data |
 | Durable files | Stored bytes, access amplification, requests, retention | S3 and S3 Files metrics plus object inventory |
 | Networking | NAT processing, public IPv4, regional transfer, egress | VPC flow and billing dimensions |
-| Control plane | HTTP and relay services, load balancers, Lambda, DynamoDB, SQS, EventBridge, logs, KMS | Tagged deployment resources |
+| Control plane | Lambda Web and Event Functions, DynamoDB, SQS, EventBridge, logs, KMS | Tagged deployment resources |
 | Connected services | Provider API plans and rate limits | Provider billing and operation ledger |
 | Model-independent idle floor | NAT, endpoints, secrets, logs, DNS, optional delivery | Cost Explorer by deployment tags |
 

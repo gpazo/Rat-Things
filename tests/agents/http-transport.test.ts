@@ -49,7 +49,7 @@ describe('independent HTTP transport', () => {
         if (request.url.endsWith('/.well-known/agents-api')) return Response.json({ issuer_url: 'https://api.execute-api.us-west-2.amazonaws.com/v1/auth/tokens' });
         if (request.url.includes('.execute-api.')) {
           issuances++;
-          expect(request.headers.get('authorization')).toContain('/us-west-2/lambda/aws4_request');
+          expect(request.headers.get('authorization')).toContain('/us-west-2/execute-api/aws4_request');
           return Response.json({ api_key: 'temporary-key', expires_at: Date.now() / 1000 + 900, base_url: 'https://api.example/v1' });
         }
         expect(request.headers.get('authorization')).toBe('Bearer temporary-key');

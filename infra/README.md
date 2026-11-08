@@ -11,7 +11,8 @@ provider and the AWS Cloud Control provider required for the MicroVM image resou
 
 - HTTP API Gateway with public provider-authenticated webhook routes, public machine-readable
   discovery/contracts, and IAM-authenticated owner-scoped control routes.
-- Lambda ingress, control, Agents API/token issuance, Agents outbox, dispatcher, reconciler,
+- Lambda Web Functions for the Agents API, with a separate OIDC endpoint when team access is configured.
+- Lambda Event Functions for ingress, control, IAM token issuance, Agents outbox, dispatcher, reconciler,
   Session scheduling, connection-health, state-stream, and notification functions.
 - An optional [independent watchdog](../docs/watchdog.md) with its own role and schedule.
 - Encrypted DynamoDB Agent, Session, execution and integration stores;
@@ -25,10 +26,10 @@ provider and the AWS Cloud Control provider required for the MicroVM image resou
   entry URLs and cookies, response hardening, and optional Route 53 aliases for file, site, and
   video sharing.
 
-The module creates an ECR repository for the HTTP/relay image. Setting
-`environment_relay_image` enables dedicated Agents HTTP and relay Fargate services, an ECS
-cluster, load balancer, CloudFront relay distribution and transport VPC. EC2 workers and
-their AMI pipeline are separate opt-ins.
+The Agents API uses the packaged `agents-web.zip` on Node.js 24 ARM64. Its HTTP
+server handles concurrent requests and streams within each execution environment.
+The API requires no container image, load balancer or dedicated transport VPC.
+EC2 workers and their AMI pipeline are separate opt-ins for agent execution.
 
 MicroVM runs use a runtime VPC connector and private AWS endpoints even without
 S3 Files. Public runtime HTTPS egress requires explicit destination CIDRs; only
@@ -255,9 +256,8 @@ The outer VM and separate agent UID remain independent isolation boundaries.
 
 Runtime egress permits HTTPS to private AWS API endpoints, the S3 and DynamoDB gateway endpoints,
 and NFS to the Session mount target. There is no default internet route. PrivateLink endpoints have
-recurring AWS charges; review the Terraform plan and regional pricing before installing. Optional
-relay endpoints use the same private-service approach, with the load balancer limited to its task
-port. Inbound service HTTPS remains available.
+recurring AWS charges; review the Terraform plan and regional pricing before installing.
+The public Agents API uses Lambda Web Function HTTPS endpoints independently of worker networking.
 
 To reach repositories, package registries, external MCP servers, OAuth providers or ChatGPT,
 configure `runtime_https_egress_cidrs` with their reviewed IPv4 destination ranges. Only TCP 443 is

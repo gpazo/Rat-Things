@@ -52,9 +52,9 @@ image and encryption-key identifiers before deletion, so you can rerun the same
 command if cleanup or verification is interrupted. Teardown checks for empty
 Terraform state, no active MicroVMs, and a disabled KMS key pending deletion.
 
-The helper uses the Lambda URL transport when a dedicated Agents HTTP service is
-not configured. Large uploads, long-lived SSE and executor connections need the
-[public transport deployment](agents-api.md#deploy-the-public-transport).
+The Agents API runs in a Lambda Web Function, including file uploads and progress
+streams. Streams reconnect after the platform's request deadline; the Session
+continues independently. See the [public transport deployment](agents-api.md#deploy-the-public-transport).
 
 ### Optional spending alert
 

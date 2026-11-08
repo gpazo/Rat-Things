@@ -50,8 +50,7 @@ npm run rat-things -- sessions send sess_example \
 
 A repeated input with the same idempotency key and body reuses its accepted
 receipt. To work with commands and files, supply a standard Session creation JSON
-file with a managed environment using `--file request.json`. Codex also supports
-self-hosted environments; Pi does not.
+file with a managed environment using `--file request.json`.
 See [Agents API](../docs/agents-api.md) for those request shapes.
 
 ## Retain results and control authority

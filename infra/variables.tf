@@ -724,3 +724,9 @@ variable "watchdog_allow_cancel" {
   default     = false
   description = "Allow cancellation only for bindings that also explicitly enable cancelLoops."
 }
+
+variable "web_function_zip_path" {
+  description = "Packaged Node.js Agents HTTP server for Lambda Web Functions."
+  type        = string
+  default     = null
+}

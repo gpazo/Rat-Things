@@ -38,8 +38,7 @@ rat-things sessions artifact-delete sess_example art_example
 
 Downloads use authenticated API content routes. Saved artifacts survive
 execution-environment expiry. Deleting an artifact removes its API access without
-deleting the original uploaded File or live environment file. A `self_hosted`
-environment does not automatically publish its live files as Session Artifacts.
+deleting the original uploaded File or live environment file.
 
 Retained bytes are subject to the deployment's S3 lifecycle policy. The reference
 module's `artifact_retention_days` defaults to 30 days and applies to uploaded Files,

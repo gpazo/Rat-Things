@@ -6,7 +6,7 @@ host replaces that placeholder with the credential only in HTTPS request headers
 sent to an allowed host.
 
 This guide uses a managed AWS environment. Local workspaces, `none` environments,
-and self-hosted executors do not support this environment-credential path.
+do not support this environment-credential path.
 
 ## Create and attach the credential
 

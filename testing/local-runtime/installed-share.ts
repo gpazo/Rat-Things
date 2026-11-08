@@ -26,7 +26,7 @@ async function main() {
   const endpoint = required('SHARED_AGENTS_API_BASE_URL').replace(/\/$/, '');
   const region = required('AWS_REGION');
   const url = new URL(endpoint);
-  assert(url.protocol === 'https:' && url.hostname.endsWith(`.lambda-url.${region}.on.aws`) && url.pathname === '/v1');
+  assert(url.protocol === 'https:' && url.hostname.endsWith(`.lambda-web.${region}.on.aws`) && url.pathname === '/v1');
   const manifestBytes = await readFile(join(app, 'Contents/Resources/Runtime.bundle/Contents/Resources/runtime-manifest.json'));
   const releaseId = sha256(manifestBytes);
   const manifest = JSON.parse(manifestBytes.toString());
@@ -75,7 +75,7 @@ async function main() {
   };
   const stop = async () => { if (service) { await service.stop(); service = undefined; local = undefined; assert(await absent(connectionPath)); } };
   try {
-    await shareScenario({ source, endpoint, region, store, operatorEndpoint: required('RAT_THINGS_AGENTS_API_URL'),
+    await shareScenario({ source, endpoint, region, store, operatorEndpoint: `${required('RAT_THINGS_API_URL').replace(/\/$/, '')}/v1`,
       fixture: JSON.parse(required('TEAM_OIDC_FIXTURE_JSON')) as TeamIdentityFixture,
     }, { start, stop, localResponse, record, signal: AbortSignal.timeout(30 * 60_000) });
     evidence.status = 'passed';

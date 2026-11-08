@@ -156,16 +156,17 @@ that an API access token must contain. Optional `apiScopes` restricts the
 provider's maximum Rat Things API scopes; recognized `api.*` scopes in a token
 further restrict access. Space role checks still apply.
 
-The module exports `shared_agents_api_base_url`. This separate streaming Lambda
-endpoint authenticates OIDC access tokens in the application. The existing IAM
-endpoint stays available for operators and legacy clients. An empty provider list
-does not create a public team endpoint. Do not disable application authentication
-or use the local owner-header fixture as a team deployment.
+The module exports `shared_agents_api_base_url`. This Lambda Web Function
+authenticates OIDC access tokens in the application and serves concurrent requests
+and progress streams. The IAM operator API handles token issuance, space bootstrap,
+and deployment administration. An empty provider list does not create a team
+endpoint. Do not disable application authentication or use the local owner-header
+fixture as a team deployment.
 
 ## Bootstrap a space and admit an Agent
 
-An IAM-authenticated operator creates a space and assigns its initial manager by
-exact verified issuer and subject:
+An IAM-authenticated operator uses the control API's `api_endpoint` output to
+create a space and assign its initial manager by exact verified issuer and subject:
 
 ```http
 POST /v1/rat/spaces

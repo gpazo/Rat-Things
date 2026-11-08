@@ -40,7 +40,7 @@ export function createAgentsHttpServer(options: {
       const size = Number(incoming.headers['content-length'] ?? 0);
       // Node's multipart parser may hold multiple copies of a file. Bound concurrent uploads.
       if (size > 1024 * 1024 || incoming.headers['transfer-encoding']) {
-        if (largeRequests >= 2) throw new AgentsApiError(429, 'Upload capacity is busy. Retry shortly.', 'rate_limit_exceeded');
+        if (largeRequests >= 1) throw new AgentsApiError(429, 'Upload capacity is busy. Retry shortly.', 'rate_limit_exceeded');
         reserved = true; largeRequests++;
       }
       const body = incoming.method !== 'GET' && incoming.method !== 'HEAD' ? boundedBody(incoming, 513 * 1024 * 1024) : undefined;

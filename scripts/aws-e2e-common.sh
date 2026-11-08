@@ -14,8 +14,6 @@ aws_e2e_source_runtime_defaults() {
     AWS_E2E_ENABLE_EC2_WORKER
     AWS_E2E_EC2_SESSION_WORKLOADS_JSON
     AWS_E2E_LONG_RUNNING_AGENT_ID
-    AWS_E2E_ENABLE_VALIDATION_OBSERVER
-    AWS_E2E_VALIDATION_OBSERVER_IMAGE
     AWS_E2E_EC2_WORKER_AMI_ID
     AWS_E2E_EC2_WORKER_IMAGE
     AWS_E2E_ENABLE_EC2_WORKER_AMI_PIPELINE
@@ -172,7 +170,6 @@ aws_e2e_configure() {
     "-var=ec2_worker_ami_recipe_version=$ec2_worker_ami_recipe_version"
     "-var=ec2_worker_prepared_ami=$ec2_worker_prepared_ami"
     "-var=ec2_session_workloads=$ec2_session_workloads"
-    "-var=enable_validation_observer=${AWS_E2E_ENABLE_VALIDATION_OBSERVER:-false}"
     "-var=codex_model_id=$codex_model_id"
     "-var=pi_bedrock_model_ids=$pi_bedrock_model_ids"
     "-var=pi_bedrock_inference_resource_arns=$pi_bedrock_inference_resource_arns"
@@ -194,9 +191,6 @@ aws_e2e_configure() {
   fi
   if [[ "$ec2_worker_enabled" == "true" ]]; then
     tf_vars+=("-var=ec2_worker_ami_id=$ec2_worker_ami_id" "-var=ec2_worker_image=$ec2_worker_image")
-  fi
-  if [[ -n "${AWS_E2E_VALIDATION_OBSERVER_IMAGE:-}" ]]; then
-    tf_vars+=("-var=validation_observer_image=$AWS_E2E_VALIDATION_OBSERVER_IMAGE")
   fi
   if [[ -n "$environment_relay_image" ]]; then
     tf_vars+=("-var=environment_relay_image=$environment_relay_image"

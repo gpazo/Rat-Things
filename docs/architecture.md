@@ -1,8 +1,8 @@
 # Architecture
 
 Rat Things implements the OpenAI Agents API in infrastructure you own. The API,
-agent harness, Session coordination, encrypted storage, execution environments
-and executor relay run in your AWS account. Model requests use your configured
+agent harness, Session coordination, encrypted storage and execution environments
+run in your AWS account. Model requests use your configured
 provider. The [Agents API guide](agents-api.md) explains the public resource model
 and deployment transports.
 
@@ -75,8 +75,9 @@ filesystem context:
 - `none` supplies no command environment.
 - `openai_hosted` uses the upstream wire name for a managed environment provisioned
   by Rat Things in your AWS account.
-- `self_hosted`, supported by Codex, connects your prepared executor to the relay in your AWS account;
-  the harness and Session storage remain yours as well.
+- `self_hosted` remains in the upstream wire schema but is unsupported. Local
+  subscription-backed execution runs its harness and workspace on your computer;
+  AWS execution uses a managed AWS worker.
 
 Managed environments use `/workspace`, declared tools, prepared capabilities and
 network policy. Session workers capture `/workspace/outputs` as immutable artifacts

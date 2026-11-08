@@ -43,6 +43,13 @@ export function principal(event: APIGatewayProxyEventV2): string {
   throw new ForbiddenError('request has no authenticated principal');
 }
 
+export function iamPrincipal(event: APIGatewayProxyEventV2): string {
+  const { iam } = (event.requestContext as { authorizer?: { iam?: { userArn?: string; callerId?: string } } }).authorizer ?? {};
+  const identity = iam?.userArn ?? iam?.callerId;
+  if (!identity) throw new ForbiddenError('request has no authenticated IAM principal');
+  return `api:${identity}`;
+}
+
 export function response(
   statusCode: number,
   value: unknown,

@@ -50,6 +50,7 @@ module "agent_runner" {
   default_agent_network_access             = var.default_agent_network_access
   allow_agent_aws_credential_chain         = var.allow_agent_aws_credential_chain
   default_delivery_destinations            = var.default_delivery_destinations
+  web_function_zip_path                    = var.web_function_zip_path
   lambda_zip_paths                         = var.lambda_zip_paths
   integration_oauth_app_secret_arns        = var.integration_oauth_app_secret_arns
   enable_connection_health_monitor         = var.enable_connection_health_monitor

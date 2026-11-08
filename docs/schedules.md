@@ -33,8 +33,8 @@ Use the authenticated control endpoint:
 
 The `openai_hosted` discriminator is the upstream API spelling; this deployment
 runs that managed environment in your AWS account. A `none` environment is also
-available. Codex supports self-hosted executors, which must connect before the
-connection deadline. Pi managed environments require S3 Files and Session checkpoints.
+available. Self-hosted executors are unsupported. Pi managed environments require
+S3 Files and Session checkpoints.
 
 Schedules inherit the Agent's runtime unless the schedule sets `"runtime": "codex"`
 or `"runtime": "pi"`. Each accepted occurrence pins its runtime choice for retries.

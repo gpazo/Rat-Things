@@ -23,10 +23,10 @@ public sharing. Return here when choosing a longer-lived installation shape.
 - A local `codex login` with ChatGPT, or Bedrock access, only for real local driver tests. `npm ci`
   installs the same pinned CLI version used in the MicroVM image.
 
-The MicroVM service builds its image from the packaged source ZIP. Dedicated EC2 workers
-require a pinned ARM64 container image and AMI. The module also creates an ECR repository;
-configuring `environment_relay_image` enables the Agents HTTP and relay Fargate services
-with their own VPC and load balancer. Enabling S3 Files creates a separate VPC, mount target,
+The Agents API runs as a Node.js 24 ARM64 Lambda Web Function from the packaged
+`agents-web.zip`. Background jobs use Lambda Event Functions. The MicroVM service
+builds its image from the packaged source ZIP. Dedicated EC2 workers
+require a pinned ARM64 container image and AMI. Enabling S3 Files creates a separate VPC, mount target,
 NAT gateway and, when MicroVM is enabled, a network connector. These optional services
 add standing costs even without active Sessions.
 
@@ -181,7 +181,7 @@ required for native checkpoint adoption and forks; storage alone does not guaran
 workspace recovery after an unplanned worker loss.
 
 Review the [cost model](costs.md) before choosing storage and transport settings.
-NAT gateways, public IPv4 addresses, Fargate services and load balancers can incur
+NAT gateways, public IPv4 addresses and EC2 workers can incur
 charges while no Turn is running. Use current rates for the deployment Region, and
 activate billing allocation tags and a project budget before shared use.
 

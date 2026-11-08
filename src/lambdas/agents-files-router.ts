@@ -16,7 +16,7 @@ export async function routeUploadedFiles(request: Request, ownerId: string, part
       purpose: form.get('purpose'),
       ...(form.has('expires_after[anchor]') || form.has('expires_after[seconds]') ? { expires_after: { anchor: form.get('expires_after[anchor]'), seconds: Number(form.get('expires_after[seconds]')) } } : {}),
     });
-    return json(200, await files.create(ownerId, { ...input, filename: file.name, data: new Uint8Array(await file.arrayBuffer()) }), requestId);
+    return json(200, await files.create(ownerId, { ...input, filename: file.name, data: { byteLength: file.size, chunks: fileChunks(file) } }), requestId);
   }
   if (id && parts.length === 1 && request.method === 'GET') return json(200, await files.retrieve(ownerId, id), requestId);
   if (id && parts.length === 1 && request.method === 'DELETE') return json(200, await files.delete(ownerId, id), requestId);
@@ -58,6 +58,16 @@ async function skillFiles(request: Request) {
 }
 async function multipart(request: Request) {
   try { return await request.formData(); } catch { throw new AgentsApiError(400, 'A multipart upload is required.', 'invalid_request'); }
+}
+async function* fileChunks(file: File) {
+  const reader = file.stream().getReader();
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) return;
+      yield next.value;
+    }
+  } finally { reader.releaseLock(); }
 }
 function rejectFields(form: FormData, allowed: string[], repeated: string[] = []) {
   const names = new Set<string>();

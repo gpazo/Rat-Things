@@ -55,10 +55,10 @@ export function liveConfiguration(environment: NodeJS.ProcessEnv) {
   if (!/^[a-z]{2}(?:-[a-z]+)+-\d$/.test(region)) throw new Error('Invalid AWS region.');
   const baseURL = required('SHARED_AGENTS_API_BASE_URL').replace(/\/$/, '');
   const endpoint = new URL(baseURL);
-  if (endpoint.protocol !== 'https:' || !endpoint.hostname.endsWith(`.lambda-url.${region}.on.aws`) || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) {
-    throw new Error('Use the disposable application-authenticated Lambda URL.');
+  if (endpoint.protocol !== 'https:' || !endpoint.hostname.endsWith(`.lambda-web.${region}.on.aws`) || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) {
+    throw new Error('Use the disposable application-authenticated Lambda Web Function endpoint.');
   }
-  const operatorURL = required('RAT_THINGS_AGENTS_API_URL');
+  const operatorURL = `${required('RAT_THINGS_API_URL').replace(/\/$/, '')}/v1`;
   const operator = new URL(operatorURL);
   if (operator.protocol !== 'https:' || operator.username || operator.password || operator.search || operator.hash) throw new Error('Invalid operator endpoint.');
   const model = required('AWS_E2E_CODEX_MODEL_ID');

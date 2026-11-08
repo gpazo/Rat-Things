@@ -59,12 +59,12 @@ export function createAgentsFetch(options: OidcClientOptions | IamClientOptions)
   if (!options.region) throw new Error('AWS region is required for IAM authentication');
   const region = options.region;
   const signer = new SignatureV4({
-    service: endpoint.hostname.includes('.lambda-url.') ? 'lambda' : 'execute-api',
+    service: 'execute-api',
     region, credentials: options.credentials ?? defaultProvider(), sha256: Sha256,
   });
   const transport = options.fetch ?? sdkFetch;
-  if (options.scopes !== undefined && /\.(lambda-url\.[a-z0-9-]+\.on\.aws|execute-api\.[a-z0-9-]+\.amazonaws\.com)$/.test(endpoint.hostname) && !options.tokenIssuerURL) throw new Error('Scoped clients require the bearer-token API endpoint');
-  const iamEndpoint = /\.(lambda-url\.[a-z0-9-]+\.on\.aws|execute-api\.[a-z0-9-]+\.amazonaws\.com)$/.test(endpoint.hostname);
+  if (options.scopes !== undefined && /\.execute-api\.[a-z0-9-]+\.amazonaws\.com$/.test(endpoint.hostname) && !options.tokenIssuerURL) throw new Error('Scoped clients require the bearer-token API endpoint');
+  const iamEndpoint = /\.execute-api\.[a-z0-9-]+\.amazonaws\.com$/.test(endpoint.hostname);
   let token: { api_key: string; expires_at: number } | undefined;
   let pendingToken: Promise<void> | undefined;
   const authorize = async () => {
@@ -72,8 +72,8 @@ export function createAgentsFetch(options: OidcClientOptions | IamClientOptions)
     pendingToken ??= (async () => {
       const issuer = options.tokenIssuerURL ?? await discoverIssuer(transport, endpoint);
       const url = new URL(issuer);
-      if (url.protocol !== 'https:' || url.hostname !== `${url.hostname.split('.')[0]}.lambda-url.${options.region}.on.aws` || url.pathname !== '/v1/auth/tokens' || url.search || url.hash || url.username || url.password) throw new Error('The API token issuer must be an AWS Lambda URL in the configured region');
-      const issuerSigner = new SignatureV4({ service: 'lambda', region, credentials: options.credentials ?? defaultProvider(), sha256: Sha256 });
+      if (url.protocol !== 'https:' || !/^[a-z0-9]+$/.test(url.hostname.split('.')[0]!) || url.hostname !== `${url.hostname.split('.')[0]}.execute-api.${options.region}.amazonaws.com` || url.pathname !== '/v1/auth/tokens' || url.port || url.search || url.hash || url.username || url.password) throw new Error('The API token issuer must be an API Gateway endpoint in the configured region');
+      const issuerSigner = new SignatureV4({ service: 'execute-api', region, credentials: options.credentials ?? defaultProvider(), sha256: Sha256 });
       const body = JSON.stringify(scopes === undefined ? {} : { scopes });
       const signed = await issuerSigner.sign(new HttpRequest({ protocol: 'https:', hostname: url.hostname, path: url.pathname, method: 'POST', headers: { host: url.host, 'content-type': 'application/json' }, body }));
       const result = await transport(url, { method: 'POST', headers: signed.headers, body, redirect: 'error', signal: AbortSignal.timeout(30_000) });

@@ -21,14 +21,14 @@ live('shares real execution and progress across verified team identities with re
   const baseURL = required('SHARED_AGENTS_API_BASE_URL').replace(/\/$/, '');
   const endpoint = new URL(baseURL);
   const region = required('AWS_REGION');
-  if (endpoint.protocol !== 'https:' || !endpoint.hostname.endsWith(`.lambda-url.${region}.on.aws`)) {
+  if (endpoint.protocol !== 'https:' || !endpoint.hostname.endsWith(`.lambda-web.${region}.on.aws`)) {
     throw new Error('Use the disposable application-authenticated Lambda URL.');
   }
   const fixture = JSON.parse(required('TEAM_OIDC_FIXTURE_JSON')) as TeamIdentityFixture;
   const identities = await createTeamIdentities(fixture, region, ['manager', 'alice', 'bob', 'viewer', 'follower', 'outsider']);
   const [manager, alice, bob, viewer, follower, outsider] = identities.users;
   if (!manager || !alice || !bob || !viewer || !follower || !outsider) throw new Error('Missing test identities.');
-  const operator = createAgentsClient({ baseURL: required('RAT_THINGS_AGENTS_API_URL'), region }).withOptions({ maxRetries: 0 });
+  const operator = createAgentsClient({ baseURL: `${required('RAT_THINGS_API_URL').replace(/\/$/, '')}/v1`, region }).withOptions({ maxRetries: 0 });
   const proof = `team-${randomUUID()}`;
   let spaceId: string | undefined;
   let sessionId: string | undefined;

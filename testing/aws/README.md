@@ -163,30 +163,15 @@ redeploy with `AWS_E2E_EC2_WORKER_PREPARED_AMI=true` and the returned image ID i
 Delete build-produced AMIs and their snapshots after terminating the test workers;
 Terraform removes the pipeline but does not own its generated images.
 
-Dedicated HTTPS tests require all three inputs:
+The deployment always exposes the Agents API through a Lambda Web Function. The
+HTTP transport canary round-trips an 8 MiB File with an end-to-end checksum and
+requires no model call. Set `AWS_E2E_LARGE_FILE_MIB=512` for a bounded maximum-size
+upload check. The configured `RAT_THINGS_AGENTS_API_URL` must be the regional
+Web Function endpoint exported by Terraform.
 
-- `AWS_E2E_ENVIRONMENT_RELAY_IMAGE`: digest-pinned image for HTTP and relay services.
-- `AWS_E2E_ENVIRONMENT_RELAY_ORIGIN_HOSTNAME`: owned API origin hostname.
-- `AWS_E2E_ENVIRONMENT_RELAY_ORIGIN_CERTIFICATE_ARN`: matching regional ACM certificate.
-
-Point the owned hostname at the `environment_relay_origin_dns_name` Terraform
-output before invoking tests. The harness does not create or overwrite that DNS
-record. The public Agents URL uses direct ALB TLS; the executor relay uses CloudFront.
-
-The old public Run/conversation, browser takeover and account-specific demo
-canaries are retired. Current proofs use canonical Sessions. The [harness guide](../README.md)
+Current execution proofs use canonical Sessions. The [harness guide](../README.md)
 lists focused opt-ins for recovery, schedules, credentials, tool permissions,
 checkpoints and forks; a default smoke run does not execute every proof.
-
-The dedicated HTTPS canaries round-trip an 8 MiB File with an end-to-end checksum and hold
-SSE open while a disconnected self-hosted environment reaches its five-minute input deadline.
-Set `AWS_E2E_LARGE_FILE_MIB=512` to exercise the maximum Files upload; the default 8 MiB case
-only proves a transfer beyond Lambda request limits. These cases run when the dedicated origin
-hostname is configured and require the advertised API URL to match it.
-
-The default test deployment uses the Lambda URL Agents transport. Full upload
-sizes, long-lived SSE and executor relay coverage require deploying the dedicated
-Agents HTTP service; see `docs/agents-api.md`.
 
 For configuration and MCP authorization history, set
 `AWS_E2E_AUTHORITY_AUDIT_PROOF=true` and run
@@ -223,42 +208,6 @@ checks delivery through `DELIVERY_CAPTURE_QUEUE_URL`, and removes its resources.
 Use the deployment-owned capture endpoint; no real provider account is needed.
 
 ## Manual phases
-
-### Run a soak observer in AWS
-
-For long tests, use a one-off ARM64 Fargate client so workstation sleep cannot
-interrupt the observation. This client is separate from the isolated EC2 Session
-worker. It has no inbound network access; its task role can only invoke this
-deployment's IAM-authenticated token issuer. Platform image/log permissions use
-a separate execution role. Neither local tests nor Terraform starts an observer.
-
-Enable `AWS_E2E_ENABLE_VALIDATION_OBSERVER=true` when deploying to create its
-repository, roles, log group and security group. Build `testing/aws/observer.Dockerfile`
-for `linux/arm64`, push it to the `validation_observer.repository_url` output, and
-deploy again with `AWS_E2E_VALIDATION_OBSERVER_IMAGE` set to that repository's
-immutable digest. These values are retained in `runtime.env`.
-
-Run `scripts/aws-e2e-observer.sh DEPLOYMENT_ID 0` for the short managed proof,
-then use `29100` for an eight-hour-plus idle interval. The script refuses a second
-active observer and records its request, idempotency token and task ARN under
-the deployment's ignored `observer-*` directory. Retry an uncertain launch with
-that exact saved request using `node scripts/run-ecs-observer.mjs REQUEST_JSON`
-rather than creating a new token. The helper uses the ECS SDK because older AWS
-CLI versions omit the RunTask client-token field. Inspect ECS task exit
-codes and the output log group for results; a running task is not a passing test.
-The fixture deletes its Session on normal completion or test failure. It also deletes
-an Agent it created, but retains an Agent supplied through `AWS_E2E_LONG_RUNNING_AGENT_ID`.
-If the observer is forcibly stopped, use its logged resource IDs and task role
-identity to recover cleanup before tearing down the stack. Do not redeploy the
-API services during an uninterrupted-stream test. The observer ECR repository is
-disposable and its images are removed when its Terraform resource is destroyed.
-The normal destroy helper refuses teardown while an observer is active, before
-removing runtime credentials or stopping workers.
-
-The managed probe treats an unexpected clean stream end as a failure and checks
-stream health throughout the idle interval. Timestamps distinguish a transport
-interruption from workstation scheduling gaps; saved artifacts independently
-prove command-process continuity.
 
 ### Deploy, test and remove fixtures
 

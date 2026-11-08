@@ -7,7 +7,7 @@ locals {
   }
 
   lambda_zip_paths = {
-    agents-api        = "${path.root}/../../dist/agents-api.zip"
+    agents-token-issuer = "${path.root}/../../dist/agents-token-issuer.zip"
     agents-outbox     = "${path.root}/../../dist/agents-outbox.zip"
     connection-health = "${path.root}/../../dist/connection-health.zip"
     control           = "${path.root}/../../dist/control.zip"
@@ -167,6 +167,7 @@ module "agent_runner" {
   default_delivery_destinations      = var.enable_super_agent_proof ? "teams" : "source"
   integration_plugin_base_urls       = { fixture-crm = aws_lambda_function_url.integration_fixture.function_url }
   integration_oauth_app_secret_arns  = var.integration_oauth_app_secret_arns
+  web_function_zip_path              = "${path.root}/../../dist/agents-web.zip"
   lambda_zip_paths                   = local.lambda_zip_paths
   github_webhook_secret_arn          = aws_secretsmanager_secret.github_webhook.arn
   github_webhook_enabled             = true

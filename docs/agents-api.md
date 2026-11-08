@@ -2,7 +2,7 @@
 
 Rat Things implements the OpenAI Agents API resource model using the official
 OpenAI SDK. Your AWS account owns the API service, agent harness, session state,
-execution environments, credentials, encrypted files and executor relay. Model
+execution environments, credentials and encrypted files. Model
 requests use the model provider configured by the deployment operator.
 
 The upstream reference is the [Agents API overview](https://developers.openai.com/api/docs/guides/agents-api/overview).
@@ -211,10 +211,14 @@ Every launch has its own loopback listener and access token. The helper serves o
 API requests and closes with the desktop app.
 
 The HTTP service exposes `/.well-known/agents-api` for issuer discovery. The
-client only signs issuance requests to a Lambda URL in its configured AWS region.
-The Lambda fallback accepts IAM-signed SDK requests directly, but retains AWS's
-request-size and invocation-duration limits. Use the HTTP service for full-size
-uploads and long-lived event streams.
+client signs issuance requests to the deployment's API Gateway endpoint in its
+configured AWS region. Resource requests use the Lambda Web Function endpoint
+and its short-lived bearer key. Team clients use the OIDC endpoint described in
+[collaboration](collaboration.md).
+
+Event streams can remain open for up to 15 minutes per HTTP request. Reconnect
+with the saved cursor to continue following a Session. A stream ending does not
+stop the Session or its agent.
 
 ## Resource model
 
@@ -355,9 +359,7 @@ Supported events are `agent.session.created`, `agent.session.action_required`,
 `agent.session.watchdog`. The optional [watchdog](watchdog.md#delivery) sends findings
 with the affected Session ID, finding ID, reason, and available judge verdict.
 The webhook uses `action_required`; the stream uses `requires_action`. Retrieve
-the Session for current required-action details. A connection-required webhook
-is committed before the service waits for a self-hosted executor. The creation
-webhook includes its environment ID and relay URL.
+the Session for current required-action details.
 
 Return a `2xx` response promptly after accepting the event. Delivery retries with
 exponential backoff for up to 72 hours; redirects are treated as failures. The
@@ -379,26 +381,15 @@ putting authentication values in a template's plain environment variables.
   **In this deployment, Rat Things provisions it in your AWS account.** The
   workspace is `/workspace`. Packages and input capabilities are prepared before
   ordered setup commands; a failed setup prevents agent execution.
-- `self_hosted` connects compute that you prepare to your deployment's encrypted
-  relay. The harness and Session storage still run in your AWS account. Supply
-  the workspace and capability directories, then connect the executor using its
-  environment-specific credential.
-
-```bash
-npm run rat-things -- environments connect ENVIRONMENT_ID
-```
-
-The connection command uses the pinned stock Codex executor. Its local registration
-shim targets this deployment's relay; the encrypted execution channel terminates
-in infrastructure you operate. Executor and harness credentials have different
-roles and are revoked when the environment is retired.
+- `self_hosted` is part of the upstream schema but is unsupported. To use your
+  ChatGPT subscription and run the harness on your computer, choose a
+  [local workspace](local-workspace.md). AWS Sessions use managed AWS execution;
+  they cannot attach a command executor on your computer.
 
 Retrieve `GET /v1/agents/environments/{environment_id}` to check readiness.
-The environment `status` is `pending` while setup or the initial executor
-connection is unfinished, and `connected` when ready. Wait for `connected`
+The environment `status` is `pending` while setup is unfinished, and `connected` when ready. Wait for `connected`
 before using live file operations. The other response statuses are
-`disconnected`, `expired` and `failed`; a disconnected self-hosted executor
-can reconnect, while an expired or failed environment is unavailable.
+`disconnected`, `expired` and `failed`; an expired or failed environment is unavailable.
 These values follow the [Environment API reference](https://developers.openai.com/api/reference/typescript/resources/beta/subresources/agents/subresources/environments/methods/retrieve).
 The hosted guide calls the setup phase `provisioning`, but that is not a
 response status; clients should handle `pending`. The corresponding stream
@@ -522,27 +513,25 @@ entries individually so compressed capabilities need not fit entirely in memory.
 
 ## Deploy the public transport
 
-Build Lambda bundles and the ARM64 image from the same checkout:
+Package the HTTP server and background functions from the same checkout:
 
 ```bash
 npm ci
 npm run package
-docker build --platform linux/arm64 -f relay/Dockerfile -t rat-agents-api .
 ```
 
-Publish the image to the deployment's `environment_relay_repository_url`, then set
-`environment_relay_image` to its immutable digest. Configure
-`environment_relay_origin_hostname` and its matching regional ACM certificate
-using `environment_relay_origin_certificate_arn`. Point the origin hostname to
-`environment_relay_origin_dns_name`.
+Terraform deploys `dist/agents-web.zip` as a Lambda Web Function using Node.js 24
+on ARM64. The service handles concurrent requests and streams progress over SSE.
+Use `web_function_zip_path` when the packaged server is in a different location.
+The `agents_api_base_url` output is the resource API endpoint. Configuring OIDC
+providers also creates the team endpoint, `shared_agents_api_base_url`.
 
-Terraform defines separate ARM64 Fargate services for the public API and executor
-relay. The API's HTTPS hostname points directly to the load balancer, whose idle
-timeout accommodates the five-minute executor connection wait. CloudFront carries
-the encrypted executor relay. The API handles large uploads and SSE. MicroVM
-workers have no public API ingress. Resource indexes live in DynamoDB; complete
-definitions and content live in encrypted S3; confidential credential values live
-in Secrets Manager.
+The HTTP server shares bounded Session projections within each execution
+environment. Authorization remains specific to each caller. Durable state
+survives replacement of a Web Function environment. Background processing uses
+Lambda Event Functions, and isolated agent execution uses the configured worker
+backend. Resource indexes live in DynamoDB, definitions and content in encrypted
+S3, and confidential credential values in Secrets Manager.
 
 Inline MCP credentials have durable cleanup work recorded before creation. If
 preparation stops or secret storage returns an uncertain result, the outbox
@@ -556,10 +545,9 @@ credentials. A retry after that window returns `session_preparation_expired`.
 Completed Sessions retain their credentials until deletion. Older preparations
 without a recorded deadline require explicit inventory and disposition.
 
-Use the advertised `agents_api_base_url` for SDK requests. CloudFront's default
-origin response timeout is shorter than the input connection wait; increasing
-its normal quota is unnecessary with the direct HTTPS API endpoint. Both services
-authenticate requests, and only the load balancer can reach their container ports.
+Use the advertised `agents_api_base_url` for SDK requests. The resource API is
+served by Web Functions. The IAM operator API handles token issuance, space
+bootstrap, and deployment administration.
 
 The issuer authenticates AWS identity before deriving an owner. Public resource
 requests cannot choose an owner ID. Build the native console with `npm run console:build`. Running it uses the same transport:

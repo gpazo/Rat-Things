@@ -38,7 +38,6 @@ reusable login credentials. Use that bridge only for trusted workloads. See
 Agent command networking defaults to disabled. Enabling it grants only the admitted
 policy; operators must also enforce appropriate deployment egress controls.
 Model requests and trusted service integrations have separate network paths.
-Transport encryption alone does not make a self-hosted executor safe.
 
 On AWS, prompts, journals and artifacts use encrypted S3 storage; DynamoDB holds
 resource state, references and bounded summaries. Local SQLite resource payloads

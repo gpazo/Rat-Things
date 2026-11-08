@@ -11,7 +11,7 @@ describe('AWS transport and pure harness planning', () => {
   it('signs upstream SDK requests for the AWS Lambda function URL without buffering responses', async () => {
     let request: Request | undefined;
     const client = createAgentsClient({
-      baseURL: 'https://example.lambda-url.us-west-2.on.aws/v1', region: 'us-west-2',
+      baseURL: 'https://example.execute-api.us-west-2.amazonaws.com/v1', region: 'us-west-2',
       credentials: { accessKeyId: 'test-access', secretAccessKey: 'test-secret', sessionToken: 'test-session' },
       fetch: async (input, init) => {
         request = new Request(input, init);
@@ -19,8 +19,8 @@ describe('AWS transport and pure harness planning', () => {
       },
     });
     expect((await client.beta.agents.list({ limit: 2 })).data).toEqual([]);
-    expect(request!.url).toBe('https://example.lambda-url.us-west-2.on.aws/v1/agents?limit=2');
-    expect(request!.headers.get('authorization')).toContain('/us-west-2/lambda/aws4_request');
+    expect(request!.url).toBe('https://example.execute-api.us-west-2.amazonaws.com/v1/agents?limit=2');
+    expect(request!.headers.get('authorization')).toContain('/us-west-2/execute-api/aws4_request');
     expect(request!.headers.get('x-amz-security-token')).toBe('test-session');
     expect(request!.headers.get('openai-beta')).toBe('agents=v1');
   });

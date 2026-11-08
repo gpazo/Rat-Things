@@ -39,7 +39,7 @@ import { apiIngressContext } from '../identity/context.js';
 import { getAgentsApiServices } from '../app/composition.js';
 import { agentsErrorResponse, routeAgentsRequest } from './agents-router.js';
 import { AgentsApiError } from '../domain/agents-api-validation.js';
-import { errorResponse, jsonBody, principal, response, secretValue } from './runtime.js';
+import { errorResponse, iamPrincipal, jsonBody, principal, response, secretValue } from './runtime.js';
 
 const awsClients = createAwsClients();
 const artifactClient = awsClients.s3;
@@ -101,11 +101,11 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       return artifactShareResponse(shareToken);
     }
 
-    if (/^\/v1\/(agents|vaults|files|skills|webhooks)(\/|$)/.test(path)) {
+    if (method === 'POST' && path === '/v1/rat/spaces') {
       let apiResponse: Response;
       try {
         let owner: string;
-        try { owner = principal(event); } catch { throw new AgentsApiError(401, 'Authentication required.', 'invalid_api_key'); }
+        try { owner = iamPrincipal(event); } catch { throw new AgentsApiError(401, 'IAM authentication required.', 'invalid_api_key'); }
         const request = new Request(`https://control.invalid${path}${event.rawQueryString ? `?${event.rawQueryString}` : ''}`, {
           method,
           headers: Object.fromEntries(Object.entries(event.headers).filter((entry): entry is [string, string] => entry[1] !== undefined)),

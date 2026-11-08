@@ -18,7 +18,7 @@ const errorSchema = {
   } },
 };
 const root = JSON.parse(await readFile('spec/openapi.json', 'utf8'));
-root.tags = [...root.tags.filter((tag) => tag.name !== 'Agents'), { name: 'Agents', description: 'OpenAI Agents API resources implemented in this AWS deployment. Streaming uses agents_api_base_url.' }];
+root.tags = [...root.tags.filter((tag) => tag.name !== 'Agents'), { name: 'Agents', description: 'OpenAI Agents API resources implemented in this AWS deployment. Use agents_api_base_url for all resource operations.' }];
 root.paths[schemaPath] = { get: { operationId: 'getAgentsApiSchema', tags: ['Discovery'], security: [], responses: { 200: { description: 'Pinned OpenAI Agents API schemas', content: { 'application/schema+json': { schema: { type: 'object' } } } } } } };
 for (const [method, path, input, output] of routes) {
   const parameters = [...path.matchAll(/\{([^}]+)\}/g)].map((match) => ({ name: match[1], in: 'path', required: true, schema: { type: 'string' } }));
@@ -51,15 +51,6 @@ for (const [method, path, input, output] of routes) {
   };
 }
 await update('spec/openapi.json', `${JSON.stringify(root, null, 2)}\n`);
-const terraformPath = 'infra/modules/agent-runner/api.tf';
-let terraform = await readFile(terraformPath, 'utf8');
-const marker = '    # Generated Agents API routes; run npm run agents-api:routes.';
-terraform = terraform.replace(/    # Generated Agents API routes; run npm run agents-api:routes\.\n[\s\S]*?    # End generated Agents API routes\.\n/g, '');
-const block = `${marker}\n${routes.map(([method, path]) => `    "${method} ${path}",`).join('\n')}\n    # End generated Agents API routes.\n`;
-terraform = terraform.replace('  control_routes = toset([\n', `  control_routes = toset([\n${block}`);
-// Schema discovery remains public independently of any retired schemas.
-if (!terraform.includes(`    "GET ${schemaPath}",`)) terraform = terraform.replace('    "GET /openapi.json",', `    "GET /openapi.json",\n    "GET ${schemaPath}",`);
-await update(terraformPath, terraform);
 
 function externalRefs(value) {
   if (Array.isArray(value)) return value.map(externalRefs);

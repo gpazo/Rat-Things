@@ -23,7 +23,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) process.once(signal, () => 
   shuttingDown = true;
   server.close();
   server.closeIdleConnections();
-  const forceClose = setTimeout(() => server.closeAllConnections(), 8_000);
+  const forceClose = setTimeout(() => server.closeAllConnections(), webFunction ? 750 : 8_000);
   forceClose.unref();
   server.once('close', () => clearTimeout(forceClose));
 });

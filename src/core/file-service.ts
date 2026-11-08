@@ -6,15 +6,16 @@ import type { ArtifactReference } from '../domain/contracts.js';
 import { invalid, resourceNotFound } from '../domain/agents-api-validation.js';
 
 interface StoredFile { file: FileObject; content: ArtifactReference }
+type FileData = Uint8Array | { byteLength: number; chunks: AsyncIterable<Uint8Array> };
 
 export class FileService {
-  public constructor(private readonly options: { store: AgentsStore; artifacts: Pick<ArtifactStore, 'putBytes' | 'getBytes' | 'getStream'>; clock?: AgentsClock }) {}
+  public constructor(private readonly options: { store: AgentsStore; artifacts: Pick<ArtifactStore, 'putBytes' | 'putStream' | 'getBytes' | 'getStream'>; clock?: AgentsClock }) {}
   private now() { return this.options.clock?.now() ?? Math.floor(Date.now() / 1000); }
 
-  public async create(ownerId: string, input: { filename: string; data: Uint8Array; purpose: FileCreateParams['purpose']; expires_after?: FileCreateParams['expires_after'] }): Promise<FileObject> {
+  public async create(ownerId: string, input: { filename: string; data: FileData; purpose: FileCreateParams['purpose']; expires_after?: FileCreateParams['expires_after'] }): Promise<FileObject> {
     if (!['assistants', 'batch', 'fine-tune', 'vision', 'user_data', 'evals'].includes(input.purpose)) invalid('Invalid file purpose', 'purpose');
     if (!input.filename || input.filename.includes('\0') || Buffer.byteLength(input.filename) > 1024) invalid('Invalid filename', 'file');
-    if (input.data.byteLength > 512 * 1024 * 1024) invalid('Files must not exceed 512 MiB', 'file');
+    if (!Number.isSafeInteger(input.data.byteLength) || input.data.byteLength < 0 || input.data.byteLength > 512 * 1024 * 1024) invalid('Files must not exceed 512 MiB', 'file');
     const expiry = input.expires_after ?? (input.purpose === 'batch' ? { anchor: 'created_at', seconds: 2_592_000 } : undefined);
     if (expiry && (expiry.anchor !== 'created_at' || !Number.isInteger(expiry.seconds) || expiry.seconds < 3600 || expiry.seconds > 2_592_000)) invalid('Invalid file expiration policy', 'expires_after');
     const id = `file-${randomUUID().replaceAll('-', '')}`;
@@ -22,7 +23,10 @@ export class FileService {
     const file: FileObject = { id, object: 'file', filename: input.filename, bytes: input.data.byteLength,
       created_at: now, purpose: input.purpose as FileObject['purpose'], status: 'processed', ...(expiry ? { expires_at: now + expiry.seconds } : {}) };
     const owner = createHash('sha256').update(ownerId).digest('hex');
-    const content = await this.options.artifacts.putBytes(`owners/${owner}/files/${id}`, input.data, 'application/octet-stream');
+    const key = `owners/${owner}/files/${id}`;
+    const content = input.data instanceof Uint8Array
+      ? await this.options.artifacts.putBytes(key, input.data, 'application/octet-stream')
+      : await this.options.artifacts.putStream(key, sizedChunks(input.data), 'application/octet-stream');
     await this.options.store.put<StoredFile>({ id, ownerId, collection: 'files', createdAt: now, revision: 1, value: { file, content } }, 0);
     return file;
   }
@@ -54,4 +58,14 @@ export class FileService {
     if (resource.value.file.expires_at && resource.value.file.expires_at <= this.now()) resourceNotFound();
     return resource;
   }
+}
+
+async function* sizedChunks(data: Exclude<FileData, Uint8Array>) {
+  let received = 0;
+  for await (const chunk of data.chunks) {
+    received += chunk.byteLength;
+    if (received > data.byteLength) invalid('File content exceeds its declared size', 'file');
+    yield chunk;
+  }
+  if (received !== data.byteLength) invalid('File content does not match its declared size', 'file');
 }

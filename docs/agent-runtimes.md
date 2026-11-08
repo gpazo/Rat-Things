@@ -24,7 +24,7 @@ expand its own access during a Turn; see the [credential boundaries](security.md
 | Model access | Deployment-configured ChatGPT bridge or Bedrock | Local ChatGPT subscription; approved Amazon Bedrock Converse models on AWS |
 | Session selection | Default or `rat_things_runtime: 'codex'` | `rat_things_runtime: 'pi'` |
 | Function tools, MCP, and subagents | Supported | Supported |
-| Environments | None, managed, or self-hosted | None or managed; AWS managed execution requires S3 Files and checkpoints |
+| Environments | None or managed | None or managed; AWS managed execution requires S3 Files and checkpoints |
 | Standalone local execution | Supported | Uses durable Sessions |
 | Hosted skills and plugins | Supported where configured | Unsupported |
 | JSON-schema output, deferred functions, and built-in web search | Supported where configured | Unsupported |

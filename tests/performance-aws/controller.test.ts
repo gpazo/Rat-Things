@@ -2,7 +2,7 @@ import { expect, it } from 'vitest';
 import { cleanupActions, liveConfiguration, parseArguments, run } from '../../testing/performance-aws/controller.js';
 
 const liveEnvironment = (model: string) => ({ AWS_E2E: 'true', AWS_E2E_SHARED_SESSIONS: 'true', AWS_E2E_REAL_CODEX: 'true', AWS_REGION: 'us-west-2',
-  SHARED_AGENTS_API_BASE_URL: 'https://fixture.lambda-url.us-west-2.on.aws/api/v1', RAT_THINGS_AGENTS_API_URL: 'https://operator.invalid',
+  SHARED_AGENTS_API_BASE_URL: 'https://fixture.a1.lambda-web.us-west-2.on.aws/api/v1', RAT_THINGS_API_URL: 'https://operator.execute-api.us-west-2.amazonaws.com',
   AWS_E2E_CODEX_MODEL_ID: model, TEAM_OIDC_FIXTURE_JSON: '{}' });
 
 it('requires explicit live opt-ins before operations and restricts the matrix', async () => {

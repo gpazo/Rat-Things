@@ -11,7 +11,7 @@ charges. Delete Sessions when their environments and harnesses are no longer nee
 | --- | --- |
 | Model | The requested model, reasoning, input, cached input and output tokens |
 | Session worker | Dedicated EC2 instance runtime and encrypted EBS, or the selected Lambda MicroVM runtime and image storage |
-| HTTP and relay | Fargate service capacity, load balancer hours and traffic, and relay distribution traffic |
+| Agents API | Lambda Web Function requests, active CPU, consumed memory over environment lifetime, and traffic |
 | Durable state | Encrypted S3 objects, S3 Files workspace storage, DynamoDB operations and retention |
 | Network | PrivateLink endpoint hours and data, optional NAT gateway and public IPv4 hours, and data transfer |
 | Control and delivery | Lambda requests and duration, queues, scheduling, webhooks, logs, secrets and KMS operations |
@@ -22,9 +22,11 @@ terminates; see [EC2 On-Demand pricing](https://aws.amazon.com/ec2/pricing/on-de
 The supplied worker shuts down after its supervisor exits, and its launch template
 turns that shutdown into instance termination.
 
-The HTTP/relay services and private-network resources can have a baseline cost
-even when no Session is active. Include the [load balancer](https://aws.amazon.com/elasticloadbalancing/pricing/),
-Fargate, PrivateLink, optional NAT, logs and retained storage when estimating an idle deployment.
+Private-network resources can have a baseline cost even when no Session is active.
+Include PrivateLink, optional NAT, logs and retained storage when estimating an idle
+deployment. The Agents API scales with requests; an execution environment still
+incurs memory charges while it remains running between requests. See
+[Lambda Web Functions pricing](https://aws.amazon.com/lambda/pricing/).
 
 Pi Durable inference on AWS is billed through Amazon Bedrock; local Pi uses your
 ChatGPT subscription. Codex model costs depend
@@ -93,25 +95,15 @@ rate is in the [Oregon VPC price list](https://pricing.us-east-1.amazonaws.com/o
 Default egress rules do not create a NAT gateway. Explicitly enabling internet
 routes adds NAT and public IPv4 charges.
 
-The **optional HTTP/relay services**, disabled until their image and origin are
-configured, add the following shared costs at the supplied Terraform sizes:
+The Agents API has no dedicated relay, load balancer or transport network.
+Estimate its request volume, active CPU time and memory consumption across running
+Web Function environments. Concurrent requests share an environment's memory
+charge; summing their elapsed request durations would overcount it. Long-lived
+progress streams still contribute memory, storage-read and traffic costs.
 
-| Optional shared resource | Monthly calculation | Cost |
-| --- | --- | ---: |
-| ARM Fargate API and relay, 2.5 vCPUs and 9 GB combined | 730 × (2.5 × $0.03238/vCPU-hour + 9 × $0.00356/GB-hour) | $82.48 |
-| Twelve relay interface endpoints in two AZs | 12 × 2 × 730 × $0.01/endpoint-AZ-hour | $175.20 |
-| One Application Load Balancer | 730 × $0.0225/hour, before capacity units | $16.43 |
-| Two task IPv4 addresses and at least two ALB IPv4 addresses | 4 × 730 × $0.005/address-hour | $14.60 |
-
-Rates: [Oregon Fargate](https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonECS/current/us-west-2/index.json),
-[Oregon VPC endpoints](https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonVPC/current/us-west-2/index.json),
-[Oregon load balancing](https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSELB/current/us-west-2/index.json),
-and [public IPv4](https://aws.amazon.com/vpc/pricing/).
-Together with the worker endpoints, these lines total approximately **$347.11/month**.
-This is a subtotal: add KMS keys, image and state storage, Secrets Manager, logs,
-control-plane usage, traffic and load-balancer capacity. Additional replicas,
-endpoints or public addresses increase it. Deleting Sessions leaves these shared
-resources in place.
+The worker-network estimate is only a subtotal. Add KMS keys, image and state
+storage, Secrets Manager, logs, API and background-job usage, and traffic.
+Deleting Sessions leaves shared deployment resources in place.
 
 For `N` Sessions, estimate `monthly shared baseline + sum of incremental Session
 costs + other usage charges`. Dividing the baseline by `N` is an accounting
@@ -130,15 +122,16 @@ private execution boundary. Keep high-cardinality owner, Session and Run IDs out
 of metric dimensions; use logs and durable records for individual investigations.
 
 Shared Session viewers also consume resources when they do not submit work.
-Each cloud activity stream holds a Lambda invocation open and polls durable
+Each cloud activity stream holds a Web Function request open and polls durable
 Session state and permissions. More viewers increase those reads; longer histories
 increase snapshot and stream response sizes. Include connected viewer time and
 response traffic separately from model and worker usage. Disconnecting a viewer
 closes that viewer's stream but does not stop accepted agent work.
 
 The `rat.performance` logs expose request duration, response bytes and a subset of
-storage work. Combine them with Lambda billed-duration records and current regional
-rates when estimating costs. They do not cover every adapter, multipart upload,
+storage work. Combine them with Web Function CPU and memory consumption, Event
+Function billed-duration records, and current regional rates when estimating costs.
+They do not cover every adapter, multipart upload,
 network charge or retained object version. Publishing the same observations as
 custom metrics is an explicit deployment option; see
 [collaboration telemetry](development-and-deployment.md#terraform-deployment).
@@ -150,7 +143,7 @@ custom metrics is an explicit deployment option; see
 - Delete disposable Sessions and verify their workers terminate.
 - Review retained artifacts, image versions, logs and stored data independently.
 - Enable detailed API metrics only when their additional breakdown is useful.
-- Include dedicated HTTP services and network infrastructure in idle-cost estimates.
+- Include running Web Function environments and network infrastructure in idle-cost estimates.
 
 Deleting a Session does not remove unrelated deployment infrastructure or model
 credentials. Destroying a disposable deployment is a separate operation. Retained
