@@ -12,6 +12,8 @@ import { performanceCount } from '../core/performance.js';
 import { measuredDynamo } from './aws-performance.js';
 import { ImmutableHydrationCache, type HydrationCacheOptions } from './immutable-hydration-cache.js';
 
+const listHydrationConcurrency = 4;
+
 interface ResourceIndex {
   id: string;
   ownerId: string;
@@ -43,7 +45,7 @@ export class DynamoAgentsStore implements AgentsStore {
     performanceCount('StorageListCount');
     const cursor = query.after ? await this.index(ownerId, collection, query.after) : undefined;
     if (query.after && !cursor) invalid('Invalid pagination cursor', 'after');
-    const data: Array<AgentResource<T>> = [];
+    const indexes: ResourceIndex[] = [];
     const maximum = Math.min(query.limit ?? 20, 100);
     if (!Number.isInteger(maximum) || maximum < 1) invalid('limit must be a positive integer', 'limit');
     const scope = listScope(ownerId, collection);
@@ -59,13 +61,24 @@ export class DynamoAgentsStore implements AgentsStore {
         ConsistentRead: true,
         ReturnConsumedCapacity: 'TOTAL',
         ScanIndexForward: query.order === 'asc',
-        Limit: maximum + 1 - data.length,
+        Limit: maximum + 1 - indexes.length,
         ...(key ? { ExclusiveStartKey: key } : {}),
       })), 'read');
-      for (const item of page.Items ?? []) data.push(await this.hydrate<T>(item as ResourceIndex));
+      indexes.push(...(page.Items ?? []) as ResourceIndex[]);
       key = page.LastEvaluatedKey as typeof key;
-    } while (key && data.length <= maximum);
-    return { data: data.slice(0, maximum), has_more: data.length > maximum };
+    } while (key && indexes.length <= maximum);
+
+    const data: Array<AgentResource<T>> = [];
+    const returned = indexes.slice(0, maximum);
+    for (let start = 0; start < returned.length; start += listHydrationConcurrency) {
+      const batch = returned.slice(start, start + listHydrationConcurrency);
+      const hydrated = await Promise.allSettled(batch.map(index => this.hydrate<T>(index)));
+      for (const result of hydrated) {
+        if (result.status === 'rejected') throw result.reason;
+        data.push(result.value);
+      }
+    }
+    return { data, has_more: indexes.length > maximum };
   }
 
   public put<T>(resource: AgentResource<T>, expectedRevision: number): Promise<void> {

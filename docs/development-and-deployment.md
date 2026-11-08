@@ -206,7 +206,15 @@ backend failure. `ResponseHeadersDuration` measures server response
 preparation, not the time a remote viewer receives the response.
 
 Use these logs to separate durable submission time from stream delivery and model
-execution. Share records separate snapshot, upload, staging, source release and
+execution. Activity records separate pending-input reads (`ActivityFeedbackReadDuration`)
+from durable snapshot reads (`ActivitySnapshotReadDuration`). These are accumulated
+milliseconds across the `ActivityProjectionCount` refreshes performed by that request.
+Shared projection work belongs to the request that starts the read; waiting viewers
+do not each record another projection. Compare these phases with storage requests and
+cache misses to distinguish polling delay from storage delay. Concurrent S3 read
+durations overlap, so their sum is not elapsed time or viewer latency.
+
+Share records separate snapshot, upload, staging, source release and
 activation; quiescence includes snapshot work, so those two durations must not be
 added together. Storage counters are partial cost inputs, not billing totals.
 Multipart uploads and storage work outside these operation scopes are not included.

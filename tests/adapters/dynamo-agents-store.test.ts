@@ -167,6 +167,113 @@ it('guards deletion with the same current membership transaction', async () => {
   expect(transaction.input.TransactItems?.[2]?.ConditionCheck?.ExpressionAttributeValues).toEqual({ ':expected': 3 });
 });
 
+function listingFixture(options: {
+  pageSize?: number;
+  getJson?: <T>(reference: ArtifactReference) => Promise<T>;
+} = {}) {
+  const indexes = new Map<string, Record<string, unknown>>();
+  const values = new Map<string, unknown>();
+  const key = (item: { scope?: unknown; key?: unknown }) => JSON.stringify([item.scope, item.key]);
+  const reads: string[] = [];
+  const send = vi.fn(async (command: GetCommand | QueryCommand | TransactWriteCommand) => {
+    if (command instanceof TransactWriteCommand) {
+      for (const item of command.input.TransactItems ?? []) if (item.Put?.Item) indexes.set(key(item.Put.Item), item.Put.Item);
+      return {};
+    }
+    if (command instanceof GetCommand) return { Item: indexes.get(key(command.input.Key!)) };
+    const query = command.input;
+    const ascending = query.ScanIndexForward;
+    const selected = [...indexes.values()].filter(item => item.scope === query.ExpressionAttributeValues![':scope'])
+      .sort((a, b) => (ascending ? 1 : -1) * String(a.key).localeCompare(String(b.key)))
+      .filter(item => !query.ExclusiveStartKey || (ascending ? String(item.key) > String(query.ExclusiveStartKey.key) : String(item.key) < String(query.ExclusiveStartKey.key)));
+    const page = selected.slice(0, Math.min(query.Limit ?? 100, options.pageSize ?? Infinity));
+    return { Items: page, ...(selected.length > page.length ? { LastEvaluatedKey: { scope: page.at(-1)!.scope, key: page.at(-1)!.key } } : {}) };
+  });
+  const store = new DynamoAgentsStore({ send } as unknown as DynamoDBDocumentClient, 'agents', {
+    putJson: async (path, value) => { values.set(path, value); return { bucket: 'private', key: path, sha256: 'fixture' }; },
+    getJson: async <T>(reference: ArtifactReference) => {
+      reads.push(reference.key);
+      return options.getJson ? options.getJson<T>(reference) : values.get(reference.key) as T;
+    },
+  });
+  return { store, reads };
+}
+
+async function seedListingRows(store: DynamoAgentsStore, count: number) {
+  for (let index = 0; index < count; index++) {
+    await store.put({ ownerId: 'alice', collection: 'feedback', id: `input-${index}`, createdAt: index, revision: 1, value: { index } }, 0);
+  }
+}
+
+it('hydrates no more than four rows at once and preserves index order when reads finish out of order', async () => {
+  const started: string[] = [];
+  const pending = new Map<string, (value: unknown) => void>();
+  const f = listingFixture({ getJson: <T>(reference: ArtifactReference) => {
+    started.push(reference.key);
+    return new Promise<T>(resolve => pending.set(reference.key, resolve as (value: unknown) => void));
+  } });
+  await seedListingRows(f.store, 6);
+
+  const page = f.store.list('alice', 'feedback', { order: 'asc', limit: 6 });
+  await vi.waitFor(() => expect(started).toHaveLength(4));
+  for (const key of [...started].reverse()) pending.get(key)!(Number(key.match(/input-(\d+)/)?.[1]));
+  await vi.waitFor(() => expect(started).toHaveLength(6));
+  expect(started).toHaveLength(6);
+  for (const key of [...started.slice(4)].reverse()) pending.get(key)!(Number(key.match(/input-(\d+)/)?.[1]));
+
+  await expect(page).resolves.toMatchObject({ data: Array.from({ length: 6 }, (_, index) => ({ id: `input-${index}`, value: index })), has_more: false });
+});
+
+it('does not hydrate the lookahead row and keeps byte-paginated output ordered', async () => {
+  const f = listingFixture({ pageSize: 1 });
+  await seedListingRows(f.store, 3);
+
+  await expect(f.store.list('alice', 'feedback', { order: 'asc', limit: 2 })).resolves.toMatchObject({
+    data: [{ id: 'input-0', value: { index: 0 } }, { id: 'input-1', value: { index: 1 } }], has_more: true,
+  });
+  expect(f.reads).toHaveLength(2);
+});
+
+it('ignores an invalid lookahead body because that row is not returned', async () => {
+  const f = listingFixture({ getJson: async <T>(reference: ArtifactReference) => {
+    if (reference.key.includes('/input-1/')) throw new Error('invalid lookahead JSON');
+    return { index: 0 } as T;
+  } });
+  await seedListingRows(f.store, 2);
+
+  await expect(f.store.list('alice', 'feedback', { order: 'asc', limit: 1 })).resolves.toMatchObject({
+    data: [{ id: 'input-0', value: { index: 0 } }], has_more: true,
+  });
+});
+
+it('drains a failed hydration batch and does not start the next batch', async () => {
+  const started: string[] = [];
+  let completed = 0;
+  const pending = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
+  const f = listingFixture({ getJson: <T>(reference: ArtifactReference) => {
+    started.push(reference.key);
+    return new Promise<T>((resolve, reject) => pending.set(reference.key, {
+      resolve: value => { completed++; resolve(value as T); }, reject,
+    }));
+  } });
+  await seedListingRows(f.store, 6);
+
+  const page = f.store.list('alice', 'feedback', { order: 'asc', limit: 6 });
+  await vi.waitFor(() => expect(started).toHaveLength(4));
+  let settled = false;
+  void page.then(() => { settled = true; }, () => { settled = true; });
+  pending.get(started[0]!)!.reject(new Error('S3 read failed'));
+  for (const key of started.slice(1, 3)) pending.get(key)!.resolve({ ok: true });
+  await vi.waitFor(() => expect(completed).toBe(2));
+  await new Promise(resolve => setImmediate(resolve));
+  expect(settled).toBe(false);
+  expect(started).toHaveLength(4);
+  pending.get(started[3]!)!.resolve({ ok: true });
+
+  await expect(page).rejects.toThrow('S3 read failed');
+  expect(started).toHaveLength(4);
+});
+
 it('hydrates only the current consistent head and immediately observes its tombstone', async () => {
   let head: Record<string, unknown> | undefined;
   const bodies = new Map<string, unknown>(); let reads = 0;

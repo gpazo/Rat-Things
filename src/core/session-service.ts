@@ -404,8 +404,9 @@ export class SessionService {
 
   public async activity(ownerId: string, id: string, caller?: SessionCaller) {
     await validateSessionCaller(caller);
-    const pending = await this.pendingFeedback(ownerId, id);
-    const snapshot = await this.streamSnapshot(ownerId, id);
+    performanceCount('ActivityProjectionCount');
+    const pending = await performancePhase('ActivityFeedbackReadDuration', () => this.pendingFeedback(ownerId, id));
+    const snapshot = await performancePhase('ActivitySnapshotReadDuration', () => this.streamSnapshot(ownerId, id));
     if (snapshot.eventRevision === undefined) throw new AgentsApiError(503, 'Durable activity is unavailable.', 'activity_unavailable');
     const visible = pending.filter(input => !(snapshot.inputs ?? []).some(receipt => receipt.id === input.id));
     const activity = sessionActivity(snapshot, snapshot.eventRevision, caller?.permissions);

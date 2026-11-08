@@ -8,6 +8,7 @@ import type { SessionState } from '../../src/core/session-ports.js';
 import { AgentsApiError } from '../../src/domain/agents-api-validation.js';
 import { feedbackCollection } from '../../src/core/session-feedback-planning.js';
 import type { OwnerRateLimit } from '../../src/core/owner-rate-limiter.js';
+import { PerformanceScope, type PerformanceRecord } from '../../src/core/performance.js';
 
 const input = (text: string) => ({ events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text }] }] }] });
 const caller = (id: string): SessionCaller => ({ actor: { id, kind: 'human', issuer: 'https://identity.example', subject: id } });
@@ -126,7 +127,14 @@ it('durably accepts a burst without rewriting shared Session state and preserves
   const contributors = Array.from({ length: 20 }, (_, index) => `person-${index}`);
   await Promise.all(contributors.map(id => f.sessions.events('operator', f.session.id, input(id), id, { caller: caller(id) })));
   expect((await f.store.get('operator', 'sessions', f.session.id))!.revision).toBe(before.revision);
-  const pending = await f.sessions.activity('operator', f.session.id);
+  const records: PerformanceRecord[] = [];
+  const scope = new PerformanceScope('activity-snapshot', { sink: record => records.push(record) });
+  const pending = await scope.run(() => f.sessions.activity('operator', f.session.id));
+  scope.finish('success');
+  expect(records[0]!.metrics.ActivityProjectionCount).toBe(1);
+  expect(records[0]!.metrics.ActivityFeedbackReadDuration).toBeGreaterThanOrEqual(0);
+  expect(records[0]!.metrics.ActivitySnapshotReadDuration).toBeGreaterThanOrEqual(0);
+  expect(JSON.stringify(records)).not.toContain('person-');
   expect(pending.pending_inputs).toHaveLength(20);
   const messageIds = pending.pending_inputs.flatMap(entry => entry.messages.map(message => message.id)).sort();
   await f.sessions.dispatch('operator', f.session.id);

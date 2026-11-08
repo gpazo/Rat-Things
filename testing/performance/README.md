@@ -31,3 +31,38 @@ Focused validation:
 npm test -- tests/performance/multiplayer.test.ts
 npm run typecheck
 ```
+
+## Isolate activity storage reads
+
+```sh
+node --import tsx testing/performance/activity-hydration.ts --output /tmp/activity-hydration.json
+```
+
+This diagnostic runs the production Dynamo adapter, activity projection, shared
+polling and SSE encoding/decoding with synthetic storage transports. It warms 50
+viewers on 200 history Items, then writes 20 attributed feedback receipts. Each
+Dynamo read takes a configured 5ms and each object read takes 20ms. The poll
+interval stays at the cloud default of 500ms. The JSON records source and harness
+hashes, all viewer outcomes, storage reads, elapsed read times and maximum
+concurrent object reads. Exact receipt, actor, provenance, message text and message
+ID checks must pass for every viewer. The retained history must also be present.
+
+The measured interval starts after the last synthetic feedback write and ends at
+each viewer's decoded SSE frame. It excludes HTTP submission, real authentication,
+dispatch, model execution, AWS service latency and native UI rendering. Treat its
+numbers as a controlled test of storage delay, not a cloud latency forecast.
+The object cache uses production keys and limits. A fresh process starts each run;
+the initial Session and snapshot are warm when the feedback burst arrives.
+
+Compare identical harness files in separate baseline and changed checkouts. Run
+five alternating pairs, preserve failed and censored samples, and report the
+median and range of the per-run p95 values. Use the HTTP harness above alongside
+this diagnostic to check the public request flow. Take CPU profiles in separate
+runs. For example, `node --cpu-prof --cpu-prof-dir=/tmp --import tsx
+testing/performance/activity-hydration.ts --output /tmp/activity-profile.json`.
+
+The Dynamo adapter loads at most four returned objects concurrently per list.
+This overlaps network waits while limiting transient bodies, and preserves the
+index order. The bound applies to each list, not the deployment. The extra index
+used to compute `has_more` does not need an object read. Failed batches drain
+before the list rejects; subsequent batches do not start.
