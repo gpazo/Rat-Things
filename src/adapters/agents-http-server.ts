@@ -1,7 +1,7 @@
 import type { ApiPrincipal } from '../domain/api-permissions.js';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { Readable, Transform } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
+import { finished, pipeline } from 'node:stream/promises';
 import { randomUUID } from 'node:crypto';
 import { AgentsApiError } from '../domain/agents-api-validation.js';
 import { PerformanceScope, performanceCount, performanceHeaders, requestPerformanceOperation, responsePerformanceOutcome } from '../core/performance.js';
@@ -82,5 +82,9 @@ async function send(outgoing: ServerResponse, response: Response) {
   if (response.body) await pipeline(Readable.fromWeb(response.body as import('node:stream/web').ReadableStream<Uint8Array>), new Transform({ transform(chunk: Buffer, _encoding, callback) {
     performanceCount('ResponseBytes', chunk.length); callback(null, chunk);
   } }), outgoing);
-  else outgoing.end();
+  else {
+    const completion = finished(outgoing, { cleanup: true });
+    outgoing.end();
+    await completion;
+  }
 }

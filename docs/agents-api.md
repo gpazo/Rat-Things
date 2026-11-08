@@ -526,6 +526,14 @@ Use `web_function_zip_path` when the packaged server is in a different location.
 The `agents_api_base_url` output is the resource API endpoint. Configuring OIDC
 providers also creates the team endpoint, `shared_agents_api_base_url`.
 
+Each revision caps concurrency at 32 requests per environment. AWS adjusts the
+actual concurrency below that ceiling and starts new environments as needed;
+setting the ceiling does not reserve capacity or guarantee that viewers share
+one process. A new function begins with a conservative concurrency limit, so
+short bursts can spread across many environments. Monitor active environments,
+concurrent requests, latency and cost together when sizing a deployment. See
+[AWS scaling behavior](https://docs.aws.amazon.com/lambda/latest/dg/web-functions-scaling.html).
+
 The HTTP server shares bounded Session projections within each execution
 environment. Authorization remains specific to each caller. Durable state
 survives replacement of a Web Function environment. Background processing uses

@@ -10,8 +10,33 @@ import { AgentService } from '../../src/core/agent-service.js';
 import { MemoryAgentsStore } from './fixtures.js';
 import { MemoryArtifacts } from '../runner/artifact-fixtures.js';
 import { createAgentsClient, createAgentsFetch } from '../../src/agents-client.js';
+import { PerformanceScope } from '../../src/core/performance.js';
 
 describe('independent HTTP transport', () => {
+  it.each([{ status: 204, outcome: 'success' }, { status: 403, outcome: 'client-error' }])(
+    'records a completed empty $status response with its HTTP outcome', async ({ status, outcome }) => {
+      const finish = vi.spyOn(PerformanceScope.prototype, 'finish');
+      const server = createAgentsHttpServer({ baseURL: 'https://api.example/v1',
+        authenticate: async () => ({ ownerId: 'alice', scopes: [], authentication: 'token', expiresAt: 0, actor: { id: 'alice', kind: 'operator' } }),
+        route: async request => { await request.text(); return new Response(null, { status }); }, error: agentsErrorResponse,
+      });
+      server.listen(0, '127.0.0.1'); await once(server, 'listening');
+      try {
+        const address = server.address();
+        if (!address || typeof address === 'string') throw new Error('Missing HTTP address');
+        const response = await httpResponse(`http://127.0.0.1:${address.port}/v1/agents/sessions/session/events`, {
+          method: 'POST', headers: { authorization: 'Bearer test' }, body: '{}',
+        });
+        expect(response.statusCode).toBe(status);
+        expect(await responseText(response)).toBe('');
+        await vi.waitFor(() => expect(finish.mock.calls).toEqual([[outcome]]));
+      } finally {
+        server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()));
+        finish.mockRestore();
+      }
+    },
+  );
+
   it('accepts standard SDK uploads larger than a Lambda request and enforces scoped expiring bearer keys', async () => {
     const store = new MemoryAgentsStore();
     let now = Math.floor(Date.now() / 1000);
