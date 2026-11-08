@@ -42,9 +42,12 @@ export function planStartup(input: {
     samples = Array.from({ length: pairs }, (_, index) => (index % 2 ? [...images].reverse() : images)
       .map(selected => ({ pair: index + 1, image: selected }))).flat();
   }
-  // Use the model's entire context limit and higher long-context prices as the
-  // spend bound. The byte cap is stricter but is not a tokenizer measurement.
-  const maximumInferenceUsd = input.mode === 'fixture' ? 0 : samples.length * (1_050_000 * 0.55 + startupLimits.maxOutputTokens * 1.98) / 1e6;
+  const maximumContextTokens = 1_050_000;
+  const longContextInputUsdPerMillion = 0.55;
+  const longContextOutputUsdPerMillion = 1.98;
+  const maximumRequestUsd = (maximumContextTokens * longContextInputUsdPerMillion
+    + startupLimits.maxOutputTokens * longContextOutputUsdPerMillion) / 1e6;
+  const maximumInferenceUsd = input.mode === 'fixture' ? 0 : samples.length * maximumRequestUsd;
   if (maximumInferenceUsd > 1.20) throw new Error('Inference budget exceeds $1.20');
   return { mode: input.mode, images, samples, maximumInferenceUsd };
 }

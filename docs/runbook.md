@@ -332,7 +332,9 @@ Its `phases` contain monotonic millisecond offsets from `wallOrigin`. Compare
 `native_initialize_started` with `native_initialized` to isolate the native handshake,
 then `turn_requested` with `first_assistant_text` for response latency. The interval
 from `first_assistant_text` to `first_text_persisted` includes journal scheduling and
-storage. Persistence is earlier than a remote viewer observing the Item.
+completion of the storage publish call. Measure viewer latency at the client. Worker
+and client clocks are independent, so their wall timestamps do not establish precise
+cross-host ordering.
 
 Missing phases identify work that was not observed, not a zero-duration operation.
 Use the worker log stream to correlate the trace with host startup records; the trace
