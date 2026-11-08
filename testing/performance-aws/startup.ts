@@ -143,7 +143,7 @@ try {
         sample.status = 'failed'; sample.error = error instanceof Error ? error.message : String(error); throw error;
       } finally {
         try {
-          if (sessionId) { await client.beta.agents.sessions.delete(sessionId); sample.sessionDeleted = true; }
+          if (sessionId) { await client.beta.agents.sessions.delete(sessionId, { maxRetries: 2, timeout: 10_000 }); sample.sessionDeleted = true; }
         } catch (error) {
           sample.status = 'failed'; sample.cleanupError = error instanceof Error ? error.message : String(error); throw error;
         } finally { sample.finishedAt = new Date().toISOString(); await save(); }
@@ -162,7 +162,7 @@ try {
       artifact.imageSelectionRestored = true;
     } catch { cleanupErrors.push('image_selection_restore_failed'); }
     try {
-      if (agentId) { await client.beta.agents.delete(agentId); artifact.agentDeleted = true; }
+      if (agentId) { await client.beta.agents.delete(agentId, { maxRetries: 2, timeout: 10_000 }); artifact.agentDeleted = true; }
     } catch { cleanupErrors.push('agent_delete_failed'); }
   } finally {
     if (cleanupErrors.length) { artifact.status = 'failed'; artifact.cleanupErrors = cleanupErrors; process.exitCode = 1; }

@@ -207,7 +207,7 @@ Source the disposable deployment's `runtime.env` first. The controller requires
 `AWS_REGION`, `AWS_E2E_DEPLOYMENT_ID`, `AWS_E2E_CALLER_ACCOUNT`,
 `RAT_THINGS_AGENTS_API_URL`, and `AWS_E2E_CODEX_MODEL_ID=openai.gpt-5.6-luna`.
 Verify model availability and prices before use. The controller permits ten
-initial requests, no follow-ups or client retries, a three-minute observation
+initial requests, no follow-ups or inference-request retries, a three-minute observation
 deadline per Session, and thirty minutes total. It stops on the first failure,
 missing usage, unexpected answer, or estimated inference cost of $0.05.
 The 256-byte observed-output guard is not a provider generation-token cap.
@@ -217,6 +217,7 @@ within a smaller budget. Report the actual counts and treat small samples as pre
 First output is observed through the standard Items and Turns endpoints, queried
 concurrently with 500 ms between iterations. It is not the provider's first-token timestamp. Save worker logs
 to separate storage mount and Codex initialization from the remaining delay.
+Cleanup DELETE requests allow two bounded SDK retries for transient conflicts.
 The controller deletes its Sessions and Agent; destroy the disposable stack
 after exporting evidence. Infrastructure costs require separate accounting.
 
