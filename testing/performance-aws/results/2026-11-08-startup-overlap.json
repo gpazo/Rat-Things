@@ -1,0 +1,2024 @@
+{
+  "schema": "rat-things.startup-overlap-experiment.v1",
+  "date": "2026-11-08",
+  "decision": "Reject both runtime candidates: neither demonstrated a reliable end-to-end first-output improvement. Restore production and its tests exactly to the baseline; retain measurements and experimental commits for reproduction.",
+  "boundary": "create request start to first manager-observed nonempty assistant text; Items and Turns endpoints polled concurrently with 500ms between iterations",
+  "workload": {
+    "environment": "none",
+    "input": "Initialize. Reply OK.",
+    "expectedAssistantText": "OK",
+    "parallelSessions": 1,
+    "clientPollingIntervalMs": 500,
+    "newSessionAndMicrovmPerSample": true,
+    "configuredModel": "openai.gpt-5.6-luna",
+    "responseProvider": "Deterministic local Responses fixture inside each AWS worker; no model inference."
+  },
+  "design": {
+    "fixedSamplesPerExperiment": 20,
+    "sameImageForBothSides": true,
+    "assignment": "Final hexadecimal digit parity of a SHA-256-derived Run ID, whose Session and Turn keys originate random UUIDs. Neither side chosen using observed latency.",
+    "minimumPerSide": 5,
+    "selectionVerifiedWithWorkerLogs": true,
+    "scopeAmendedBeforeSecondExperiment": true,
+    "significance": "Exact two-sided rank-sum calculations are exploratory; two sequential hypotheses were tested. No fleet-percentile or repeatability claim."
+  },
+  "experiments": [
+    {
+      "name": "mount-and-directory-overlap",
+      "decision": "Inconclusive end-to-end gain; runtime candidate rejected.",
+      "outcomes": "passed",
+      "window": {
+        "startedAt": "2026-11-08T20:05:06.962Z",
+        "finishedAt": "2026-11-08T20:11:04.987Z"
+      },
+      "assignmentCounts": {
+        "before": 13,
+        "after": 7,
+        "requiredMinimumPerSide": 5
+      },
+      "sides": {
+        "before": {
+          "n": 13,
+          "metrics": {
+            "acknowledgementMs": {
+              "n": 13,
+              "median": 595.8242090000131,
+              "min": 543.7930410000263,
+              "max": 661.5845839999965
+            },
+            "firstProgressMs": {
+              "n": 13,
+              "median": 13342.688208000036,
+              "min": 11684.02695899998,
+              "max": 18712.400332999998
+            },
+            "completedMs": {
+              "n": 13,
+              "median": 14790.01549999998,
+              "min": 13312.615667000005,
+              "max": 20565.72241700001
+            },
+            "startupDurationMs": {
+              "n": 13,
+              "median": 4432,
+              "min": 3920,
+              "max": 8353
+            },
+            "storageMountDurationMs": {
+              "n": 13,
+              "median": 3299,
+              "min": 2756,
+              "max": 4365
+            },
+            "storagePreparationDurationMs": {
+              "n": 13,
+              "median": 1157,
+              "min": 1053,
+              "max": 3963
+            },
+            "nativeInitializeMs": {
+              "n": 13,
+              "median": 1067.7119749999997,
+              "min": 973.1979569999999,
+              "max": 1214.7513830000003
+            },
+            "threadCreateMs": {
+              "n": 13,
+              "median": 1253.941217,
+              "min": 1074.4584899999998,
+              "max": 2796.572659
+            },
+            "turnToTextMs": {
+              "n": 13,
+              "median": 585.9752170000002,
+              "min": 543.0983499999993,
+              "max": 957.3641160000006
+            },
+            "textToPublishCompleteMs": {
+              "n": 13,
+              "median": 751.971638,
+              "min": 681.3745069999995,
+              "max": 1384.8725719999993
+            },
+            "proxyMs": {
+              "n": 13,
+              "median": 1,
+              "min": 1,
+              "max": 2
+            },
+            "launchToRunnerReadyMs": {
+              "n": 13,
+              "median": 5457.9755859375,
+              "min": 4895.8134765625,
+              "max": 11340.686767578125
+            }
+          }
+        },
+        "after": {
+          "n": 7,
+          "metrics": {
+            "acknowledgementMs": {
+              "n": 7,
+              "median": 609.5132920000178,
+              "min": 567.8091249999707,
+              "max": 752.277666000009
+            },
+            "firstProgressMs": {
+              "n": 7,
+              "median": 13168.20320800005,
+              "min": 6857.32937500003,
+              "max": 31536.202416
+            },
+            "completedMs": {
+              "n": 7,
+              "median": 13752.96658300003,
+              "min": 8754.273917000042,
+              "max": 32206.962790999998
+            },
+            "startupDurationMs": {
+              "n": 7,
+              "median": 4922,
+              "min": 1245,
+              "max": 20171
+            },
+            "storageMountDurationMs": {
+              "n": 7,
+              "median": 4457,
+              "min": 912,
+              "max": 19890
+            },
+            "storagePreparationDurationMs": {
+              "n": 7,
+              "median": 260,
+              "min": 243,
+              "max": 439
+            },
+            "nativeInitializeMs": {
+              "n": 7,
+              "median": 1074.9525430000003,
+              "min": 973.7530549999997,
+              "max": 1096.3247009999995
+            },
+            "threadCreateMs": {
+              "n": 7,
+              "median": 1246.1174520000004,
+              "min": 141.34381799999983,
+              "max": 1746.8496529999993
+            },
+            "turnToTextMs": {
+              "n": 7,
+              "median": 580.2703219999994,
+              "min": 156.8664090000002,
+              "max": 641.4449680000007
+            },
+            "textToPublishCompleteMs": {
+              "n": 7,
+              "median": 793.1026530000017,
+              "min": 689.1345780000001,
+              "max": 1089.348591
+            },
+            "proxyMs": {
+              "n": 7,
+              "median": 2,
+              "min": 1,
+              "max": 3
+            },
+            "launchToRunnerReadyMs": {
+              "n": 7,
+              "median": 4924.17041015625,
+              "min": 1247.915283203125,
+              "max": 20172.837158203125
+            },
+            "startupGateWaitMs": {
+              "n": 7,
+              "median": 2702.5432419999997,
+              "min": 614.1236180000001,
+              "max": 17554.310413
+            },
+            "runnerEnteredBeforeStorageReadyMs": {
+              "n": 7,
+              "median": 2700.531408,
+              "min": 611.208398,
+              "max": 17552.473275
+            },
+            "spawnToRunnerEnteredMs": {
+              "n": 7,
+              "median": 2179.6708984375,
+              "min": 561.79150390625,
+              "max": 2590.526611328125
+            },
+            "storageReadyToRunLoadedMs": {
+              "n": 7,
+              "median": 123.71865400000024,
+              "min": 112.43343499999992,
+              "max": 154.52176299999974
+            },
+            "bootstrapStorageOverlapMs": {
+              "n": 7,
+              "median": 2179.6708984375,
+              "min": 561.79150390625,
+              "max": 2590.526611328125
+            }
+          }
+        }
+      },
+      "observedMedianDelta": {
+        "milliseconds": -174.48499999998603,
+        "percent": -1.3077199832592052
+      },
+      "exactTwoSidedRankSumP": 0.6426470588235295,
+      "samples": [
+        {
+          "sample": 1,
+          "side": "after",
+          "status": "passed",
+          "acknowledgementMs": 752.277666000009,
+          "firstProgressMs": 31536.202416,
+          "completedMs": 32206.962790999998,
+          "startupDurationMs": 20171,
+          "storageMountDurationMs": 19890,
+          "storagePreparationDurationMs": 253,
+          "nativeInitializeMs": 1046.160473,
+          "threadCreateMs": 1262.3955190000015,
+          "turnToTextMs": 554.616876,
+          "textToPublishCompleteMs": 793.1026530000017,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 20172.837158203125,
+          "startupGateWaitMs": 17554.310413,
+          "runnerEnteredBeforeStorageReadyMs": 17552.473275,
+          "spawnToRunnerEnteredMs": 2590.526611328125,
+          "storageReadyToRunLoadedMs": 132.0487119999998,
+          "bootstrapStorageOverlapMs": 2590.526611328125,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 2,
+          "side": "after",
+          "status": "passed",
+          "acknowledgementMs": 707.0336670000106,
+          "firstProgressMs": 13317.000249999997,
+          "completedMs": 14561.27900000001,
+          "startupDurationMs": 5128,
+          "storageMountDurationMs": 4858,
+          "storagePreparationDurationMs": 243,
+          "nativeInitializeMs": 1096.3247009999995,
+          "threadCreateMs": 1746.8496529999993,
+          "turnToTextMs": 604.697279,
+          "textToPublishCompleteMs": 755.9357049999999,
+          "proxyMs": 1,
+          "launchToRunnerReadyMs": 5130.130859375,
+          "startupGateWaitMs": 2822.6508499999995,
+          "runnerEnteredBeforeStorageReadyMs": 2820.519925,
+          "spawnToRunnerEnteredMs": 2280.47998046875,
+          "storageReadyToRunLoadedMs": 123.71865400000024,
+          "bootstrapStorageOverlapMs": 2280.47998046875,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 3,
+          "side": "after",
+          "status": "passed",
+          "acknowledgementMs": 620.0509579999925,
+          "firstProgressMs": 13177.44454099999,
+          "completedMs": 15130.023874999984,
+          "startupDurationMs": 5253,
+          "storageMountDurationMs": 4807,
+          "storagePreparationDurationMs": 406,
+          "nativeInitializeMs": 1091.725445,
+          "threadCreateMs": 1269.7091469999996,
+          "turnToTextMs": 621.1285069999994,
+          "textToPublishCompleteMs": 813.5154419999999,
+          "proxyMs": 3,
+          "launchToRunnerReadyMs": 5256.01171875,
+          "startupGateWaitMs": 2702.5432419999997,
+          "runnerEnteredBeforeStorageReadyMs": 2700.531408,
+          "spawnToRunnerEnteredMs": 2513.468505859375,
+          "storageReadyToRunLoadedMs": 154.52176299999974,
+          "bootstrapStorageOverlapMs": 2513.468505859375,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 4,
+          "side": "before",
+          "status": "passed",
+          "acknowledgementMs": 661.5845839999965,
+          "firstProgressMs": 12590.346916999988,
+          "completedMs": 13842.862499999988,
+          "startupDurationMs": 4348,
+          "storageMountDurationMs": 3076,
+          "storagePreparationDurationMs": 1237,
+          "nativeInitializeMs": 1162.1842529999997,
+          "threadCreateMs": 1174.0111300000008,
+          "turnToTextMs": 620.3861360000001,
+          "textToPublishCompleteMs": 751.971638,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 5457.9755859375,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 5,
+          "side": "after",
+          "status": "passed",
+          "acknowledgementMs": 609.5132920000178,
+          "firstProgressMs": 12988.723459,
+          "completedMs": 13632.27691700001,
+          "startupDurationMs": 4922,
+          "storageMountDurationMs": 4457,
+          "storagePreparationDurationMs": 438,
+          "nativeInitializeMs": 1084.814722,
+          "threadCreateMs": 1150.2224770000003,
+          "turnToTextMs": 501.65923400000065,
+          "textToPublishCompleteMs": 797.1922919999997,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 4924.17041015625,
+          "startupGateWaitMs": 2717.4993249999998,
+          "runnerEnteredBeforeStorageReadyMs": 2715.329017,
+          "spawnToRunnerEnteredMs": 2179.6708984375,
+          "storageReadyToRunLoadedMs": 121.59732900000017,
+          "bootstrapStorageOverlapMs": 2179.6708984375,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 6,
+          "side": "before",
+          "status": "passed",
+          "acknowledgementMs": 619.3898339999723,
+          "firstProgressMs": 13819.181291999994,
+          "completedMs": 15636.275792,
+          "startupDurationMs": 4564,
+          "storageMountDurationMs": 3381,
+          "storagePreparationDurationMs": 1148,
+          "nativeInitializeMs": 1138.9287430000004,
+          "threadCreateMs": 1216.7040670000001,
+          "turnToTextMs": 560.996357,
+          "textToPublishCompleteMs": 744.2124299999996,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 5727.7373046875,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 7,
+          "side": "before",
+          "status": "passed",
+          "acknowledgementMs": 568.0253749999974,
+          "firstProgressMs": 14849.684499999974,
+          "completedMs": 15445.147291000001,
+          "startupDurationMs": 5475,
+          "storageMountDurationMs": 4365,
+          "storagePreparationDurationMs": 1053,
+          "nativeInitializeMs": 1040.219299,
+          "threadCreateMs": 1074.4584899999998,
+          "turnToTextMs": 585.9752170000002,
+          "textToPublishCompleteMs": 1384.8725719999993,
+          "proxyMs": 1,
+          "launchToRunnerReadyMs": 6416.730712890625,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 8,
+          "side": "before",
+          "status": "passed",
+          "acknowledgementMs": 595.8242090000131,
+          "firstProgressMs": 14219.132375000016,
+          "completedMs": 14836.329459,
+          "startupDurationMs": 4553,
+          "storageMountDurationMs": 3315,
+          "storagePreparationDurationMs": 1203,
+          "nativeInitializeMs": 1149.2759530000003,
+          "threadCreateMs": 1136.9832609999994,
+          "turnToTextMs": 570.4524140000003,
+          "textToPublishCompleteMs": 682.8819569999991,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 5659.01123046875,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 9,
+          "side": "before",
+          "status": "passed",
+          "acknowledgementMs": 550.536374999996,
+          "firstProgressMs": 11878.381499999989,
+          "completedMs": 13312.615667000005,
+          "startupDurationMs": 3970,
+          "storageMountDurationMs": 2756,
+          "storagePreparationDurationMs": 1157,
+          "nativeInitializeMs": 973.1979569999999,
+          "threadCreateMs": 1400.722154,
+          "turnToTextMs": 548.4693659999994,
+          "textToPublishCompleteMs": 731.9430850000008,
+          "proxyMs": 1,
+          "launchToRunnerReadyMs": 4946.271484375,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 10,
+          "side": "before",
+          "status": "passed",
+          "acknowledgementMs": 621.5095000000147,
+          "firstProgressMs": 18712.400332999998,
+          "completedMs": 20565.72241700001,
+          "startupDurationMs": 8353,
+          "storageMountDurationMs": 4355,
+          "storagePreparationDurationMs": 3963,
+          "nativeInitializeMs": 1214.7513830000003,
+          "threadCreateMs": 1281.9292020000003,
+          "turnToTextMs": 617.2656400000001,
+          "textToPublishCompleteMs": 747.30573,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 11340.686767578125,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 11,
+          "side": "before",
+          "status": "passed",
+          "acknowledgementMs": 605.6567499999946,
+          "firstProgressMs": 13042.413583000016,
+          "completedMs": 13649.08370800002,
+          "startupDurationMs": 4551,
+          "storageMountDurationMs": 3384,
+          "storagePreparationDurationMs": 1131,
+          "nativeInitializeMs": 1067.7119749999997,
+          "threadCreateMs": 1253.941217,
+          "turnToTextMs": 561.9260889999996,
+          "textToPublishCompleteMs": 767.2650750000007,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 5650.712890625,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 12,
+          "side": "before",
+          "status": "passed",
+          "acknowledgementMs": 543.7930410000263,
+          "firstProgressMs": 12719.068499999994,
+          "completedMs": 14790.01549999998,
+          "startupDurationMs": 4333,
+          "storageMountDurationMs": 3116,
+          "storagePreparationDurationMs": 1190,
+          "nativeInitializeMs": 1049.724558,
+          "threadCreateMs": 1465.7491340000001,
+          "turnToTextMs": 596.2850689999996,
+          "textToPublishCompleteMs": 899.0501300000005,
+          "proxyMs": 1,
+          "launchToRunnerReadyMs": 5414.116943359375,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 13,
+          "side": "before",
+          "status": "passed",
+          "acknowledgementMs": 578.4830829999992,
+          "firstProgressMs": 13342.688208000036,
+          "completedMs": 13994.84591600002,
+          "startupDurationMs": 4432,
+          "storageMountDurationMs": 3299,
+          "storagePreparationDurationMs": 1069,
+          "nativeInitializeMs": 1024.3386609999998,
+          "threadCreateMs": 1097.9960380000002,
+          "turnToTextMs": 645.1490589999999,
+          "textToPublishCompleteMs": 742.7709289999998,
+          "proxyMs": 1,
+          "launchToRunnerReadyMs": 5434.091064453125,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 14,
+          "side": "after",
+          "status": "passed",
+          "acknowledgementMs": 567.8091249999707,
+          "firstProgressMs": 12444.405457999965,
+          "completedMs": 13715.204290999973,
+          "startupDurationMs": 4794,
+          "storageMountDurationMs": 4319,
+          "storagePreparationDurationMs": 439,
+          "nativeInitializeMs": 1046.2813310000001,
+          "threadCreateMs": 1246.1174520000004,
+          "turnToTextMs": 641.4449680000007,
+          "textToPublishCompleteMs": 758.9445369999994,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 4796.430419921875,
+          "startupGateWaitMs": 2669.666293,
+          "runnerEnteredBeforeStorageReadyMs": 2667.23581,
+          "spawnToRunnerEnteredMs": 2091.76416015625,
+          "storageReadyToRunLoadedMs": 139.59283799999957,
+          "bootstrapStorageOverlapMs": 2091.76416015625,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 15,
+          "side": "before",
+          "status": "passed",
+          "acknowledgementMs": 593.0216670000227,
+          "firstProgressMs": 11684.02695899998,
+          "completedMs": 13503.501792000025,
+          "startupDurationMs": 3920,
+          "storageMountDurationMs": 2782,
+          "storagePreparationDurationMs": 1109,
+          "nativeInitializeMs": 1044.1556959999998,
+          "threadCreateMs": 1179.3116929999999,
+          "turnToTextMs": 543.0983499999993,
+          "textToPublishCompleteMs": 829.707512,
+          "proxyMs": 1,
+          "launchToRunnerReadyMs": 4895.8134765625,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 16,
+          "side": "before",
+          "status": "passed",
+          "acknowledgementMs": 645.4721669999999,
+          "firstProgressMs": 15461.983000000007,
+          "completedMs": 16087.422750000027,
+          "startupDurationMs": 4099,
+          "storageMountDurationMs": 2826,
+          "storagePreparationDurationMs": 1239,
+          "nativeInitializeMs": 1051.3771540000002,
+          "threadCreateMs": 2796.572659,
+          "turnToTextMs": 957.3641160000006,
+          "textToPublishCompleteMs": 681.3745069999995,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 5433.34912109375,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 17,
+          "side": "before",
+          "status": "passed",
+          "acknowledgementMs": 581.6357499999576,
+          "firstProgressMs": 12345.771916999947,
+          "completedMs": 14164.081542,
+          "startupDurationMs": 4074,
+          "storageMountDurationMs": 2867,
+          "storagePreparationDurationMs": 1150,
+          "nativeInitializeMs": 1072.5820579999997,
+          "threadCreateMs": 1298.0822899999996,
+          "turnToTextMs": 622.8636409999999,
+          "textToPublishCompleteMs": 858.38591,
+          "proxyMs": 1,
+          "launchToRunnerReadyMs": 5076.8125,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 18,
+          "side": "after",
+          "status": "passed",
+          "acknowledgementMs": 580.5846670000465,
+          "firstProgressMs": 13168.20320800005,
+          "completedMs": 13752.96658300003,
+          "startupDurationMs": 4508,
+          "storageMountDurationMs": 4187,
+          "storagePreparationDurationMs": 256,
+          "nativeInitializeMs": 1074.9525430000003,
+          "threadCreateMs": 1185.3529440000002,
+          "turnToTextMs": 580.2703219999994,
+          "textToPublishCompleteMs": 689.1345780000001,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 4510.02001953125,
+          "startupGateWaitMs": 2382.897644,
+          "runnerEnteredBeforeStorageReadyMs": 2380.877524,
+          "spawnToRunnerEnteredMs": 2062.12255859375,
+          "storageReadyToRunLoadedMs": 112.43343499999992,
+          "bootstrapStorageOverlapMs": 2062.12255859375,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 19,
+          "side": "after",
+          "status": "passed",
+          "acknowledgementMs": 592.8688750000438,
+          "firstProgressMs": 6857.32937500003,
+          "completedMs": 8754.273917000042,
+          "startupDurationMs": 1245,
+          "storageMountDurationMs": 912,
+          "storagePreparationDurationMs": 260,
+          "nativeInitializeMs": 973.7530549999997,
+          "threadCreateMs": 141.34381799999983,
+          "turnToTextMs": 156.8664090000002,
+          "textToPublishCompleteMs": 1089.348591,
+          "proxyMs": 3,
+          "launchToRunnerReadyMs": 1247.915283203125,
+          "startupGateWaitMs": 614.1236180000001,
+          "runnerEnteredBeforeStorageReadyMs": 611.208398,
+          "spawnToRunnerEnteredMs": 561.79150390625,
+          "storageReadyToRunLoadedMs": 120.14649299999996,
+          "bootstrapStorageOverlapMs": 561.79150390625,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 20,
+          "side": "before",
+          "status": "passed",
+          "acknowledgementMs": 596.5309170000255,
+          "firstProgressMs": 15214.140625,
+          "completedMs": 15891.483292000019,
+          "startupDurationMs": 5787,
+          "storageMountDurationMs": 4238,
+          "storagePreparationDurationMs": 1489,
+          "nativeInitializeMs": 1157.6315520000003,
+          "threadCreateMs": 1475.6638710000002,
+          "turnToTextMs": 564.550624,
+          "textToPublishCompleteMs": 752.874581,
+          "proxyMs": 1,
+          "launchToRunnerReadyMs": 6931.126220703125,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        }
+      ],
+      "controller": {
+        "elapsedMs": 358015.242292,
+        "cpu": {
+          "user": 4965098,
+          "system": 922251
+        },
+        "eventLoopDelayP95Ms": 12.107775
+      },
+      "usage": {
+        "inputTokens": 20,
+        "outputTokens": 20,
+        "unknownSamples": 0,
+        "conservativeEstimateUsd": 0,
+        "usageKind": "synthetic fixture usage"
+      },
+      "verification": {
+        "uniqueSessions": 20,
+        "uniqueRuns": 20,
+        "uniqueWorkers": 20,
+        "allTurnsCompleted": true,
+        "allSessionsDeleted": true,
+        "agentDeleted": true,
+        "imageSelectionRestored": true,
+        "selectorAndTraceAndHostAndProxyCounts": [
+          20,
+          20,
+          20,
+          20
+        ],
+        "deployedSourceSha256": "6420d6f9e833aec200fedc2a7f7c00bf0cca555398103fa3d8b2bb9c1419a34e",
+        "candidateCommit": "c80507abf155eecfe0493bd7812d0a8509bec013",
+        "comparisonManifest": {
+          "schema": "rat-things.startup-overlap.v1",
+          "selectorVersion": "run-id-final-hex-parity.v1",
+          "baselineFunctionSha256": "1c92383d4d8c4a59fc77b07a2c627ef94ef231939c613727cf1cde6a7267c64b",
+          "candidateFunctionSha256": "df765434925bcefa895713dfe6c5480667a01578fe66cd06e75250fa89fcf440",
+          "baselineSourceZipSha256": "e61c55339db251def2b3fa5b803d504c52b281fb814b521ac34309dd02add2f1",
+          "candidateSourceZipSha256": "85871ea6d87a30a31e1b303ff9d102c17c4581bd5ccbd1c4e685bb79ea61376f",
+          "comparisonCodeSha256": "e45958c9d013f265ad7bd37dadc6505d8c5bdb8aaab2ce38c1a25ebbe9a319cf"
+        },
+        "workerResources": [
+          {
+            "minimumMemoryInMiB": 4096
+          }
+        ],
+        "journalStopEvents": 20
+      },
+      "logErrors": [
+        {
+          "sample": 1,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794168345131,
+          "error": "Error"
+        },
+        {
+          "sample": 2,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794168361781,
+          "error": "Error"
+        },
+        {
+          "sample": 3,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794168379214,
+          "error": "Error"
+        },
+        {
+          "sample": 4,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794168395092,
+          "error": "Error"
+        },
+        {
+          "sample": 5,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794168410862,
+          "error": "Error"
+        },
+        {
+          "sample": 6,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794168428628,
+          "error": "Error"
+        },
+        {
+          "sample": 7,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794168446119,
+          "error": "Error"
+        },
+        {
+          "sample": 8,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794168463324,
+          "error": "Error"
+        },
+        {
+          "sample": 9,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794168478671,
+          "error": "Error"
+        },
+        {
+          "sample": 10,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794168501232,
+          "error": "Error"
+        },
+        {
+          "sample": 11,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794168517114,
+          "error": "Error"
+        },
+        {
+          "sample": 12,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794168533786,
+          "error": "Error"
+        },
+        {
+          "sample": 13,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794168550138,
+          "error": "Error"
+        },
+        {
+          "sample": 14,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794168565996,
+          "error": "Error"
+        },
+        {
+          "sample": 15,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794168581537,
+          "error": "Error"
+        },
+        {
+          "sample": 16,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794168599581,
+          "error": "Error"
+        },
+        {
+          "sample": 17,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794168615936,
+          "error": "Error"
+        },
+        {
+          "sample": 18,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794168631635,
+          "error": "Error"
+        },
+        {
+          "sample": 19,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794168646668,
+          "error": "Error"
+        },
+        {
+          "sample": 20,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794168664594,
+          "error": "Error"
+        }
+      ],
+      "evidenceSha256": {
+        "comparison.json": "af87684bbf883290a1c23ccd5d3d206721215b325d4b8c27ef1db7e7051f37f7",
+        "comparison-logs.json": "eede70be4aed054fa18e9c07126130edd971016fb626f0c0fcab437903f03c15",
+        "broad-phase-analysis.json": "fdf15c9ae123077957bfd888544694285048e355189ec5950897769aabcf49b0",
+        "source-provenance.json": "a18f0aab20eb7098becf4e282c283a21c889688e4f1e080bff1a8302f266e6cf"
+      }
+    },
+    {
+      "name": "directory-only-overlap",
+      "decision": "Inconclusive end-to-end gain; runtime candidate rejected.",
+      "outcomes": "passed",
+      "window": {
+        "startedAt": "2026-11-08T20:41:31.464Z",
+        "finishedAt": "2026-11-08T20:46:50.247Z"
+      },
+      "assignmentCounts": {
+        "before": 6,
+        "after": 14,
+        "requiredMinimumPerSide": 5
+      },
+      "sides": {
+        "before": {
+          "n": 6,
+          "metrics": {
+            "acknowledgementMs": {
+              "n": 6,
+              "median": 589.3402284999975,
+              "min": 522.0206250000047,
+              "max": 787.8676669999986
+            },
+            "firstProgressMs": {
+              "n": 6,
+              "median": 12684.795562500003,
+              "min": 11751.114915999991,
+              "max": 15837.362625000002
+            },
+            "completedMs": {
+              "n": 6,
+              "median": 13660.961207999993,
+              "min": 12971.061958000006,
+              "max": 17131.0625
+            },
+            "startupDurationMs": {
+              "n": 6,
+              "median": 4254.5,
+              "min": 3541,
+              "max": 4682
+            },
+            "storageMountDurationMs": {
+              "n": 6,
+              "median": 3047.0,
+              "min": 2864,
+              "max": 3455
+            },
+            "storagePreparationDurationMs": {
+              "n": 6,
+              "median": 1142.0,
+              "min": 433,
+              "max": 1174
+            },
+            "nativeInitializeMs": {
+              "n": 6,
+              "median": 1007.928684,
+              "min": 980.3017879999999,
+              "max": 1042.42384
+            },
+            "threadCreateMs": {
+              "n": 6,
+              "median": 1082.7183875,
+              "min": 1040.9812089999998,
+              "max": 1138.219705
+            },
+            "turnToTextMs": {
+              "n": 6,
+              "median": 572.1362415000001,
+              "min": 536.1453530000003,
+              "max": 594.3029130000004
+            },
+            "textToPublishCompleteMs": {
+              "n": 6,
+              "median": 735.4412345000003,
+              "min": 684.0759289999996,
+              "max": 800.3078499999992
+            },
+            "proxyMs": {
+              "n": 6,
+              "median": 2.0,
+              "min": 2,
+              "max": 2
+            },
+            "launchToRunnerReadyMs": {
+              "n": 6,
+              "median": 5291.0491943359375,
+              "min": 4321.348388671875,
+              "max": 5735.0751953125
+            }
+          }
+        },
+        "after": {
+          "n": 14,
+          "metrics": {
+            "acknowledgementMs": {
+              "n": 14,
+              "median": 559.278750000005,
+              "min": 519.0181250000023,
+              "max": 677.6667920000036
+            },
+            "firstProgressMs": {
+              "n": 14,
+              "median": 12367.186145499989,
+              "min": 8710.376874999958,
+              "max": 13664.715499999991
+            },
+            "completedMs": {
+              "n": 14,
+              "median": 13285.123749499995,
+              "min": 9986.002832999977,
+              "max": 14311.719624999998
+            },
+            "startupDurationMs": {
+              "n": 14,
+              "median": 4862.0,
+              "min": 2615,
+              "max": 5174
+            },
+            "storageMountDurationMs": {
+              "n": 14,
+              "median": 3114.5,
+              "min": 1734,
+              "max": 3417
+            },
+            "storagePreparationDurationMs": {
+              "n": 14,
+              "median": 1705.0,
+              "min": 808,
+              "max": 1804
+            },
+            "nativeInitializeMs": {
+              "n": 14,
+              "median": 1039.6242365,
+              "min": 977.165501,
+              "max": 1201.4128329999996
+            },
+            "threadCreateMs": {
+              "n": 14,
+              "median": 1103.7276784999997,
+              "min": 151.21137100000033,
+              "max": 1159.4203609999995
+            },
+            "turnToTextMs": {
+              "n": 14,
+              "median": 580.9277834999998,
+              "min": 164.33629500000006,
+              "max": 619.8699050000005
+            },
+            "textToPublishCompleteMs": {
+              "n": 14,
+              "median": 736.8571095,
+              "min": 696.9071050000002,
+              "max": 990.9473319999997
+            },
+            "proxyMs": {
+              "n": 14,
+              "median": 2.0,
+              "min": 1,
+              "max": 3
+            },
+            "launchToRunnerReadyMs": {
+              "n": 14,
+              "median": 4864.4649658203125,
+              "min": 2747.74267578125,
+              "max": 5176.40380859375
+            },
+            "startupGateWaitMs": {
+              "n": 14,
+              "median": 160.304571,
+              "min": 4.056079000000068,
+              "max": 172.43532400000004
+            },
+            "runnerEnteredBeforeStorageReadyMs": {
+              "n": 14,
+              "median": 158.44574649999993,
+              "min": -127.68659200000002,
+              "max": 169.71468400000003
+            },
+            "spawnToRunnerEnteredMs": {
+              "n": 14,
+              "median": 1546.73681640625,
+              "min": 936.6865234375,
+              "max": 1634.285400390625
+            },
+            "storageReadyToRunLoadedMs": {
+              "n": 14,
+              "median": 137.4996245000001,
+              "min": 107.31026300000008,
+              "max": 147.1730030000001
+            },
+            "bootstrapStorageOverlapMs": {
+              "n": 14,
+              "median": 1546.73681640625,
+              "min": 809.0,
+              "max": 1634.285400390625
+            }
+          }
+        }
+      },
+      "observedMedianDelta": {
+        "milliseconds": -317.6094170000142,
+        "percent": -2.503859170887715
+      },
+      "exactTwoSidedRankSumP": 0.31186790505675954,
+      "samples": [
+        {
+          "sample": 1,
+          "side": "before",
+          "status": "passed",
+          "acknowledgementMs": 787.8676669999986,
+          "firstProgressMs": 15837.362625000002,
+          "completedMs": 17131.0625,
+          "startupDurationMs": 4682,
+          "storageMountDurationMs": 3455,
+          "storagePreparationDurationMs": 1166,
+          "nativeInitializeMs": 1017.266655,
+          "threadCreateMs": 1138.219705,
+          "turnToTextMs": 594.3029130000004,
+          "textToPublishCompleteMs": 730.5306100000003,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 5735.0751953125,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 2,
+          "side": "after",
+          "status": "passed",
+          "acknowledgementMs": 556.6784999999945,
+          "firstProgressMs": 13664.715499999991,
+          "completedMs": 14311.719624999998,
+          "startupDurationMs": 4780,
+          "storageMountDurationMs": 2913,
+          "storagePreparationDurationMs": 1804,
+          "nativeInitializeMs": 1088.3384929999997,
+          "threadCreateMs": 1078.0154440000001,
+          "turnToTextMs": 605.9592130000001,
+          "textToPublishCompleteMs": 724.5613179999996,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 4782.720703125,
+          "startupGateWaitMs": 172.43532400000004,
+          "runnerEnteredBeforeStorageReadyMs": 169.71468400000003,
+          "spawnToRunnerEnteredMs": 1634.285400390625,
+          "storageReadyToRunLoadedMs": 143.3821989999999,
+          "bootstrapStorageOverlapMs": 1634.285400390625,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 3,
+          "side": "before",
+          "status": "passed",
+          "acknowledgementMs": 576.1950839999918,
+          "firstProgressMs": 13157.490084000005,
+          "completedMs": 13758.790249999991,
+          "startupDurationMs": 4101,
+          "storageMountDurationMs": 2864,
+          "storagePreparationDurationMs": 1140,
+          "nativeInitializeMs": 1030.7873740000005,
+          "threadCreateMs": 1104.5219499999998,
+          "turnToTextMs": 576.2829479999996,
+          "textToPublishCompleteMs": 761.449435,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 5198.13232421875,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 4,
+          "side": "before",
+          "status": "passed",
+          "acknowledgementMs": 622.2881670000061,
+          "firstProgressMs": 12896.174375000002,
+          "completedMs": 13546.119250000003,
+          "startupDurationMs": 4197,
+          "storageMountDurationMs": 2994,
+          "storagePreparationDurationMs": 1144,
+          "nativeInitializeMs": 981.5911219999998,
+          "threadCreateMs": 1060.9148250000003,
+          "turnToTextMs": 536.1453530000003,
+          "textToPublishCompleteMs": 684.0759289999996,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 5076.720458984375,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 5,
+          "side": "before",
+          "status": "passed",
+          "acknowledgementMs": 584.3235410000052,
+          "firstProgressMs": 12331.476208000007,
+          "completedMs": 12971.061958000006,
+          "startupDurationMs": 3541,
+          "storageMountDurationMs": 3022,
+          "storagePreparationDurationMs": 433,
+          "nativeInitializeMs": 998.590713,
+          "threadCreateMs": 1040.9812089999998,
+          "turnToTextMs": 584.1597809999994,
+          "textToPublishCompleteMs": 722.4486210000005,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 4321.348388671875,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 6,
+          "side": "after",
+          "status": "passed",
+          "acknowledgementMs": 571.7340830000176,
+          "firstProgressMs": 12405.157500000001,
+          "completedMs": 13044.821333,
+          "startupDurationMs": 4826,
+          "storageMountDurationMs": 3036,
+          "storagePreparationDurationMs": 1662,
+          "nativeInitializeMs": 1046.0578900000003,
+          "threadCreateMs": 1135.9013189999996,
+          "turnToTextMs": 581.0603840000003,
+          "textToPublishCompleteMs": 705.2111800000002,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 4828.33544921875,
+          "startupGateWaitMs": 161.29982500000006,
+          "runnerEnteredBeforeStorageReadyMs": 158.9642940000001,
+          "spawnToRunnerEnteredMs": 1504.03564453125,
+          "storageReadyToRunLoadedMs": 139.5897010000001,
+          "bootstrapStorageOverlapMs": 1504.03564453125,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 7,
+          "side": "after",
+          "status": "passed",
+          "acknowledgementMs": 543.2960839999723,
+          "firstProgressMs": 12971.914749999996,
+          "completedMs": 13589.795083999983,
+          "startupDurationMs": 4902,
+          "storageMountDurationMs": 3148,
+          "storagePreparationDurationMs": 1703,
+          "nativeInitializeMs": 978.1214049999999,
+          "threadCreateMs": 1095.782295,
+          "turnToTextMs": 619.8699050000005,
+          "textToPublishCompleteMs": 800.1611120000002,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 4904.20263671875,
+          "startupGateWaitMs": 160.1999350000001,
+          "runnerEnteredBeforeStorageReadyMs": 157.99730299999987,
+          "spawnToRunnerEnteredMs": 1545.002685546875,
+          "storageReadyToRunLoadedMs": 129.01114199999984,
+          "bootstrapStorageOverlapMs": 1545.002685546875,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 8,
+          "side": "after",
+          "status": "passed",
+          "acknowledgementMs": 561.8790000000154,
+          "firstProgressMs": 12305.436208,
+          "completedMs": 12962.32037500001,
+          "startupDurationMs": 4772,
+          "storageMountDurationMs": 2952,
+          "storagePreparationDurationMs": 1728,
+          "nativeInitializeMs": 999.091398,
+          "threadCreateMs": 1096.9573219999997,
+          "turnToTextMs": 587.946715,
+          "textToPublishCompleteMs": 721.000994,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 4773.8779296875,
+          "startupGateWaitMs": 159.36304799999994,
+          "runnerEnteredBeforeStorageReadyMs": 158.48511699999995,
+          "spawnToRunnerEnteredMs": 1570.514892578125,
+          "storageReadyToRunLoadedMs": 107.31026300000008,
+          "bootstrapStorageOverlapMs": 1570.514892578125,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 9,
+          "side": "before",
+          "status": "passed",
+          "acknowledgementMs": 594.3569159999897,
+          "firstProgressMs": 12473.416750000004,
+          "completedMs": 14285.73883300001,
+          "startupDurationMs": 4312,
+          "storageMountDurationMs": 3072,
+          "storagePreparationDurationMs": 1174,
+          "nativeInitializeMs": 1042.42384,
+          "threadCreateMs": 1119.615338,
+          "turnToTextMs": 567.9895350000006,
+          "textToPublishCompleteMs": 800.3078499999992,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 5421.529541015625,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 10,
+          "side": "after",
+          "status": "passed",
+          "acknowledgementMs": 637.0311660000007,
+          "firstProgressMs": 12031.33812500001,
+          "completedMs": 13309.57354099999,
+          "startupDurationMs": 5017,
+          "storageMountDurationMs": 3324,
+          "storagePreparationDurationMs": 1575,
+          "nativeInitializeMs": 1025.6520600000003,
+          "threadCreateMs": 1119.1327260000003,
+          "turnToTextMs": 564.3066770000005,
+          "textToPublishCompleteMs": 756.6572360000005,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 5018.890869140625,
+          "startupGateWaitMs": 155.46948499999985,
+          "runnerEnteredBeforeStorageReadyMs": 153.578624,
+          "spawnToRunnerEnteredMs": 1421.42138671875,
+          "storageReadyToRunLoadedMs": 142.3998140000001,
+          "bootstrapStorageOverlapMs": 1421.42138671875,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 11,
+          "side": "after",
+          "status": "passed",
+          "acknowledgementMs": 677.6667920000036,
+          "firstProgressMs": 11342.805167000013,
+          "completedMs": 13260.673958,
+          "startupDurationMs": 5171,
+          "storageMountDurationMs": 3380,
+          "storagePreparationDurationMs": 1708,
+          "nativeInitializeMs": 1005.220648,
+          "threadCreateMs": 1086.5528630000006,
+          "turnToTextMs": 576.1922829999994,
+          "textToPublishCompleteMs": 721.3471930000005,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 5172.45751953125,
+          "startupGateWaitMs": 161.98639700000012,
+          "runnerEnteredBeforeStorageReadyMs": 160.52894100000003,
+          "spawnToRunnerEnteredMs": 1548.470947265625,
+          "storageReadyToRunLoadedMs": 108.73820099999989,
+          "bootstrapStorageOverlapMs": 1548.470947265625,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 12,
+          "side": "before",
+          "status": "passed",
+          "acknowledgementMs": 522.0206250000047,
+          "firstProgressMs": 11751.114915999991,
+          "completedMs": 13563.132165999996,
+          "startupDurationMs": 4510,
+          "storageMountDurationMs": 3390,
+          "storagePreparationDurationMs": 1093,
+          "nativeInitializeMs": 980.3017879999999,
+          "threadCreateMs": 1053.5834019999998,
+          "turnToTextMs": 559.0947679999999,
+          "textToPublishCompleteMs": 740.3518590000003,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 5383.966064453125,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 13,
+          "side": "after",
+          "status": "passed",
+          "acknowledgementMs": 576.1634159999958,
+          "firstProgressMs": 12329.214790999977,
+          "completedMs": 13516.862457999989,
+          "startupDurationMs": 5135,
+          "storageMountDurationMs": 3394,
+          "storagePreparationDurationMs": 1687,
+          "nativeInitializeMs": 977.165501,
+          "threadCreateMs": 1072.1141860000002,
+          "turnToTextMs": 545.0579420000004,
+          "textToPublishCompleteMs": 744.1532609999999,
+          "proxyMs": 1,
+          "launchToRunnerReadyMs": 5137.26806640625,
+          "startupGateWaitMs": 159.67447500000003,
+          "runnerEnteredBeforeStorageReadyMs": 158.4063759999999,
+          "spawnToRunnerEnteredMs": 1529.593505859375,
+          "storageReadyToRunLoadedMs": 124.76765099999989,
+          "bootstrapStorageOverlapMs": 1529.593505859375,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 14,
+          "side": "after",
+          "status": "passed",
+          "acknowledgementMs": 539.4458330000052,
+          "firstProgressMs": 11796.094916000002,
+          "completedMs": 13682.472875000007,
+          "startupDurationMs": 5082,
+          "storageMountDurationMs": 3313,
+          "storagePreparationDurationMs": 1733,
+          "nativeInitializeMs": 1040.8628400000005,
+          "threadCreateMs": 1110.4980349999996,
+          "turnToTextMs": 581.0937400000003,
+          "textToPublishCompleteMs": 796.8496150000001,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 5085.27880859375,
+          "startupGateWaitMs": 167.98601200000007,
+          "runnerEnteredBeforeStorageReadyMs": 165.70715200000018,
+          "spawnToRunnerEnteredMs": 1567.29296875,
+          "storageReadyToRunLoadedMs": 147.1730030000001,
+          "bootstrapStorageOverlapMs": 1567.29296875,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 15,
+          "side": "after",
+          "status": "passed",
+          "acknowledgementMs": 590.3697909999755,
+          "firstProgressMs": 13005.491207999992,
+          "completedMs": 13614.362625000009,
+          "startupDurationMs": 5174,
+          "storageMountDurationMs": 3417,
+          "storagePreparationDurationMs": 1659,
+          "nativeInitializeMs": 1102.5592670000003,
+          "threadCreateMs": 1159.4203609999995,
+          "turnToTextMs": 580.7951829999993,
+          "textToPublishCompleteMs": 832.8206500000006,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 5176.40380859375,
+          "startupGateWaitMs": 157.9958650000001,
+          "runnerEnteredBeforeStorageReadyMs": 155.59209600000008,
+          "spawnToRunnerEnteredMs": 1503.407958984375,
+          "storageReadyToRunLoadedMs": 145.9317779999999,
+          "bootstrapStorageOverlapMs": 1503.407958984375,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 16,
+          "side": "after",
+          "status": "passed",
+          "acknowledgementMs": 551.2112920000218,
+          "firstProgressMs": 13078.334957999992,
+          "completedMs": 13705.387958000007,
+          "startupDurationMs": 4898,
+          "storageMountDurationMs": 3235,
+          "storagePreparationDurationMs": 1625,
+          "nativeInitializeMs": 1148.8675150000001,
+          "threadCreateMs": 1057.8116559999999,
+          "turnToTextMs": 586.9124540000003,
+          "textToPublishCompleteMs": 715.3299379999999,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 4900.594482421875,
+          "startupGateWaitMs": 160.40920699999992,
+          "runnerEnteredBeforeStorageReadyMs": 157.81462499999998,
+          "spawnToRunnerEnteredMs": 1467.185302734375,
+          "storageReadyToRunLoadedMs": 135.78736000000004,
+          "bootstrapStorageOverlapMs": 1467.185302734375,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 17,
+          "side": "after",
+          "status": "passed",
+          "acknowledgementMs": 600.0240830000257,
+          "firstProgressMs": 12487.490749999997,
+          "completedMs": 13106.081082999997,
+          "startupDurationMs": 4799,
+          "storageMountDurationMs": 2997,
+          "storagePreparationDurationMs": 1743,
+          "nativeInitializeMs": 1029.2189589999996,
+          "threadCreateMs": 1144.7558420000005,
+          "turnToTextMs": 565.907123,
+          "textToPublishCompleteMs": 729.560958,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 4801.236328125,
+          "startupGateWaitMs": 166.748061,
+          "runnerEnteredBeforeStorageReadyMs": 164.51174200000014,
+          "spawnToRunnerEnteredMs": 1578.48828125,
+          "storageReadyToRunLoadedMs": 139.21188900000016,
+          "bootstrapStorageOverlapMs": 1578.48828125,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 18,
+          "side": "after",
+          "status": "passed",
+          "acknowledgementMs": 527.8375419999938,
+          "firstProgressMs": 12525.429124999966,
+          "completedMs": 13124.826166999992,
+          "startupDurationMs": 4824,
+          "storageMountDurationMs": 3081,
+          "storagePreparationDurationMs": 1707,
+          "nativeInitializeMs": 1039.907453,
+          "threadCreateMs": 1133.8908069999998,
+          "turnToTextMs": 556.512178,
+          "textToPublishCompleteMs": 775.8317699999998,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 4827.311279296875,
+          "startupGateWaitMs": 158.16877,
+          "runnerEnteredBeforeStorageReadyMs": 154.8574010000002,
+          "spawnToRunnerEnteredMs": 1552.142578125,
+          "storageReadyToRunLoadedMs": 146.41289400000005,
+          "bootstrapStorageOverlapMs": 1552.142578125,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 19,
+          "side": "after",
+          "status": "passed",
+          "acknowledgementMs": 539.6085829999647,
+          "firstProgressMs": 8710.376874999958,
+          "completedMs": 9986.002832999977,
+          "startupDurationMs": 2615,
+          "storageMountDurationMs": 1734,
+          "storagePreparationDurationMs": 808,
+          "nativeInitializeMs": 1201.4128329999996,
+          "threadCreateMs": 151.21137100000033,
+          "turnToTextMs": 164.33629500000006,
+          "textToPublishCompleteMs": 990.9473319999997,
+          "proxyMs": 3,
+          "launchToRunnerReadyMs": 2747.74267578125,
+          "startupGateWaitMs": 4.056079000000068,
+          "runnerEnteredBeforeStorageReadyMs": -127.68659200000002,
+          "spawnToRunnerEnteredMs": 936.6865234375,
+          "storageReadyToRunLoadedMs": 116.34929799999998,
+          "bootstrapStorageOverlapMs": 809.0,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        },
+        {
+          "sample": 20,
+          "side": "after",
+          "status": "passed",
+          "acknowledgementMs": 519.0181250000023,
+          "firstProgressMs": 10946.427415999991,
+          "completedMs": 12250.104749999999,
+          "startupDurationMs": 4698,
+          "storageMountDurationMs": 2908,
+          "storagePreparationDurationMs": 1735,
+          "nativeInitializeMs": 1039.34102,
+          "threadCreateMs": 1145.852559,
+          "turnToTextMs": 617.3956069999995,
+          "textToPublishCompleteMs": 696.9071050000002,
+          "proxyMs": 2,
+          "launchToRunnerReadyMs": 4700.41259765625,
+          "startupGateWaitMs": 167.64921400000003,
+          "runnerEnteredBeforeStorageReadyMs": 166.23664699999995,
+          "spawnToRunnerEnteredMs": 1568.763427734375,
+          "storageReadyToRunLoadedMs": 115.91365900000005,
+          "bootstrapStorageOverlapMs": 1568.763427734375,
+          "traceCount": 1,
+          "hostCount": 1,
+          "proxyCount": 1,
+          "selectionCount": 1,
+          "turnStatus": "completed",
+          "sessionDeleted": true,
+          "logErrors": [
+            "Session journal failed; stopping the harness"
+          ]
+        }
+      ],
+      "controller": {
+        "elapsedMs": 318782.09045899997,
+        "cpu": {
+          "user": 4447686,
+          "system": 947733
+        },
+        "eventLoopDelayP95Ms": 12.099583
+      },
+      "usage": {
+        "inputTokens": 20,
+        "outputTokens": 20,
+        "unknownSamples": 0,
+        "conservativeEstimateUsd": 0,
+        "usageKind": "synthetic fixture usage"
+      },
+      "verification": {
+        "uniqueSessions": 20,
+        "uniqueRuns": 20,
+        "uniqueWorkers": 20,
+        "allTurnsCompleted": true,
+        "allSessionsDeleted": true,
+        "agentDeleted": true,
+        "imageSelectionRestored": true,
+        "selectorAndTraceAndHostAndProxyCounts": [
+          20,
+          20,
+          20,
+          20
+        ],
+        "deployedSourceSha256": "98beeff1f32b1b8d3c1bfb7d9a55c698b077d383746469f12d813b4fe75c195e",
+        "candidateCommit": "1f41ec4a1a3f292b0b98c5befd70cd1946f333a3",
+        "comparisonManifest": {
+          "schema": "rat-things.startup-overlap.v1",
+          "selectorVersion": "run-id-final-hex-parity.v1",
+          "baselineFunctionSha256": "1c92383d4d8c4a59fc77b07a2c627ef94ef231939c613727cf1cde6a7267c64b",
+          "candidateFunctionSha256": "fb946e1f47a60aeb1729c0c1968494823df56998b08291a8598f60161660cf93",
+          "baselineSourceZipSha256": "bb69f51d717119d77dc4d5f73f321f9229f09aa5043785141edf620370b21333",
+          "candidateSourceZipSha256": "b84749531765c301b322dde520736cf883f379549526d4bff35b86a871ae51a6",
+          "comparisonCodeSha256": "b747e4c9ac8bfee795362c78082fee2fb3816307b55a5778c172ae5f8320ee7e"
+        },
+        "workerResources": [
+          {
+            "minimumMemoryInMiB": 4096
+          }
+        ],
+        "journalStopEvents": 20
+      },
+      "logErrors": [
+        {
+          "sample": 1,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794170514055,
+          "error": "Error"
+        },
+        {
+          "sample": 2,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794170530429,
+          "error": "Error"
+        },
+        {
+          "sample": 3,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794170546429,
+          "error": "Error"
+        },
+        {
+          "sample": 4,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794170562215,
+          "error": "Error"
+        },
+        {
+          "sample": 5,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794170577645,
+          "error": "Error"
+        },
+        {
+          "sample": 6,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794170592939,
+          "error": "Error"
+        },
+        {
+          "sample": 7,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794170608688,
+          "error": "Error"
+        },
+        {
+          "sample": 8,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794170623968,
+          "error": "Error"
+        },
+        {
+          "sample": 9,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794170640440,
+          "error": "Error"
+        },
+        {
+          "sample": 10,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794170656133,
+          "error": "Error"
+        },
+        {
+          "sample": 11,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794170671324,
+          "error": "Error"
+        },
+        {
+          "sample": 12,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794170686902,
+          "error": "Error"
+        },
+        {
+          "sample": 13,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794170702555,
+          "error": "Error"
+        },
+        {
+          "sample": 14,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794170718384,
+          "error": "Error"
+        },
+        {
+          "sample": 15,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794170734081,
+          "error": "Error"
+        },
+        {
+          "sample": 16,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794170750056,
+          "error": "Error"
+        },
+        {
+          "sample": 17,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794170765396,
+          "error": "Error"
+        },
+        {
+          "sample": 18,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794170781049,
+          "error": "Error"
+        },
+        {
+          "sample": 19,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794170795239,
+          "error": "Error"
+        },
+        {
+          "sample": 20,
+          "message": "Session journal failed; stopping the harness",
+          "timestamp": 1794170809873,
+          "error": "Error"
+        }
+      ],
+      "evidenceSha256": {
+        "prep-comparison.json": "1a7262d3a0de60df7bba8fcdf5dae5f95d8b99bdee0eeaf0bd8ee25ff3dfb8cc",
+        "prep-comparison-logs.json": "f7cb9ae5eaf41c9e88e5971ef740b93a6c3a757cb7a00e40032316aa1d88972a",
+        "prep-analysis.json": "c3e2ac8a2d5ba0cedefc5324bbb892f1418d934bbff13848c78d995c0a0ac42c",
+        "prep-source-provenance.json": "7ecb1fa85378f85f02b8458efc8eb994c7b51e0ef344d815accb8a54dccb15ce"
+      }
+    }
+  ],
+  "phaseInterpretation": {
+    "spawnToRunnerEnteredMs": "Same-worker elapsed time from child spawn to entry after static imports; includes process scheduling and Node/module startup, not isolated module CPU time.",
+    "startupGateWaitMs": "Runner entry until storage readiness, measured in child monotonic time.",
+    "runnerEnteredBeforeStorageReadyMs": "Host storage-completion time minus child-entry time on the same worker; negative means imports finished after storage.",
+    "launchToRunnerReadyMs": "Host startRun selector until runner entry (baseline) or gate release observation (candidate), using same-worker wall origin and phase offsets.",
+    "bootstrapStorageOverlapMs": "Intersection of child spawn-to-entry interval with remaining host storage work. Overlapping durations must not be summed."
+  },
+  "costs": {
+    "paidInferenceRequests": 0,
+    "inferenceCostUsd": 0,
+    "usageKind": "synthetic fixture usage",
+    "enforcement": "Each fixture worker role carried an unconditional IAM deny for bedrock:*, bedrock-mantle:*, and sagemaker:InvokeEndpoint*. The controller verified this before creating Sessions.",
+    "infrastructureCostUsd": null,
+    "infrastructurePlanningCeilingUsd": 10,
+    "infrastructureCostNote": "Actual AWS billing was not measured. The planning ceiling is neither a bill nor an enforced AWS spending limit.",
+    "delegatedAnalysis": {
+      "model": "gpt-6-luna",
+      "mechanism": "Codex subagent tools",
+      "tokenUsage": null,
+      "costUsd": null,
+      "note": "Delegate token usage and billing are not exposed by the available tools. No direct provider API calls were made for analysis."
+    },
+    "infrastructureProvisioningStartedAt": "2026-11-08T19:52:36.167921+00:00",
+    "infrastructureCleanupVerifiedAt": "2026-11-08T20:57:28.359Z"
+  },
+  "limitations": [
+    "Deterministic proxy replaces model inference; real-model startup was not remeasured.",
+    "One short environment-none workload; no checkout, tools, concurrent Sessions, browser rendering, or fleet percentile measurement.",
+    "Physical snapshot-cache residency, host scheduling, and network/storage variability remain uncontrolled.",
+    "Polling adds up to one interval plus request time to visible progress.",
+    "Post-completion journal-stop errors must be reported separately from zero failed measured Turns; deletion correlation is not proof of cause."
+  ],
+  "validation": {
+    "firstCandidateFullCheck": "passed",
+    "narrowCandidateFullCheck": "Architecture, schema, types, syntax and tests passed; packaging initially failed ENOSPC. All packaging, site and Terraform stages then passed at the same source commit.",
+    "lambdaBundleSmokes": 15,
+    "terraformConfigurationsValidated": 3,
+    "localSmoke": "passed",
+    "additionalPreflight": "The second experiment initially stopped before creating any Sessions because its downloaded source archive exhausted disk. Retried with temporary files on an isolated RAM disk; no source or workload changed.",
+    "logCollection": "Followed CloudWatch nextForwardToken until unchanged, including empty intermediate pages; all 40 workers yielded their complete nine-event streams.",
+    "independentReviews": {
+      "firstExperiment": "No reliable improvement; supported by distribution, trace and provenance audit.",
+      "secondExperiment": "No reliable improvement; independently checked statistics, joins, final ZIP SHA and all 62 entry hashes, sizes and Unix modes."
+    },
+    "restoredSourceCommit": "74eec3a05e5b13bcf67b9f7988250c7bc03fc943",
+    "restoredSourceMatchesBaseline": true,
+    "restoredLocalSmoke": "passed",
+    "restoredFullCheck": "All stages passed at source commit 74eec3a. The normal-checkout command stopped at build for ENOSPC after architecture, generated contracts, types, syntax and tests passed. Packaging, site build and all Terraform format/validation stages then passed at the identical source commit in a temporary build checkout.",
+    "restoredVerificationEnvironment": "A preliminary run on a temporary HFS+ RAM filesystem failed 88 tests across 9 files with directory ancestry, sparse-file and dependency-resolution errors. It is not counted as a pass. All tests subsequently passed in the ordinary APFS worktree with installed dependencies and a protected local temporary directory. Only the remaining build and Terraform stages used a RAM-backed checkout to avoid disk exhaustion.",
+    "candidateTestsPassed": 3072,
+    "candidateTestsSkipped": 83,
+    "candidateTestFilesPassed": 336,
+    "candidateNode22FocusedStartupTests": 20,
+    "restoredTestsPassed": 3046,
+    "restoredTestsSkipped": 84,
+    "restoredTestFilesPassed": 332,
+    "verificationLogSha256": {
+      "restored-check.log": "de3de4400d8d3926d607944f927ac67df3ded04700f6e898366d1ce69e35f1e2",
+      "restored-check-rest.log": "92b3969380451ae3d61e90d3927400a61a28024588ecb4d5966df39f8381aa1f",
+      "restored-local-smoke.log": "03abc9d36a0908cf2a528d34292fa406c835f3a04ff8e300e46583df09eb072c"
+    }
+  },
+  "cleanup": {
+    "status": "complete",
+    "verifiedAt": "2026-11-08T20:57:28.359Z",
+    "knownMeasuredWorkers": 40,
+    "allKnownMeasuredWorkersTerminatedOrAbsent": true,
+    "imageAbsent": true,
+    "terraformResourceCount": 0,
+    "runtimeEnvironmentRemoved": true,
+    "owningServiceAndTagAuditPassed": true,
+    "kmsKeys": [
+      {
+        "state": "PendingDeletion",
+        "enabled": false,
+        "deletionDate": "2026-12-08T12:55:56.024000-08:00"
+      }
+    ],
+    "localTemporaryRamVolumeDetached": true,
+    "verificationSha256": "cf9bca899823532c4047e5fe74a7bde07a548c92eb9d96f54cde3282de561189"
+  },
+  "retainedRuntimeChanges": [],
+  "reproduction": {
+    "baselineCommit": "30fcb4a2ddac1ae9a40ee46d6418b6901e70f88e",
+    "broadExperimentHarnessCommit": "5400f175fa0355a61a92dd1931fa5ff6b14b25cc",
+    "narrowExperimentHarnessCommit": "1f41ec4a1a3f292b0b98c5befd70cd1946f333a3",
+    "note": "The experimental runtime and comparison overlay remain available in these commits. They are absent from the final source tree."
+  }
+}
