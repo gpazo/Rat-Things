@@ -2,20 +2,20 @@ import { expect, it } from 'vitest';
 import { analyzeProbeLogs, parseArguments, parseConfiguration, planProbeWindow, planProbes, planReconciliationDeadline, runHookPayload, validateConfiguration } from '../../testing/performance-aws/storage.js';
 
 const config = {
-  deploymentId: 'st1108a',
+  deploymentId: 'perf-demo',
   region: 'us-west-2',
-  account: '731841023867',
-  imageIdentifier: 'arn:aws:lambda:us-west-2:731841023867:microvm-image:rat-things-st1108a-agent',
+  account: '123456789012',
+  imageIdentifier: 'arn:aws:lambda:us-west-2:123456789012:microvm-image:rat-things-perf-demo-agent',
   baselineVersion: '1.0',
   candidateVersion: '2.0',
-  executionRoleArn: 'arn:aws:iam::731841023867:role/rat-things-st1108a-microvm-execution',
-  connectorArn: 'arn:aws:lambda:us-west-2:731841023867:network-connector:nc-9fe7d5ac-56bd-49b8-8369-2a267eed9076',
-  logGroupName: '/rat-things-st1108a/microvms',
-  runsTableName: 'rat-things-st1108a-runs',
-  integrationsTableName: 'rat-things-st1108a-integrations',
-  artifactBucket: 'rat-things-st1108a-artifacts-ac2245ef2368',
-  filesystem: 'fs-0686baee18ef250e6',
-  accesspoint: 'fsap-020483c8545a5fc29',
+  executionRoleArn: 'arn:aws:iam::123456789012:role/rat-things-perf-demo-microvm-execution',
+  connectorArn: 'arn:aws:lambda:us-west-2:123456789012:network-connector:nc-00000000-0000-0000-0000-000000000001',
+  logGroupName: '/rat-things-perf-demo/microvms',
+  runsTableName: 'rat-things-perf-demo-runs',
+  integrationsTableName: 'rat-things-perf-demo-integrations',
+  artifactBucket: 'rat-things-perf-demo-artifacts-000000000001',
+  filesystem: 'fs-00000000000000001',
+  accesspoint: 'fsap-00000000000000001',
   targetIP: '10.0.0.7',
 } as const;
 

@@ -246,18 +246,18 @@ The JSON configuration file contains exactly these string fields:
 
 ```json
 {
-  "deploymentId": "st1108a",
+  "deploymentId": "perf-demo",
   "region": "us-west-2",
-  "account": "731841023867",
-  "imageIdentifier": "arn:aws:lambda:us-west-2:731841023867:microvm-image:rat-things-st1108a-agent",
+  "account": "123456789012",
+  "imageIdentifier": "arn:aws:lambda:us-west-2:123456789012:microvm-image:rat-things-perf-demo-agent",
   "baselineVersion": "1.0",
   "candidateVersion": "2.0",
-  "executionRoleArn": "arn:aws:iam::731841023867:role/rat-things-st1108a-microvm-execution",
-  "connectorArn": "arn:aws:lambda:us-west-2:731841023867:network-connector:nc-00000000-0000-0000-0000-000000000000",
-  "logGroupName": "/rat-things-st1108a/microvms",
-  "runsTableName": "rat-things-st1108a-runs",
-  "integrationsTableName": "rat-things-st1108a-integrations",
-  "artifactBucket": "rat-things-st1108a-artifacts-000000000000",
+  "executionRoleArn": "arn:aws:iam::123456789012:role/rat-things-perf-demo-microvm-execution",
+  "connectorArn": "arn:aws:lambda:us-west-2:123456789012:network-connector:nc-00000000-0000-0000-0000-000000000000",
+  "logGroupName": "/rat-things-perf-demo/microvms",
+  "runsTableName": "rat-things-perf-demo-runs",
+  "integrationsTableName": "rat-things-perf-demo-integrations",
+  "artifactBucket": "rat-things-perf-demo-artifacts-000000000000",
   "filesystem": "fs-00000000000000000",
   "accesspoint": "fsap-00000000000000000",
   "targetIP": "10.0.0.7"
@@ -265,9 +265,10 @@ The JSON configuration file contains exactly these string fields:
 ```
 
 Replace every example value with the disposable deployment's values. The
-controller checks the image ARN, execution role, network connector, log group,
-tables, artifact bucket, account, and region against the deployment ID. It checks
-the caller account with STS. Both image versions must be active successful builds
+controller checks deployment names on the image, role, log group, tables, and
+artifact bucket. It checks the connector's account, region, and identifier format.
+Copy the connector and filesystem identifiers from the same disposable
+deployment. The controller checks the caller account with STS. Both image versions must be active successful builds
 with matching base image, CPU, and resource settings.
 
 Run the default comparison with:
@@ -295,7 +296,11 @@ node --import tsx testing/performance-aws/storage.ts \
 ```
 
 Pass `--expect-profile` only with one storage diagnostic on an image that includes
-the test-only storage-mount profiling overlay. The controller then requires the matching
+the test-only storage-mount profiling overlay. Create that diagnostic bundle with
+`node testing/performance-aws/storage-profile-image.mjs <source.zip> <profile.zip>`.
+The overlay adds tracing to the mount path and changes its timing. Use its output
+to investigate phases, and use ordinary images for latency comparisons.
+The controller then requires the matching
 `rat-things.storage-mount-profile.v1` log marker and keeps only its allowlisted
 fields. Every unprofiled or timed comparison rejects a profile marker so it cannot
 mix traced and production image observations. Those probes need only the lifecycle
@@ -312,8 +317,9 @@ use one attempt. No command goes through a shell, and the artifact omits AWS
 credentials and raw helper logs.
 
 The probe measures startup through storage preparation and the runner's expected
-missing-Run exit. It does not measure first output, write data, or prove storage
-durability across a replacement MicroVM. CloudWatch startup fields report
+missing-Run exit. Storage preparation creates directories and changes their
+ownership. The probe does not execute user work, measure first output, or verify
+durable file contents across a replacement MicroVM. CloudWatch startup fields report
 `startupDurationMs`, `storageMountDurationMs`, `storagePreparationDurationMs`,
 and `storageAlreadyMounted`; the optional profile reports helper timing and its
 declared `mount-launcher-only` syscall scope. Do not present these results as a
@@ -323,8 +329,9 @@ first-output latency comparison or as a durability proof.
 
 ```sh
 npx vitest run tests/performance-aws --no-file-parallelism
+python3 testing/performance-aws/test-storage-profile.py
 npm run typecheck
 ```
 
-These checks use synthetic in-memory responses solely to test measurement and
-cleanup behavior. Their results are not AWS performance measurements.
+These checks use synthetic inputs to test probe plans, evidence parsing, and
+deadline calculations. Their results are not AWS performance measurements.
