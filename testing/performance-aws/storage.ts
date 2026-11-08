@@ -432,7 +432,7 @@ export async function run(options: Options, environment: NodeJS.ProcessEnv = pro
     outputCreated = true;
 
     const existing = await listMicrovms(microvms, config.imageIdentifier, deadline);
-    const active = existing.filter(vm => vm.state && vm.state !== 'TERMINATED');
+    const active = existing.filter(vm => vm.state !== 'TERMINATED');
     if (active.length) throw new Error('Disposable deployment already has a non-terminated MicroVM for this image.');
 
     const plan = planProbes(options);
@@ -534,7 +534,7 @@ async function runOneProbe(input: {
         sample.failure = `RunMicrovm response was uncertain (${safeFailure(error)}); recovered the unique new MicroVM and will verify its cleanup.`;
         phase('run-microvm-reconciled-from-list');
       } else {
-        sample.possibleMicrovmIds = recovered.map(vm => vm.microvmId);
+        sample.possibleMicrovmIds ??= recovered.map(vm => vm.microvmId);
         throw new Error(`RunMicrovm response was uncertain (${safeFailure(error)}); no unique created MicroVM could be identified. Check possibleMicrovmIds and the 120-second platform lifetime cap.`);
       }
     }
@@ -543,7 +543,7 @@ async function runOneProbe(input: {
       sample.ambiguousLaunch = true;
       const recovered = await reconcileLaunch(microvms, config, sample, beforeIds, launchStarted.getTime(), window);
       if (recovered.length !== 1) {
-        sample.possibleMicrovmIds = recovered.map(vm => vm.microvmId);
+        sample.possibleMicrovmIds ??= recovered.map(vm => vm.microvmId);
         throw new Error('RunMicrovm response omitted its MicroVM ID and no unique launch could be reconciled. Check possibleMicrovmIds and the 120-second platform lifetime cap.');
       }
       createdId = recovered[0]!.microvmId;
@@ -704,7 +704,7 @@ async function listMicrovms(client: LambdaMicrovmsClient, imageIdentifier: strin
   const all: Array<{ microvmId: string; state: string | null; imageVersion: string | null; startedAt: number | null }> = [];
   let nextToken: string | undefined;
   do {
-    const response = await client.send(new ListMicrovmsCommand({ imageIdentifier, maxResults: 100,
+    const response = await client.send(new ListMicrovmsCommand({ imageIdentifier, maxResults: 50,
       ...(imageVersion ? { imageVersion } : {}), ...(nextToken ? { nextToken } : {}) }),
       { abortSignal: signalBefore(deadline, 'total') });
     all.push(...(response.items ?? []).flatMap(item => item.microvmId ? [{ microvmId: item.microvmId, state: item.state ?? null,
@@ -720,7 +720,9 @@ async function reconcileLaunch(client: LambdaMicrovmsClient, config: StorageProb
   let candidates: Array<{ microvmId: string; state: string | null; imageVersion: string | null; startedAt: number | null }> = [];
   while (performance.now() < reconciliationDeadline) {
     const current = await listMicrovms(client, config.imageIdentifier, reconciliationDeadline, sample.imageVersion);
-    candidates = current.filter(vm => !beforeIds.has(vm.microvmId) && vm.startedAt !== null && vm.startedAt >= requestStartedAt - 5_000);
+    const possible = current.filter(vm => !beforeIds.has(vm.microvmId) && (vm.startedAt === null || vm.startedAt >= requestStartedAt - 5_000));
+    sample.possibleMicrovmIds = [...new Set([...(sample.possibleMicrovmIds ?? []), ...possible.map(vm => vm.microvmId)])];
+    candidates = possible.filter(vm => vm.startedAt !== null);
     if (candidates.length > 0) return candidates;
     await delay(Math.min(1_000, Math.max(0, reconciliationDeadline - performance.now())));
   }
