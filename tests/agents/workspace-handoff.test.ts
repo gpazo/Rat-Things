@@ -21,7 +21,7 @@ export async function handoffFixture(withHandoffs = false) {
   const stopped = vi.fn(async () => true);
   const ended = vi.fn(async () => false);
   const service = new WorkspaceHandoffService({ store, enabled: true, clock, sourceStopped: stopped, runEnded: ended });
-  const environments = new EnvironmentService({ store, clock, ...(withHandoffs ? { handoffs: service } : {}), credentials: { create: async () => '', read: async () => ({ harness: '', executor: '' }), revoke: async () => {} } });
+  const environments = new EnvironmentService({ store, clock, ...(withHandoffs ? { handoffs: service } : {}), });
   const checkpoint: WorkspaceCheckpoint = { id: 'checkpoint', source, sandboxId: 'sandbox', ...digests, rootThreadId: 'native-root', lastRootTurnId: 'api-turn', lastNativeTurnId: 'native-turn', reason: 'hibernate', createdAt: now };
   const get = async () => (await store.get<StoredEnvironment>('owner', 'environments', environment.id))!.value;
   const begin = async () => { await service.bind('owner', environment.id, source); await service.begin('owner', environment.id, source, checkpoint.id); };

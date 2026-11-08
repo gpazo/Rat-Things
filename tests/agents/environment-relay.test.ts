@@ -9,67 +9,23 @@ import { codexEnvironmentFiles } from '../../src/adapters/codex-environment-file
 import { setTimeout as delay } from 'node:timers/promises';
 import { describe, expect, it } from 'vitest';
 import { createEnvironmentRelay } from '../../src/adapters/environment-relay.js';
-import { EnvironmentService } from '../../src/core/environment-service.js';
-import { environmentToken, type EnvironmentCredentials } from '../../src/credentials/environment.js';
-import { parseAgentsContract } from '../../src/domain/agents-api-validation.js';
+import { environmentToken } from '../../src/credentials/environment.js';
 import { isolatedCodexArguments } from '../../src/domain/local-codex-arguments.js';
-import { MemoryAgentsStore } from './fixtures.js';
 
-function fixture(clock?: { now(): number }) {
-  const secrets = new Map<string, EnvironmentCredentials>();
-  const store = new MemoryAgentsStore();
-  const environments = new EnvironmentService({ store, ...(clock ? { clock } : {}), relayURL: 'https://relay.example', credentials: {
-    create: async (ownerId, environmentId) => {
-      secrets.set(environmentId, { executor: environmentToken({ ownerId, environmentId, role: 'executor' }, 'executor-secret'), harness: environmentToken({ ownerId, environmentId, role: 'harness' }, 'harness-secret') });
-      return environmentId;
-    },
-    read: async (id) => secrets.get(id)!, revoke: async (id) => { secrets.delete(id); },
-  } });
-  return { environments, secrets };
-}
-
-describe('self-hosted execution relay', () => {
-  it('expires waiting input after five minutes and never replays it on a late connection', async () => {
-    let now = 100;
-    const f = fixture({ now: () => now });
-    const environment = await f.environments.prepare('alice', 'sess_1', { type: 'self_hosted', workspace_directory: '/workspace' });
-    if (environment.type === 'none') throw new Error('Expected environment');
-    await expect(f.environments.launchReference('alice', environment.id, 400)).rejects.toMatchObject({ status: 503 });
-    now = 400;
-    await expect(f.environments.launchReference('alice', environment.id, 400)).rejects.toMatchObject({ status: 408 });
-    now = 401;
-    const identity = { ownerId: 'alice', environmentId: environment.id, role: 'executor' as const };
-    await f.environments.connection(identity, 'late-executor', true);
-    await expect(f.environments.launchReference('alice', environment.id, 400)).rejects.toMatchObject({ code: 'environment_connection_timeout' });
-    expect(await f.environments.launchReference('alice', environment.id, 701)).toBe(environment.id);
-    now = 431;
-    await f.environments.connection(identity, 'late-executor', true);
-    expect(await f.environments.launchReference('alice', environment.id, 420)).toBe(environment.id);
-  });
-
-  it('scopes keys to an owner, environment, and connection role, and revokes retired environments', async () => {
-    const f = fixture();
-    const environment = await f.environments.prepare('alice', 'sess_1', { type: 'self_hosted', workspace_directory: '/workspace' });
-    if (environment.type === 'none') throw new Error('Expected a self-hosted environment');
-    parseAgentsContract('Environment', await f.environments.retrieve('alice', environment.id));
-    const connection = await f.environments.executorConnection('alice', environment.id);
-    await expect(f.environments.authenticate(connection.executor_key, environment.id, 'harness')).rejects.toMatchObject({ status: 401 });
-    await expect(f.environments.authenticate(connection.executor_key, 'env_another', 'executor')).rejects.toMatchObject({ status: 401 });
-    await expect(f.environments.retrieve('bob', environment.id)).rejects.toMatchObject({ status: 404 });
-    await expect(f.environments.authenticate(`${connection.executor_key}x`, environment.id, 'executor')).rejects.toMatchObject({ status: 401 });
-    expect((await f.environments.authenticate(connection.executor_key, environment.id, 'executor')).ownerId).toBe('alice');
-    await f.environments.retire('alice', environment.id);
-    await expect(f.environments.authenticate(connection.executor_key, environment.id, 'executor')).rejects.toMatchObject({ status: 401 });
-  });
-
+describe('local managed worker relay', () => {
   it('connects the stock Codex executor and harness through the encrypted relay without model calls', async () => {
-    const f = fixture();
     const temporary = await mkdtemp(join(tmpdir(), 'rat-executor-conformance-'));
     const children: ChildProcessWithoutNullStreams[] = [];
     let address = '';
-    const environment = await f.environments.prepare('alice', 'sess_1', { type: 'self_hosted', workspace_directory: temporary });
-    if (environment.type === 'none') throw new Error('Expected a self-hosted environment');
-    const relay = createEnvironmentRelay({ environments: f.environments, publicURL: () => address, healthEnvironmentId: environment.id });
+    const environmentId = 'env_localfixture';
+    const identity = { ownerId: 'alice', environmentId, role: 'executor' as const };
+    const environment = { id: environmentId, type: 'self_hosted' as const, workspace_directory: temporary, capability_directories: [], remote_url: '' };
+    const credentials = { executor: environmentToken(identity, 'executor-secret'), harness: environmentToken({ ...identity, role: 'harness' }, 'harness-secret') };
+    let connected = false;
+    const relay = createEnvironmentRelay({ publicURL: () => address, healthEnvironmentId: environment.id, environments: {
+      authenticate: async (token, id, role) => { if (id !== environment.id || token !== credentials[role]) throw new Error('Invalid local test credential'); return { ...identity, role }; },
+      connection: async (_identity, _registration, value) => { connected = value; },
+    } });
     relay.server.listen(0, '127.0.0.1');
     await once(relay.server, 'listening');
     const bound = relay.server.address();
@@ -77,7 +33,6 @@ describe('self-hosted execution relay', () => {
     address = `http://127.0.0.1:${bound.port}`;
     try {
       expect((await fetch(`${address}/health`)).status).toBe(503);
-      const credentials = f.secrets.get(environment.id)!;
       const env = { PATH: process.env.PATH, HOME: temporary, CODEX_HOME: temporary, RUST_LOG: 'error', CODEX_API_KEY: credentials.executor };
       const executor = spawn((process.env.CODEX_CONFORMANCE_BINARY ?? resolve('node_modules/.bin/codex')), ['exec-server', '--remote', address, '--environment-id', environment.id], { env, detached: true });
       children.push(executor);
@@ -86,11 +41,11 @@ describe('self-hosted execution relay', () => {
       executor.stderr.on('data', (bytes: Buffer) => { diagnostic = (diagnostic + bytes.toString()).slice(-2000); });
       executor.stdout.resume();
       for (let attempt = 0; attempt < 100; attempt++) {
-        if ((await f.environments.retrieve('alice', environment.id)).status === 'connected') break;
+        if (connected) break;
         if (executor.exitCode !== null) throw new Error(`Executor exited: ${diagnostic.replaceAll(credentials.executor, '[redacted]')}`);
         await delay(50);
       }
-      expect((await f.environments.retrieve('alice', environment.id)).status).toBe('connected');
+      expect(connected).toBe(true);
       expect((await fetch(`${address}/health`)).status).toBe(200);
       const fileOperation = { registryURL: address, environmentId: environment.id, harnessKey: credentials.harness, workspace: temporary, binary: (process.env.CODEX_CONFORMANCE_BINARY ?? resolve('node_modules/.bin/codex')) };
       expect(await codexEnvironmentFiles({ ...fileOperation, operation: { operation: 'write', path: '/workspace/answer.bin', data: 'AP+A' } })).toEqual({ path: '/workspace/answer.bin', size_bytes: 3 });

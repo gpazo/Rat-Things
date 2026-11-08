@@ -31,7 +31,7 @@ export async function createSource(model: string) {
   const templates = new EnvironmentTemplateService({ store });
   const unsupported = async (): Promise<never> => { throw new Error('This source fixture does not use environment credentials or native file operations.'); };
   const environments = new EnvironmentService({ store, templates,
-    credentials: { create: unsupported, read: unsupported, revoke: unsupported }, managedFiles: unsupported });
+     managedFiles: unsupported });
   const agents = new AgentService({ store });
   const execution: SessionExecution = {
     prepare: (owner, id, environment, _agent, _vaults, _tools, resume, _placement, runtime) => environments.prepare(owner, id, environment, resume, runtime),

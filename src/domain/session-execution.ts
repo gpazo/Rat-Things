@@ -35,8 +35,6 @@ export interface SessionLaunch {
   agent: AgentSession['agent'];
   environment: AgentSession['environment'];
   input: AgentSessionInputMessageParam[];
-  /** A Secrets Manager reference, never the connection key itself. */
-  environmentCredential?: string;
   history?: AgentSessionItem[];
   fork?: Omit<import('./session-fork.js').SessionFork, 'history'>;
   mcp?: SessionMcpBinding[];

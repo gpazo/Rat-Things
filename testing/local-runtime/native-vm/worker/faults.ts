@@ -128,9 +128,7 @@ async function configuration(mode: 'once' | 'interrupted'): Promise<LocalStartRe
   const ownerId = 'native-fault-acceptance';
   const store = new MemoryAgentsStore();
   const environments = new EnvironmentService({ store, templates: new EnvironmentTemplateService({ store }),
-    managedFiles: async () => { throw new Error('Fault acceptance exports through the native snapshot port'); }, credentials: {
-    create: async () => { throw new Error('No external credentials in native fault acceptance'); }, read: async () => { throw new Error('No external credentials'); }, revoke: async () => {},
-  } });
+    managedFiles: async () => { throw new Error('Fault acceptance exports through the native snapshot port'); }, });
   const environment = await environments.prepare(ownerId, sessionId, { type: 'openai_hosted', network: { access: 'disabled' },
     setup_commands: [{ command: `node -e "require('node:fs').appendFileSync('/workspace/setup-count','once');${mode === 'interrupted' ? 'process.exit(73)' : ''}"` }],
   });

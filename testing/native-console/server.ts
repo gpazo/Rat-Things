@@ -68,7 +68,7 @@ const sessions = new SessionService({ store, agents, execution, piCatalog: piMod
 const templates = new EnvironmentTemplateService({ store });
 // Real template resolution and stored environment state; no VM is provisioned.
 const environments = new EnvironmentService({ store, templates,
-  credentials: { create: async () => 'unused', read: async () => ({ harness: '', executor: '' }), revoke: async () => {} },
+
   managedFiles: async () => [],
   // Transfer uploads remain fixture ports; Session import resolves real environment settings.
   uploadedFiles: {

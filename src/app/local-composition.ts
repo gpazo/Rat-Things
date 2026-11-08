@@ -53,7 +53,6 @@ export function createLocalServices(options: {
   const agents = new AgentService({ store });
   const templates = new EnvironmentTemplateService({ store });
   const environments: EnvironmentService = new EnvironmentService({ store, templates,
-    credentials: { create: async () => { throw new Error('Self-hosted local connections are unavailable'); }, read: async () => { throw new Error('Local Vault is unavailable'); }, revoke: async () => {} },
     managedFiles: (owner, session, operation) => managed.files(owner, session, operation),
   });
   let native: LocalNativeService | undefined;

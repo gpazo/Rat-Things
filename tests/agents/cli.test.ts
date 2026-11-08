@@ -17,6 +17,14 @@ vi.mock('../../src/agents-client.js', () => ({ createAgentsClient: transport.cre
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 
 describe('standard Files CLI', () => {
+  it('does not advertise a cloud executor connection command', async () => {
+    const output = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    await runAgentsCli(['environments', '--help']);
+    const help = String(output.mock.calls[0]?.[0] ?? '');
+    expect(help).toContain('environments get ENVIRONMENT_ID');
+    expect(help).not.toContain('environments connect');
+  });
+
   it.each([
     [['files', 'list'], '/v1/files'],
     [['agents', 'list'], '/v1/agents'],

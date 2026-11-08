@@ -39,6 +39,7 @@ export function scheduleConfiguration(raw: unknown): ScheduleConfiguration {
   const overlap = raw.overlap ?? 'skip';
   if (overlap !== 'allow' && overlap !== 'skip') invalid('overlap must be allow or skip');
   const target = parseAgentsContract('SessionCreate', { agent_id: raw.agentId, environment: raw.environment, vault_ids: raw.vaultIds ?? [], input });
+  if (target.environment.type === 'self_hosted') invalid('Self-hosted environments are unavailable in schedules');
   if (!target.agent_id) invalid('agentId is required');
   if (raw.destinations !== undefined && (!Array.isArray(raw.destinations) || raw.destinations.some((entry) => !isRecord(entry) || !['source', 'teams', 'slack', 'none'].includes(String(entry.kind)) || Object.keys(entry).some((key) => key !== 'kind' && key !== 'route') || entry.route !== undefined && (typeof entry.route !== 'string' || entry.route.length > 512)))) invalid('Invalid destinations');
   return { ...(raw.runtime ? { runtime: raw.runtime as 'pi' | 'codex' } : {}), name, expression, ...(timezone ? { timezone } : {}), input, overlap, agentId: target.agent_id, environment: target.environment, vaultIds: target.vault_ids ?? [],

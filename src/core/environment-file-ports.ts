@@ -5,7 +5,7 @@ export type EnvironmentFileOperation =
   | { operation: 'write_abort'; path: string; uploadId: string }
   | { operation: 'read'; path: string; offset: number; length: number };
 
-/** Execution environment access is distinct from the agent harness and saved artifacts. */
+/** Private managed workspace file access, separate from the public artifact store. */
 export interface EnvironmentFileOperations {
-  execute(environmentId: string, credentialReference: string, operation: EnvironmentFileOperation): Promise<unknown>;
+  execute(operation: EnvironmentFileOperation): Promise<unknown>;
 }

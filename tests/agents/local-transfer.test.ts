@@ -13,7 +13,7 @@ it.each([undefined, 'bedrock-test-model'])('preflights, snapshots and resumes an
   const templates = new EnvironmentTemplateService({ store: f.store });
   const environments = new EnvironmentService({ store: f.store, templates, managedFiles: async () => [],
     uploadedFiles: { retrieve: async (_owner, id) => ({ id, object: 'file', filename: 'workspace', bytes: 100, created_at: 1, purpose: 'user_data', status: 'processed' }), reference: async () => ({ bucket: 'fixture', key: 'workspace', sha256: '0'.repeat(64) }) },
-    credentials: { create: async () => { throw new Error('no credentials'); }, read: async () => { throw new Error('no credentials'); }, revoke: async () => {} } });
+    });
   f.execution.prepare = (owner, id, input) => environments.prepare(owner, id, input);
   const source = await f.sessions.create('operator', { agent: { model: 'test' }, environment: { type: 'openai_hosted', setup_commands: [{ command: 'echo only-once' }],
     env: { GITHUB_TOKEN: '${GITHUB_TOKEN}', PROJECT_MODE: 'local-mode-fixture' } } });
@@ -71,7 +71,7 @@ it('rejects unavailable destination models before snapshot and rechecks them bef
   const observed = [...f.observations.values()][0]!;
   f.observations.set(observed.turn.id, { ...observed, turn: { ...observed.turn, status: 'completed', completed_at: 2 } });
   const environments = new EnvironmentService({ store: f.store, templates: new EnvironmentTemplateService({ store: f.store }),
-    credentials: { create: async () => { throw new Error('unused'); }, read: async () => { throw new Error('unused'); }, revoke: async () => {} } });
+    });
   const snapshot = vi.spyOn(f.sessions, 'snapshotForTransfer');
   let models = ['bedrock-test-model'];
   const posts = vi.fn();

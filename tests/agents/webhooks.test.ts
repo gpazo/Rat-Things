@@ -15,8 +15,6 @@ import { routeAgentsRequest } from '../../src/lambdas/agents-router.js';
 import { publicNetworkAddress } from '../../src/domain/network-address.js';
 import { AgentsApiError, parseAgentsContract } from '../../src/domain/agents-api-validation.js';
 import { agentsStreamJobs, agentsJobGroup } from '../../src/core/agents-outbox-planning.js';
-import type { StoredEnvironment } from '../../src/core/environment-service.js';
-import type { SessionStreamSnapshot } from '../../src/core/session-stream.js';
 
 function fixture() {
   let now = Math.floor(Date.now() / 1000);
@@ -157,23 +155,6 @@ describe('standard outbound Session webhooks', () => {
 });
 
 describe('committed Session transitions', () => {
-  it('records connection-required before waiting and includes executor connection coordinates only on creation', async () => {
-    const f = fixture(); await f.endpoint();
-    const environment: StoredEnvironment = { sessionId: 'sess_external', status: 'pending', credentialReference: 'secret:env', environment: {
-      id: 'env_external', type: 'self_hosted', remote_url: 'https://relay.example/agents/api', workspace_directory: '/workspace', capability_directories: [],
-    } };
-    await f.store.put({ ownerId: 'alice', id: 'env_external', collection: 'environments', createdAt: f.clock.now(), revision: 1, value: environment }, 0);
-    const created = await f.create();
-    const source = (await f.store.get<SessionState>('alice', 'sessions', created.id))!;
-    const state = { ...source.value, session: { ...source.value.session, id: 'sess_external', environment: environment.environment }, turns: source.value.turns.map((binding) => ({ ...binding, turn: { ...binding.turn, session_id: 'sess_external' } })) };
-    await f.store.put({ ...source, id: 'sess_external', value: state }, 0);
-    const snapshot = (await f.store.get<SessionStreamSnapshot>('alice', 'session_observations', 'sess_external'))!.value;
-    expect(snapshot.session).toMatchObject({ status: 'requires_action', required_actions: [{ type: 'environment_connection', environment_id: 'env_external' }] });
-    const deliveries = (await f.fanout()).filter(({ value }) => value.event.data.id === 'sess_external');
-    expect(deliveries.find(({ value }) => value.event.type === 'agent.session.created')?.value.event.data).toEqual({ id: 'sess_external', environment_id: 'env_external', environment_type: 'self_hosted', connect: { remote_url: 'https://relay.example/agents/api' } });
-    expect(deliveries.find(({ value }) => value.event.type === 'agent.session.action_required')?.value.event.data).toEqual({ id: 'sess_external', required_action: { type: 'environment_connection' } });
-    expect(deliveries.some(({ value }) => value.event.type === 'agent.session.in_progress')).toBe(false);
-  });
 
   it('preserves function-required and completed transitions between stream polls and isolates late subscribers', async () => {
     const f = fixture(); await f.endpoint(); const session = await f.create();

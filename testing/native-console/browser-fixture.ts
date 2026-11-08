@@ -115,7 +115,7 @@ export async function createBrowserFixture() {
           await call('browser_close', {});
           const turn = { ...binding.turn, status: 'completed' as const, completed_at: Math.floor(Date.now() / 1000) };
           const capture = new SessionArtifactCapture({ ownerId: owner, launch: { sessionId: session.id, turnId: id, agent: session.agent, environment: session.environment, input: [] },
-            files: { execute: async (_env, _credential, operation) => {
+            files: { execute: async (operation) => {
               if (operation.operation === 'list') return [{ path: '/workspace/outputs/browser.png', size_bytes: screenshot.length }];
               assert.equal(operation.operation, 'read'); if (operation.operation !== 'read') throw new Error('Unsupported file operation');
               assert.equal(operation.path, '/workspace/outputs/browser.png');

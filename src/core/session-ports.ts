@@ -63,7 +63,6 @@ export interface SessionExecution {
   subagents?(ownerId: string, session: AgentSession): Promise<SessionSubagentSnapshot[]>;
   environment?(ownerId: string, session: AgentSession): Promise<AgentSessionEnvironmentState | undefined>;
   close?(ownerId: string, session: AgentSession): Promise<void>;
-  checkInputConnection?(ownerId: string, session: AgentSession, turn: Turn): Promise<void>;
   prepare(ownerId: string, sessionId: string, environment: EnvironmentParam, agent: AgentSession['agent'], vaultIds: string[], tools?: AgentToolParam[], resumePreparation?: boolean, placement?: ExecutionBackend, runtime?: import('../domain/session-runtime.js').SessionRuntime): Promise<Environment>;
   start(ownerId: string, session: AgentSession, turn: SessionTurnBinding, history?: AgentSessionItem[], placement?: ExecutionBackend): Promise<void>;
   steer(ownerId: string, session: AgentSession, turnId: string, input: AgentSessionInputMessageParam[], operationId: string): Promise<void>;

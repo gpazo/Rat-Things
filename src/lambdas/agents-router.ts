@@ -105,10 +105,6 @@ async function dispatchAgentsRequest(request: Request, principal: ApiPrincipal, 
       if (!services.environments) throw new AgentsApiError(503, 'Environment service is unavailable.', 'service_unavailable');
       return json(200, await services.environments.retrieve(ownerId, parts[3]), requestId);
     }
-    if (parts[1] === 'agents' && parts[2] === 'environments' && parts[3] && parts[4] === 'connection' && parts.length === 5 && request.method === 'POST') {
-      if (!services.environments) throw new AgentsApiError(503, 'Environment service is unavailable.', 'service_unavailable');
-      return json(200, await services.environments.executorConnection(ownerId, parts[3]), requestId);
-    }
     if (parts[1] === 'agents' && parts[2] === 'environments' && parts[3] && parts[4] === 'files' && parts.length === 5) {
       if (!services.environments) throw new AgentsApiError(503, 'Environment service is unavailable.', 'service_unavailable');
       if (request.method === 'GET') return json(200, await services.environments.files(ownerId, parts[3], queryParameters(url.searchParams, { nullableLimit: true })), requestId);
@@ -240,7 +236,7 @@ async function routeSession(request: Request, principal: ApiPrincipal, parts: st
     if (method === 'POST') {
       const body = await requestBody(request);
       requireInferencePermission(principal, body, 'events');
-      await sessions.events(ownerId, id, body, request.headers.get('idempotency-key') ?? undefined, { waitForConnection: true, signal: request.signal, ...(authority ? { caller: authority } : {}) });
+      await sessions.events(ownerId, id, body, request.headers.get('idempotency-key') ?? undefined, authority ? { caller: authority } : undefined);
       return new Response(null, { status: 204, headers: requestId ? { 'x-request-id': requestId } : {} });
     }
     if (method === 'GET') {

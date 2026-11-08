@@ -30,7 +30,7 @@ async function fixture() {
     runs: { get: async (_owner, id) => { const value = runs.get(id); if (!value) throw new NotFoundError('missing'); return value; }, idFor: (_owner, key) => key, cancel: async () => run, submit },
     interaction: { events: async () => ({ runId: run.runId, active: true, ready: true, oldestSequence: 0, nextSequence: 0, events: [], pendingRequests: [] }), steer: async () => {}, interrupt: async () => {}, respond: async () => {} },
     artifacts: { getJson: async () => { throw new Error('Unexpected launch read'); }, putJson: async key => ({ bucket: 'private', key, sha256: 'fixture' }), getBytes: async () => new Uint8Array(), getStream: async () => { throw new Error('Unexpected stream'); } },
-    environments: { prepare: async () => ({ type: 'none' }), state: async () => { throw new Error('Unexpected state'); }, retire: async () => {}, launchReference: async () => { throw new Error('Unexpected credential'); }, managedLaunch: async () => ({}), attachManaged: async () => {} },
+    environments: { prepare: async () => ({ type: 'none' }), state: async () => { throw new Error('Unexpected state'); }, retire: async () => {}, managedLaunch: async () => ({}), attachManaged: async () => {} },
     vaults: { requireVaults: async () => {} }, tools: { prepare: async () => {}, launch: async () => [], close: async () => {} },
   });
   return { store, session, turn, state, run, runs, runtime, submit, stopped, repair, abort, execution };

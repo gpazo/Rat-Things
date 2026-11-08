@@ -18,7 +18,7 @@ export async function runAgentsCli(argv: string[]): Promise<boolean> {
   } });
   const [operation = 'list', id, childId, nestedId] = positionals;
   if (values.help) {
-    process.stdout.write('rat-things agents create|list|get|update|delete|models [ID] [--file request.json]\nrat-things sessions create|list|get|update|delete|fork|lineage|runtime|send|cancel|items|turns|artifacts|events|traces [ID]\nrat-things environments get|connect ENVIRONMENT_ID\nrat-things environments templates create|list|get|update|delete [ID] [--file request.json]\nrat-things vaults create|list|get|delete [ID] [--file request.json]\nrat-things sessions artifacts SESSION_ID [ARTIFACT_ID]\nrat-things sessions artifact-content|artifact-delete SESSION_ID ARTIFACT_ID [--output PATH]\nrat-things agents revisions AGENT_ID [REVISION]\nrat-things sessions configurations SESSION_ID [REVISION]\nrat-things sessions authorizations SESSION_ID [AUTHORIZATION_ID]\nrat-things sessions authorization-traces SESSION_ID [--output PATH]\nrat-things vaults revisions VAULT_ID [REVISION]\nrat-things vaults credential-revisions VAULT_ID CREDENTIAL_ID [REVISION]\nrat-things files create --file PATH [--purpose user_data]\nrat-things files list|get|delete|content [ID] [--output PATH]\nStart rat-things serve or console for local Sessions. For AWS, use --api-url with agents_api_base_url and --region with the deployment AWS region.\nSession creation accepts --runtime codex|pi --model MODEL --input TEXT, --agent-id ID, --stream, or a standard JSON request file. Runtime is fixed for each Session. Pi uses Bedrock and supports none or managed environments, function and MCP tools, text output, medium verbosity, auto tier, and no reasoning summary. Use agents models --runtime pi to discover supported models and settings, and sessions runtime ID to read the pinned runtime.\n');
+    process.stdout.write('rat-things agents create|list|get|update|delete|models [ID] [--file request.json]\nrat-things sessions create|list|get|update|delete|fork|lineage|runtime|send|cancel|items|turns|artifacts|events|traces [ID]\nrat-things environments get ENVIRONMENT_ID\nrat-things environments templates create|list|get|update|delete [ID] [--file request.json]\nrat-things vaults create|list|get|delete [ID] [--file request.json]\nrat-things sessions artifacts SESSION_ID [ARTIFACT_ID]\nrat-things sessions artifact-content|artifact-delete SESSION_ID ARTIFACT_ID [--output PATH]\nrat-things agents revisions AGENT_ID [REVISION]\nrat-things sessions configurations SESSION_ID [REVISION]\nrat-things sessions authorizations SESSION_ID [AUTHORIZATION_ID]\nrat-things sessions authorization-traces SESSION_ID [--output PATH]\nrat-things vaults revisions VAULT_ID CREDENTIAL_ID [REVISION]\nrat-things files create --file PATH [--purpose user_data]\nrat-things files list|get|delete|content [ID] [--output PATH]\nStart rat-things serve or console for local Sessions. For AWS, use --api-url with agents_api_base_url and --region with the deployment AWS region.\nSession creation accepts --runtime codex|pi --model MODEL --input TEXT, --agent-id ID, --stream, or a standard JSON request file. Runtime is fixed for each Session. Pi uses Bedrock and supports none or managed environments, function and MCP tools, text output, medium verbosity, auto tier, and no reasoning summary. Use agents models --runtime pi to discover supported models and settings, and sessions runtime ID to read the pinned runtime.\n');
     return true;
   }
   if (values.runtime !== undefined && !['codex', 'pi'].includes(values.runtime)) throw new Error('--runtime must be codex or pi');
@@ -125,16 +125,7 @@ export async function runAgentsCli(argv: string[]): Promise<boolean> {
     } else throw new Error(`Unknown sessions operation: ${operation}`);
   } else if (group === 'environments') {
     if (operation === 'get') json(await agents.environments.retrieve(requiredId()));
-    else if (operation === 'connect') {
-      const abort = new AbortController();
-      const stop = () => abort.abort();
-      process.once('SIGINT', stop); process.once('SIGTERM', stop);
-      try {
-        const { connectExecutor } = await import('./executor-connection.js');
-        await connectExecutor(client, requiredId(), { signal: abort.signal });
-      }
-      finally { process.removeListener('SIGINT', stop); process.removeListener('SIGTERM', stop); }
-    } else if (operation === 'templates') {
+    else if (operation === 'templates') {
       const templates = agents.environments.templates;
       if (id === 'create') json(await templates.create(parseAgentsContract('EnvironmentTemplateCreate', body)));
       else if (id === 'list' || !id) await jsonPage('/agents/environments/templates', parseAgentsContract('EnvironmentTemplateList', query));

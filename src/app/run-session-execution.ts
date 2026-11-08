@@ -36,7 +36,7 @@ export class RunSessionExecution implements SessionExecution {
     runs: Pick<RunService, 'get' | 'submit' | 'idFor' | 'cancel'>;
     interaction: Pick<AgentInteractionController, 'checkpoint' | 'startSessionTurn' | 'events' | 'steer' | 'interrupt' | 'respond'>;
     artifacts: Pick<ArtifactStore, 'getJson' | 'putJson' | 'getBytes' | 'getStream'>; vaults: Pick<VaultService, 'requireVaults'>;
-    environments: Pick<EnvironmentService, 'prepare' | 'state' | 'retire' | 'launchReference' | 'managedLaunch' | 'attachManaged'> & Partial<Pick<EnvironmentService, 'prepareFork'>>;
+    environments: Pick<EnvironmentService, 'prepare' | 'state' | 'retire' | 'managedLaunch' | 'attachManaged'> & Partial<Pick<EnvironmentService, 'prepareFork'>>;
     tools: Pick<SessionToolService, 'prepare' | 'launch' | 'close'> & Partial<Pick<SessionToolService, 'environmentLaunch' | 'forkTools'>>;
     handoffs?: WorkspaceHandoffService;
     store: AgentsStore;
@@ -102,7 +102,6 @@ export class RunSessionExecution implements SessionExecution {
     requireSessionBackend(this.options.placement, placement);
     await this.options.vaults.requireVaults(ownerId, vaultIds);
     if (environment.type === 'none' && agent.tools.some((tool) => tool.type === 'mcp' && (tool.transport.type === 'stdio' || tool.connection_origin === 'environment'))) throw new AgentsApiError(400, 'This MCP connection requires an execution environment.', 'invalid_request', 'agent.tools');
-    if (environment.type === 'self_hosted' && tools.some((tool) => tool.type === 'mcp' && tool.transport.type === 'stdio' && Object.keys(tool.transport.env ?? {}).length)) throw new AgentsApiError(400, 'Self-hosted stdio MCP accepts env_vars from the environment, not inline env values.', 'invalid_request', 'agent.tools.transport.env');
     const prepared = await this.options.environments.prepare(ownerId, sessionId, environment, resumePreparation, runtime);
     try {
       // The upstream managed stdio contract requires enabled network access,
@@ -122,19 +121,6 @@ export class RunSessionExecution implements SessionExecution {
 
   public async environment(ownerId: string, session: AgentSession) {
     return session.environment.type === 'none' ? undefined : this.options.environments.state(ownerId, session.environment.id);
-  }
-
-  public async checkInputConnection(ownerId: string, session: AgentSession, turn: Turn): Promise<void> {
-    if (session.environment.type !== 'self_hosted') return;
-    const acknowledged = async () => (await this.runtime.get(ownerId, session.id))?.value.snapshot?.turns.some((saved) => saved.turn.id === turn.id) ?? false;
-    if (await acknowledged()) return;
-    try { await this.options.environments.launchReference(ownerId, session.environment.id, turn.created_at + 300); }
-    catch (error) {
-      // Input may have reached the harness while the HTTP waiter read connection
-      // state. An observed Turn is stronger evidence than a later disconnect.
-      if (error instanceof AgentsApiError && ['environment_unavailable', 'environment_connection_timeout'].includes(error.code ?? '') && await acknowledged()) return;
-      throw error;
-    }
   }
 
   public async initialize(ownerId: string, session: AgentSession, placement: ExecutionBackend = 'microvm', history: AgentSessionItem[] = []): Promise<void> {
@@ -172,7 +158,6 @@ export class RunSessionExecution implements SessionExecution {
     if (activeRun && !isTerminal(activeRun.status)) {
       if (activeRun.agentsSession?.turnId === binding.turn.id) return;
       if (activeRun.status !== 'running' || !activeRun.execution || !this.options.interaction.startSessionTurn) throw new AgentsApiError(503, 'The session harness is not ready for input.', 'service_unavailable');
-      await this.checkInputConnection(ownerId, session, binding.turn);
       const target = { runId: activeRun.runId, execution: activeRun.execution };
       // Run heartbeats start before native initialization. Wait for the control
       // bridge's acknowledgement instead of submitting input into that gap.
@@ -187,7 +172,6 @@ export class RunSessionExecution implements SessionExecution {
     const ordinal = pi ? activeRun ? (runtime?.value.attempt?.ordinal ?? 0) + 1 : runtime?.value.attempt?.ordinal ?? 0 : 0;
     const runKey = pi ? `agents:${session.id}:attempt:${ordinal}` : this.key(session.id, binding.turn.id);
     const existing = await this.runById(ownerId, this.options.runs.idFor(ownerId, runKey));
-    const environmentCredential = session.environment.type === 'self_hosted' ? await this.options.environments.launchReference(ownerId, session.environment.id, existing ? undefined : binding.turn.created_at + 300) : undefined;
     const environmentCredentials = existing?.agentsSession ? undefined : await this.options.tools.environmentLaunch?.(ownerId, session);
     const savedFork = sessionState?.fork;
     const forkLaunch = savedFork ? (({ history: _history, ...fork }) => fork)(savedFork) : undefined;
@@ -202,7 +186,6 @@ export class RunSessionExecution implements SessionExecution {
       ...(!runtime && forkLaunch ? { fork: forkLaunch } : {}),
       mcp: await this.options.tools.launch(ownerId, session),
       ...(environmentCredentials ? { environmentCredentials } : {}),
-      ...(environmentCredential ? { environmentCredential } : {}),
       ...(session.environment.type === 'openai_hosted' ? await this.options.environments.managedLaunch(ownerId, session.environment.id) : {}),
     };
     const integration = (await this.options.store.get<SessionIntegrationState>(ownerId, 'session_integrations', session.id))?.value;
@@ -289,10 +272,7 @@ export class RunSessionExecution implements SessionExecution {
     // runtime may still point at the previous harness. Its terminal status is
     // not evidence that newly queued input failed before replacement dispatch.
     if (run?.agentsSession?.turnId !== turn.id && run) return { turn, requiredActions: [] };
-    if (!run) {
-      const environment = await this.environment(ownerId, session);
-      return { turn, requiredActions: environment?.type === 'self_hosted' && environment.status !== 'connected' ? [{ type: 'environment_connection', environment_id: environment.id }] : [] };
-    }
+    if (!run) return { turn, requiredActions: [] };
     const snapshot = run.status === 'running' && run.execution
       ? await this.options.interaction.events({ runId: run.runId, execution: run.execution }, 0, 100)
       : undefined;

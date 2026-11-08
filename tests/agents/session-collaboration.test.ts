@@ -22,10 +22,10 @@ async function fixture(rateLimit?: OwnerRateLimit) {
 it('accepts concurrent participant inputs in one order with actor-scoped retry receipts and trusted native attribution', async () => {
   const f = await fixture();
   await Promise.all([
-    f.sessions.events('operator', f.session.id, input('I disagree.'), 'same-key', { waitForConnection: false, caller: caller('alice') }),
-    f.sessions.events('operator', f.session.id, input('Try the other direction.'), 'same-key', { waitForConnection: false, caller: caller('bob') }),
+    f.sessions.events('operator', f.session.id, input('I disagree.'), 'same-key', { caller: caller('alice') }),
+    f.sessions.events('operator', f.session.id, input('Try the other direction.'), 'same-key', { caller: caller('bob') }),
   ]);
-  await f.sessions.events('operator', f.session.id, input('I disagree.'), 'same-key', { waitForConnection: false, caller: caller('alice') });
+  await f.sessions.events('operator', f.session.id, input('I disagree.'), 'same-key', { caller: caller('alice') });
   const activity = await f.sessions.activity('operator', f.session.id);
   expect(activity.inputs.map(receipt => receipt.sequence)).toEqual([1, 2, 3]);
   expect(activity.inputs.map(receipt => receipt.actor.id).sort()).toEqual(['alice', 'alice', 'bob']);
@@ -44,14 +44,14 @@ it('rejects membership removal before acceptance but keeps already accepted work
   const f = await fixture();
   await f.store.put({ ownerId: 'operator', collection: 'bindings', id: 'alice', revision: 1, createdAt: 1, value: {} }, 0);
   const authority: SessionCaller = { ...caller('alice'), observations: [{ ownerId: 'operator', collection: 'bindings', id: 'alice', revision: 1 }] };
-  await f.sessions.events('operator', f.session.id, input('Accepted first'), 'first', { waitForConnection: false, caller: authority });
+  await f.sessions.events('operator', f.session.id, input('Accepted first'), 'first', { caller: authority });
   await f.store.put({ ownerId: 'operator', collection: 'bindings', id: 'alice', revision: 2, createdAt: 1, value: { removed: true } }, 1);
-  await expect(f.sessions.events('operator', f.session.id, input('Removed first'), 'second', { waitForConnection: false, caller: authority })).rejects.toMatchObject({ code: 'conflict' });
+  await expect(f.sessions.events('operator', f.session.id, input('Removed first'), 'second', { caller: authority })).rejects.toMatchObject({ code: 'conflict' });
   await f.sessions.dispatch('operator', f.session.id);
   const snapshot = await f.sessions.activity('operator', f.session.id);
   expect(snapshot.inputs).toHaveLength(2);
   expect(snapshot.inputs.every(receipt => receipt.status === 'dispatched')).toBe(true);
-  await expect(f.sessions.events('operator', f.session.id, input('Expired'), 'third', { waitForConnection: false, caller: { ...caller('alice'), expiresAt: Date.now() - 1 } })).rejects.toMatchObject({ status: 401 });
+  await expect(f.sessions.events('operator', f.session.id, input('Expired'), 'third', { caller: { ...caller('alice'), expiresAt: Date.now() - 1 } })).rejects.toMatchObject({ status: 401 });
 });
 
 it('fences revocation during rate admission without a second authority read', async () => {
@@ -64,7 +64,7 @@ it('fences revocation during rate admission without a second authority read', as
   });
   const authority = { ...caller('alice'), observations: [{ ownerId: 'operator', collection: 'bindings', id: 'alice', revision: 1 }], revalidate };
   onAdmission = async () => { await f.store.put({ ...binding, revision: 2, value: { removed: true } }, 1); };
-  await expect(f.sessions.events('operator', f.session.id, input('Do not accept'), 'revoke-during-admission', { waitForConnection: true, caller: authority })).rejects.toMatchObject({ status: 403 });
+  await expect(f.sessions.events('operator', f.session.id, input('Do not accept'), 'revoke-during-admission', { caller: authority })).rejects.toMatchObject({ status: 403 });
   expect(await f.sessions.hasPendingFeedback('operator', f.session.id)).toBe(false);
   expect(f.execution.steer).not.toHaveBeenCalled();
 });
@@ -75,7 +75,7 @@ it('checks expiry after rate admission even with transactional authority observa
   await f.store.put({ ownerId: 'operator', collection: 'bindings', id: 'alice', revision: 1, createdAt: 1, value: {} }, 0);
   const authority = { ...caller('alice'), expiresAt: Date.now() + 60_000, observations: [{ ownerId: 'operator', collection: 'bindings', id: 'alice', revision: 1 }] };
   onAdmission = async () => { authority.expiresAt = Date.now() - 1; };
-  await expect(f.sessions.events('operator', f.session.id, input('Expired during admission'), 'expire', { waitForConnection: false, caller: authority })).rejects.toMatchObject({ status: 401 });
+  await expect(f.sessions.events('operator', f.session.id, input('Expired during admission'), 'expire', { caller: authority })).rejects.toMatchObject({ status: 401 });
   expect(await f.sessions.hasPendingFeedback('operator', f.session.id)).toBe(false);
 });
 
@@ -88,7 +88,7 @@ it('reuses successful rate admission on storage conflict and avoids a post-commi
   const authority = { ...caller('alice'), revalidate, observations: [{ ownerId: 'operator', collection: 'bindings', id: 'alice', revision: 1 }] };
   const get = vi.spyOn(f.store, 'get');
   const commit = vi.spyOn(f.store, 'commit').mockRejectedValueOnce(new AgentsApiError(409, 'Retry', 'conflict'));
-  await f.sessions.events('operator', f.session.id, input('Retry once'), 'retry', { waitForConnection: true, caller: authority });
+  await f.sessions.events('operator', f.session.id, input('Retry once'), 'retry', { caller: authority });
   expect(admit).toHaveBeenCalledTimes(1);
   expect(revalidate).toHaveBeenCalledTimes(2);
   expect(commit).toHaveBeenCalledTimes(2);
@@ -100,7 +100,7 @@ it('reuses successful rate admission on storage conflict and avoids a post-commi
 it('replays a coherent snapshot and cursor without model calls, and revokes visibility before backlog and while idle', async () => {
   const f = await fixture();
   const initial = await f.sessions.activity('operator', f.session.id);
-  await f.sessions.events('operator', f.session.id, input('Later'), 'later', { waitForConnection: false, caller: caller('bob') });
+  await f.sessions.events('operator', f.session.id, input('Later'), 'later', { caller: caller('bob') });
   const abort = new AbortController();
   let removed = false;
   const revalidate = vi.fn(async () => { if (removed) throw new AgentsApiError(403, 'Access removed.', 'forbidden'); });
@@ -124,7 +124,7 @@ it('durably accepts a burst without rewriting shared Session state and preserves
   await f.sessions.dispatch('operator', f.session.id);
   const before = (await f.store.get<SessionState>('operator', 'sessions', f.session.id))!;
   const contributors = Array.from({ length: 20 }, (_, index) => `person-${index}`);
-  await Promise.all(contributors.map(id => f.sessions.events('operator', f.session.id, input(id), id, { waitForConnection: false, caller: caller(id) })));
+  await Promise.all(contributors.map(id => f.sessions.events('operator', f.session.id, input(id), id, { caller: caller(id) })));
   expect((await f.store.get('operator', 'sessions', f.session.id))!.revision).toBe(before.revision);
   const pending = await f.sessions.activity('operator', f.session.id);
   expect(pending.pending_inputs).toHaveLength(20);
@@ -138,13 +138,13 @@ it('durably accepts a burst without rewriting shared Session state and preserves
   expect(final.inputs.slice(1).flatMap(receipt => receipt.message_ids).sort()).toEqual(messageIds);
   expect(final.inputs.slice(1).map(receipt => receipt.actor.id).sort()).toEqual(contributors.sort());
   expect(final.inputs.every(receipt => receipt.status === 'dispatched')).toBe(true);
-  await expect(f.sessions.events('operator', f.session.id, input('different'), 'person-0', { waitForConnection: false, caller: caller('person-0') })).rejects.toMatchObject({ code: 'idempotency_conflict' });
+  await expect(f.sessions.events('operator', f.session.id, input('different'), 'person-0', { caller: caller('person-0') })).rejects.toMatchObject({ code: 'idempotency_conflict' });
 });
 
 it('keeps accepted contributions visible as failed when the Session fails before dispatch', async () => {
   const f = await fixture();
   await f.sessions.dispatch('operator', f.session.id);
-  await f.sessions.events('operator', f.session.id, input('Still recorded'), 'failure-race', { waitForConnection: false, caller: caller('bob') });
+  await f.sessions.events('operator', f.session.id, input('Still recorded'), 'failure-race', { caller: caller('bob') });
   const state = (await f.store.get<SessionState>('operator', 'sessions', f.session.id))!;
   await f.store.put({ ...state, revision: state.revision + 1, value: { ...state.value, session: { ...state.value.session, status: 'failed' } } }, state.revision);
   await f.sessions.dispatch('operator', f.session.id);
@@ -159,7 +159,7 @@ it('keeps accepted contributions visible as failed when the Session fails before
 it('recovers materialized receipts after cleanup fails without replaying the batch', async () => {
   const f = await fixture();
   await f.sessions.dispatch('operator', f.session.id);
-  await f.sessions.events('operator', f.session.id, input('Retain my ID'), 'cleanup-race', { waitForConnection: false, caller: caller('bob') });
+  await f.sessions.events('operator', f.session.id, input('Retain my ID'), 'cleanup-race', { caller: caller('bob') });
   const remove = f.store.delete.bind(f.store);
   vi.spyOn(f.store, 'delete').mockImplementationOnce(async resource => { if (resource.collection === feedbackCollection(f.session.id)) throw new Error('lost cleanup'); return remove(resource); });
   await expect(f.sessions.dispatch('operator', f.session.id)).rejects.toThrow('lost cleanup');

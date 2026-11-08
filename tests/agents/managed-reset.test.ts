@@ -13,7 +13,7 @@ async function fixture() {
   const clock = { now: () => 100 };
   const store = new SessionEventStore(base, clock);
   const environments = new EnvironmentService({ store, clock, templates: new EnvironmentTemplateService({ store }), managedFiles: async () => [],
-    credentials: { create: async () => 'unused', read: async () => ({ harness: '', executor: '' }), revoke: async () => {} },
+
   });
   const sessions = new SessionService({ store, clock, agents: new AgentService({ store }), execution: {
     prepare: (owner, session, environment) => environments.prepare(owner, session, environment),

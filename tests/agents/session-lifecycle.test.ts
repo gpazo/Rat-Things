@@ -92,6 +92,17 @@ describe('Agents API session lifecycle through the OpenAI SDK', () => {
     expect((await f.api.sessions.update(session.id, { agent: { model: 'openai.gpt-6-sol', reasoning: { effort: null } } })).agent.reasoning.effort).toBe('medium');
   });
 
+  it('rejects the retained self-hosted API discriminator before preparation or persistence', async () => {
+    const f = fixture();
+    const prepare = vi.spyOn(f.execution, 'prepare');
+    await expect(f.api.sessions.create({ agent: { model: 'test' }, environment: { type: 'self_hosted', workspace_directory: '/workspace' }, input: 'Begin' }))
+      .rejects.toMatchObject({ status: 400, code: 'invalid_request', param: 'environment.type' });
+    expect(prepare).not.toHaveBeenCalled();
+    expect(await f.store.list('alice', 'session_preparations', {})).toMatchObject({ data: [], has_more: false });
+    expect(await f.store.list('alice', 'sessions', {})).toMatchObject({ data: [], has_more: false });
+    expect(await f.store.list('alice', 'environments', {})).toMatchObject({ data: [], has_more: false });
+  });
+
   it('serves owner-scoped traces, validates cursors and preserves captured steps after runtime removal', async () => {
     const f = fixture();
     const session = await f.api.sessions.create({ agent: { model: 'test' }, environment: { type: 'none' }, input: 'Start' });

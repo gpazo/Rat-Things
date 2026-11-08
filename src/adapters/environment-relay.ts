@@ -1,13 +1,12 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
-import type { EnvironmentService } from '../core/environment-service.js';
-import type { EnvironmentIdentity } from '../credentials/environment.js';
 import { AgentsApiError } from '../domain/agents-api-validation.js';
 import { relayStreamId } from '../domain/relay-frame.js';
-import type { EnvironmentFileOperation } from '../core/environment-file-ports.js';
 import { environmentDirectory } from '../domain/environment-files.js';
 import { decodeBase64, workspacePath } from '../domain/environment-planning.js';
+import type { EnvironmentIdentity } from '../credentials/environment.js';
+import type { EnvironmentFileOperation } from '../core/environment-file-ports.js';
 
 const securityProfile = 'noise_hybrid_ik_v1';
 interface PublicKey { suite: string; x25519_public_key: string; mlkem768_public_key: string }
@@ -18,9 +17,14 @@ interface Registration {
 }
 interface Ticket { registration: Registration; role: 'executor' | 'harness'; expires: number }
 
+export interface LocalRelayAuthority {
+  authenticate(token: string, environmentId: string, role: EnvironmentIdentity['role']): Promise<EnvironmentIdentity>;
+  connection(identity: EnvironmentIdentity, registrationId: string, connected: boolean): Promise<void>;
+}
+
 /** A rendezvous transport. The executor and harness perform end-to-end Noise authentication. */
 export function createEnvironmentRelay(options: {
-  environments: Pick<EnvironmentService, 'authenticate' | 'connection'>;
+  environments: LocalRelayAuthority;
   publicURL: (role?: 'executor' | 'harness') => string;
   now?: () => number;
   healthEnvironmentId?: string;

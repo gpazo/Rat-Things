@@ -11,7 +11,7 @@ function fixture(uploadBytes = 0) {
   const put = vi.spyOn(store, 'put');
   const reference = vi.fn(async () => ({ bucket: 'private', key: 'owned-input', sha256: 'fixture', bytes: uploadBytes, contentType: 'application/octet-stream' }));
   const service = new EnvironmentService({ store, templates: new EnvironmentTemplateService({ store }),
-    credentials: { create: async () => 'unused', read: async () => ({ harness: '', executor: '' }), revoke: async () => {} },
+
     managedFiles: async () => [], uploadedFiles: { reference, retrieve: async () => ({ id: 'file_input', object: 'file', purpose: 'user_data',
       filename: 'input.bin', bytes: uploadBytes, status: 'processed', created_at: 1 }) },
   });

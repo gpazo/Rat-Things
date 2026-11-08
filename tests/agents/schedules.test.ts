@@ -55,4 +55,12 @@ describe('Agent schedules', () => {
     await expect(f.service.create('operator', { ...f.config, input: '' })).rejects.toMatchObject({ status: 400 });
     expect(await f.service.create('operator', { ...f.config, destinations: [] })).toMatchObject({ destinations: [] });
   });
+  it('rejects self-hosted targets before creating a durable schedule', async () => {
+    const f = await fixture();
+    const before = await f.store.list('operator', 'schedules', {});
+    await expect(f.service.create('operator', { ...f.config, environment: { type: 'self_hosted', workspace_directory: '/workspace' } }))
+      .rejects.toMatchObject({ status: 400, code: 'invalid_request' });
+    expect(await f.store.list('operator', 'schedules', {})).toEqual(before);
+    expect(f.scheduler.upsert).not.toHaveBeenCalled();
+  });
 });

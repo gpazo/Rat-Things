@@ -9,7 +9,7 @@ const catalog = { object: 'list', data: [{ object: 'model', id: 'cloud-model' }]
 async function fixture(transport: typeof fetch) {
   const f = await integrationFixture();
   const environments = new EnvironmentService({ store: f.store, templates: new EnvironmentTemplateService({ store: f.store }),
-    credentials: { create: async () => { throw new Error('unused'); }, read: async () => { throw new Error('unused'); }, revoke: async () => {} } });
+    });
   const snapshot = vi.fn(async () => []);
   const modelsFetch = vi.fn(() => transport);
   const put = vi.spyOn(f.store, 'put');

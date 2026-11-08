@@ -18,7 +18,7 @@ async function fixture() {
   const sessions = new SessionService({ store, agents: new AgentService({ store }), execution: f.execution });
   const session = await sessions.create('operator', { agent_id: f.agent.id, environment: { type: 'none' }, input: 'Original' });
   await sessions.dispatch('operator', session.id);
-  await Promise.all(['alice', 'bob'].map(id => sessions.events('operator', session.id, input(id), 'same-key', { waitForConnection: false, caller: { actor: { id, kind: 'human' } } })));
+  await Promise.all(['alice', 'bob'].map(id => sessions.events('operator', session.id, input(id), 'same-key', { caller: { actor: { id, kind: 'human' } } })));
   const accepted = (await store.get<SessionState>('operator', 'sessions', session.id))!.value;
   const feedback = (await store.list<SessionFeedback>('operator', feedbackCollection(session.id), { limit: 100 })).data
     .sort((a, b) => a.value.acceptedAtMs - b.value.acceptedAtMs || a.id.localeCompare(b.id));
@@ -89,7 +89,7 @@ it.each([false, true])('keeps multiple message events in one receipt ordered whe
   const f = await integrationFixture();
   const session = await f.sessions.create('operator', { agent_id: f.agent.id, environment: { type: 'none' }, input: 'Original' });
   await f.sessions.dispatch('operator', session.id);
-  await f.sessions.events('operator', session.id, { events: [...input('first').events, ...input('second').events] }, 'batch', { waitForConnection: false });
+  await f.sessions.events('operator', session.id, { events: [...input('first').events, ...input('second').events] }, 'batch');
   const original = (await f.store.get<SessionState>('operator', 'sessions', session.id))!.value.turns[0]!;
   f.observations.set(original.turn.id, { turn: { ...original.turn, status: 'completed', started_at: 1, completed_at: 2 }, requiredActions: [] });
   const applied: string[] = [];
@@ -194,7 +194,7 @@ it('starts rehomed older input before steering a newer accepted input to that Tu
   // Close/rehome the first durable batch while its current Turn is still active.
   await f.sessions.dispatch('operator', f.session.id);
   f.observations.set(f.original.turn.id, { turn: f.completed, requiredActions: [] });
-  await f.sessions.events('operator', f.session.id, input('newer'), 'newer', { waitForConnection: false, caller: { actor: { id: 'carol', kind: 'human' } } });
+  await f.sessions.events('operator', f.session.id, input('newer'), 'newer', { caller: { actor: { id: 'carol', kind: 'human' } } });
   const queued = (await f.store.get<SessionState>('operator', 'sessions', f.session.id))!.value.turns.at(-1)!;
   expect(queued.turn.status).toBe('queued');
   await f.sessions.dispatch('operator', f.session.id);

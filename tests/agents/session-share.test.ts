@@ -106,7 +106,7 @@ it.each(['stage_reply', 'before_release', 'release_reply', 'activation_reply'] a
   expect(recovered?.map(item => item.id)).toEqual([expect.stringMatching(/^msg_/), 'command', 'answer']);
   expect(JSON.stringify(recovered)).toContain('Remember the goal');
   expect(JSON.stringify(recovered)).toContain('imported');
-  await f.sessions.events('destination', f.source.id, message, 'continue', { waitForConnection: false, caller: { actor: { id: 'bob', kind: 'human' } } });
+  await f.sessions.events('destination', f.source.id, message, 'continue', { caller: { actor: { id: 'bob', kind: 'human' } } });
   await f.sessions.dispatch('destination', f.source.id);
   expect(initialize.mock.calls[1]?.[3]).toEqual(recovered);
   expect(f.execution.start).toHaveBeenCalledTimes(1);
@@ -211,7 +211,7 @@ it('labels forged source identities and admission as imported while future input
   expect(before.sharedFrom?.admission).toMatchObject({ source: {
     provenance: { kind: 'imported', operation_id: plan.id }, evidence: { admitted: { actor: { id: manager.id } } },
   } });
-  await f.sessions.events('forged-target', f.source.id, message, futureKey, { waitForConnection: false, caller: { actor: manager } });
+  await f.sessions.events('forged-target', f.source.id, message, futureKey, { caller: { actor: manager } });
   vi.mocked(f.execution.start).mockClear();
   await f.sessions.dispatch('forged-target', f.source.id);
   const after = (await f.store.get<SessionState>('forged-target', 'sessions', f.source.id))!.value;

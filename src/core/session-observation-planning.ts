@@ -19,8 +19,7 @@ export function savedSessionObservation(state: SessionState, runtime: Pick<Store
   const observations = state.turns.map((binding) => {
     const saved = native?.turns.find((candidate) => candidate.turn.id === binding.turn.id);
     const turn = terminalTurn(binding.turn) ? binding.turn : saved?.turn ?? binding.turn;
-    const requiredActions = terminalTurn(turn) ? [] : saved ? (native?.requiredActions ?? []).filter((action) => action.type === 'function_call' && action.turn_id === turn.id)
-      : environmentState && environmentState.type === 'self_hosted' && environmentState.status !== 'connected' && !binding.cancelRequested ? [{ type: 'environment_connection' as const, environment_id: environmentState.id }] : [];
+    const requiredActions = terminalTurn(turn) ? [] : saved ? (native?.requiredActions ?? []).filter((action) => action.type === 'function_call' && action.turn_id === turn.id) : [];
     return { turn, requiredActions };
   });
   const current = environmentState?.status === 'failed' && !environment?.retired ? { ...state, session: { ...state.session, status: 'failed' as const, error: 'The execution environment is unavailable. Create a new session.' } } : state;

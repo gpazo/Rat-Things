@@ -1,10 +1,8 @@
-import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { AgentSessionEnvironmentState, Environment, EnvironmentInfo, EnvironmentParam } from '../domain/agents-api.js';
 import { AgentsApiError, parseAgentsContract, resourceNotFound } from '../domain/agents-api-validation.js';
-import { absolutePath, workspacePath, decodeBase64 } from '../domain/environment-planning.js';
+import { workspacePath, decodeBase64 } from '../domain/environment-planning.js';
 import { environmentDirectory, environmentFilePage } from '../domain/environment-files.js';
-import type { EnvironmentFileOperations } from './environment-file-ports.js';
-import { environmentTokenIdentity, type EnvironmentCredentialStore, type EnvironmentIdentity } from '../credentials/environment.js';
 import type { AgentResource, AgentsClock, AgentsIds, AgentsStore } from './agents-ports.js';
 import type { EnvironmentTemplateService } from './environment-template-service.js';
 import { publicTemplate, type HostedEnvironmentConfiguration } from '../domain/environment-planning.js';
@@ -16,7 +14,6 @@ import { planManagedReadiness, type ManagedSandboxGeneration } from './managed-e
 export interface StoredEnvironment {
   environment: Exclude<Environment, { type: 'none' }>;
   sessionId: string;
-  credentialReference?: string;
   configuration?: HostedEnvironmentConfiguration;
   hostedFiles?: SessionLaunch['hostedFiles'];
   hostedSkills?: SessionLaunch['hostedSkills'];
@@ -29,9 +26,7 @@ export interface StoredEnvironment {
   piWorkspace?: SessionLaunch['piWorkspace'];
   resetCount?: number;
   status: EnvironmentInfo['status'];
-  registrationId?: string;
   connectedUntil?: number;
-  connectedAt?: number;
   retired?: boolean;
 }
 
@@ -43,7 +38,7 @@ export class ManagedEnvironmentAuthorityLostError extends Error {
 export class EnvironmentService {
   private readonly clock: AgentsClock;
   private readonly ids: AgentsIds;
-  public constructor(private readonly options: { store: AgentsStore; credentials: EnvironmentCredentialStore; fileOperations?: EnvironmentFileOperations; fileContent?: (ownerId: string, fileId: string) => Promise<Uint8Array>; relayURL?: string; clock?: AgentsClock; ids?: AgentsIds;
+  public constructor(private readonly options: { store: AgentsStore; fileContent?: (ownerId: string, fileId: string) => Promise<Uint8Array>; clock?: AgentsClock; ids?: AgentsIds;
     templates?: Pick<EnvironmentTemplateService, 'resolve'>;
     uploadedFiles?: Pick<FileService, 'reference' | 'retrieve'>;
     skills?: Pick<SkillService, 'reference'>;
@@ -52,11 +47,11 @@ export class EnvironmentService {
   }) {
     this.clock = options.clock ?? { now: () => Math.floor(Date.now() / 1000) };
     this.ids = options.ids ?? { next: (prefix) => `${prefix}_${randomUUID().replaceAll('-', '')}` };
-    if (options.relayURL && new URL(options.relayURL).protocol !== 'https:') throw new Error('Environment relay URL must use HTTPS');
   }
 
   public async prepare(ownerId: string, sessionId: string, input: EnvironmentParam, resumePreparation = false, runtime: import('../domain/session-runtime.js').SessionRuntime = 'codex'): Promise<Environment> {
     if (input.type === 'none') return input;
+    if (input.type === 'self_hosted') throw new AgentsApiError(400, 'Self-hosted environments are unavailable.', 'invalid_request', 'environment.type');
     const environmentId = resumePreparation ? `env_${createHash('sha256').update(sessionId).digest('hex').slice(0, 32)}` : this.ids.next('env');
     const previous = resumePreparation ? await this.options.store.get<StoredEnvironment>(ownerId, 'environments', environmentId) : undefined;
     if (previous) return previous.value.environment;
@@ -88,14 +83,7 @@ export class EnvironmentService {
       await this.options.store.put<StoredEnvironment>({ id, ownerId, collection: 'environments', createdAt: now, revision: 1, value: { environment, sessionId, configuration, hostedFiles, hostedSkills, status: 'pending' } }, 0);
       return environment;
     }
-    if (!this.options.relayURL) throw new AgentsApiError(503, 'The environment relay is not configured.', 'environment_unavailable', 'environment');
-    absolutePath(input.workspace_directory, 'environment.workspace_directory');
-    (input.capability_directories ?? []).forEach((path) => absolutePath(path, 'environment.capability_directories'));
-    const id = environmentId;
-    const environment: Environment = { id, type: 'self_hosted', workspace_directory: input.workspace_directory, capability_directories: input.capability_directories ?? [], remote_url: this.options.relayURL.replace(/\/$/, '') };
-    const credentialReference = await this.options.credentials.create(ownerId, id);
-    await this.options.store.put<StoredEnvironment>({ id, ownerId, collection: 'environments', createdAt: this.clock.now(), revision: 1, value: { environment, sessionId, credentialReference, status: 'pending' } }, 0);
-    return environment;
+    throw new Error('Unsupported environment type');
   }
 
   public async retrieve(ownerId: string, id: string): Promise<EnvironmentInfo> {
@@ -156,8 +144,8 @@ export class EnvironmentService {
 
   /** Private execution coordinates are derived from the owned environment, never an HTTP body. */
   public async workspaceDirectory(ownerId: string, id: string): Promise<string> {
-    const { environment } = (await this.required(ownerId, id)).value;
-    return environment.type === 'self_hosted' ? environment.workspace_directory : '/workspace';
+    await this.required(ownerId, id);
+    return '/workspace';
   }
 
   private async fileEnvironment(ownerId: string, id: string) {
@@ -169,7 +157,6 @@ export class EnvironmentService {
 
   private executeFiles(ownerId: string, value: StoredEnvironment, operation: import('./environment-file-ports.js').EnvironmentFileOperation) {
     if (value.environment.type === 'openai_hosted' && this.options.managedFiles) return this.options.managedFiles(ownerId, value.sessionId, operation);
-    if (value.credentialReference && this.options.fileOperations) return this.options.fileOperations.execute(value.environment.id, value.credentialReference, operation);
     throw new AgentsApiError(503, 'Environment files are unavailable.', 'environment_unavailable');
   }
 
@@ -225,51 +212,12 @@ export class EnvironmentService {
     });
   }
 
-  /** The authenticated application obtains only the restricted executor key. */
-  public async executorConnection(ownerId: string, id: string) {
-    const { value } = await this.required(ownerId, id);
-    if (value.retired || !value.credentialReference || value.environment.type !== 'self_hosted') resourceNotFound();
-    const credentials = await this.options.credentials.read(value.credentialReference);
-    return { environment_id: id, remote_url: this.options.relayURL!, executor_key: credentials.executor };
-  }
-
-  public async launchReference(ownerId: string, id: string, connectionDeadline?: number): Promise<string> {
-    const { value } = await this.required(ownerId, id);
-    if (value.retired || !value.credentialReference) resourceNotFound();
-    if (connectionDeadline !== undefined && ((value.connectedAt ?? 0) > connectionDeadline || this.status(value) !== 'connected' && this.clock.now() >= connectionDeadline)) throw new AgentsApiError(408, 'The execution environment did not connect within five minutes.', 'environment_connection_timeout');
-    if (this.status(value) !== 'connected') throw new AgentsApiError(503, 'Waiting for the execution environment to connect.', 'environment_unavailable');
-    return value.credentialReference;
-  }
-
-  public async authenticate(token: string, environmentId: string, role: EnvironmentIdentity['role']): Promise<EnvironmentIdentity> {
-    const identity = environmentTokenIdentity(token);
-    if (!identity || identity.environmentId !== environmentId || identity.role !== role) unauthorized();
-    const resource = await this.options.store.get<StoredEnvironment>(identity.ownerId, 'environments', environmentId);
-    if (!resource || resource.value.retired || !resource.value.credentialReference) unauthorized();
-    const credentials = await this.options.credentials.read(resource.value.credentialReference);
-    const digest = (value: string) => createHash('sha256').update(value).digest();
-    if (!timingSafeEqual(digest(token), digest(credentials[role]))) unauthorized();
-    return identity;
-  }
-
-  /** A lease makes process death visible even when a disconnect notification cannot be written. */
-  public async connection(identity: EnvironmentIdentity, registrationId: string, connected: boolean): Promise<void> {
-    await this.update(identity.ownerId, identity.environmentId, (value) => {
-      if (value.retired) resourceNotFound();
-      if (!connected && value.registrationId !== registrationId) return value;
-      return { ...value, registrationId, status: connected ? 'connected' : 'disconnected', connectedUntil: connected ? this.clock.now() + 45 : 0,
-        ...(connected ? { connectedAt: value.registrationId === registrationId && value.connectedAt !== undefined ? value.connectedAt : this.clock.now() } : {}),
-      };
-    });
-  }
-
   public async retire(ownerId: string, id: string): Promise<void> {
     const { value } = await this.required(ownerId, id);
     if (!value.retired) await this.update(ownerId, id, (value) => {
       if (value.handoff?.phase === 'committed' && (value.handoff.snapshotLease?.expiresAt ?? 0) > this.clock.now()) throw new AgentsApiError(409, 'The workspace is being copied.', 'conflict');
       return { ...value, retired: true, status: 'expired' };
     });
-    if (value.credentialReference) await this.options.credentials.revoke(value.credentialReference);
   }
 
   /** Private routing metadata for durable connection wake-ups. */
@@ -294,5 +242,3 @@ export class EnvironmentService {
     }
   }
 }
-
-function unauthorized(): never { throw new AgentsApiError(401, 'Invalid environment connection key.', 'invalid_api_key'); }

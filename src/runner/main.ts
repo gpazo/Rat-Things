@@ -24,7 +24,6 @@ import type { SandboxMode } from '../domain/contracts.js';
 import { InvalidStateTransitionError } from '../domain/state.js';
 import { parseRunRequest } from '../domain/validation.js';
 import type { SessionLaunch } from '../domain/session-execution.js';
-import { environmentTokenIdentity, parseEnvironmentCredentials } from '../credentials/environment.js';
 import { CodexExecutionError } from './codex-app-server.js';
 import type { AgentExecution } from './agent-driver.js';
 import { driverFor } from './agent-driver.js';
@@ -56,7 +55,6 @@ import { SessionRuntimeJournal } from './session-runtime-journal.js';
 import { SessionArtifactCapture } from '../core/session-artifact-capture.js';
 import { EnvironmentService, ManagedEnvironmentAuthorityLostError } from '../core/environment-service.js';
 import { AgentsApiError } from '../domain/agents-api-validation.js';
-import { SecretsEnvironmentCredentials } from '../adapters/secrets-environment-credentials.js';
 import { bindHostedWorkspace, prepareHostedEnvironment } from './hosted-environment.js';
 import { planCodexLaunch } from './agent-planning.js';
 import { codexEnvironmentFiles } from '../adapters/codex-environment-files.js';
@@ -216,7 +214,7 @@ export async function runAgentWorker(): Promise<void> {
       let adoptedCheckpoint: WorkspaceCheckpoint | undefined;
       if (launch.environment.type === 'openai_hosted') {
         const environmentId = launch.environment.id;
-        const environments = new EnvironmentService({ store: agentsStore, credentials: new SecretsEnvironmentCredentials(clients.secrets, requiredEnv('INTEGRATION_CREDENTIAL_NAME_PREFIX'), requiredEnv('INTEGRATION_CREDENTIAL_KMS_KEY_ARN')) });
+        const environments = new EnvironmentService({ store: agentsStore });
         managedStatus = (status) => environments.managedStatus(sessionOwner, environmentId, runId, status);
         const handoffs = checkpointEnabled ? new WorkspaceHandoffService({ store: agentsStore, enabled: true }) : undefined;
         const source = { runId, generation: executionGeneration };
@@ -251,8 +249,8 @@ export async function runAgentWorker(): Promise<void> {
         });
         launch = prepared.launch;
         if (!prepared.sandbox) throw new Error('Managed sandbox generation is missing');
-        environmentFiles = { execute: async (_environmentId, _reference, operation) => { const result = await codexEnvironmentFiles({ workspace: '/workspace', operation, binary: plan.binary, ...(launch.runtime?.kind === 'pi' && launch.environment.type === 'openai_hosted' ? { managed: { binaryArguments: hostedCodexArguments(['-c', 'features.plugins=false', 'app-server'], launch.environment.network), policy: { workspace: '/workspace', network: launch.environment.network, credentialProxy: false } } } : {}), ...(plan.identity ? { identity: plan.identity } : {}), signal: abort.signal }); if (launch.runtime?.kind === 'pi') await syncWorkspaceStorage(workspace); return result; } };
-        runnerControl?.setEnvironmentFiles((operation) => environmentFiles!.execute(environmentId, '', operation as import('../core/environment-file-ports.js').EnvironmentFileOperation));
+        environmentFiles = { execute: async (operation) => { const result = await codexEnvironmentFiles({ workspace: '/workspace', operation, binary: plan.binary, ...(launch.runtime?.kind === 'pi' && launch.environment.type === 'openai_hosted' ? { managed: { binaryArguments: hostedCodexArguments(['-c', 'features.plugins=false', 'app-server'], launch.environment.network), policy: { workspace: '/workspace', network: launch.environment.network, credentialProxy: false } } } : {}), ...(plan.identity ? { identity: plan.identity } : {}), signal: abort.signal }); if (launch.runtime?.kind === 'pi') await syncWorkspaceStorage(workspace); return result; } };
+        runnerControl?.setEnvironmentFiles((operation) => environmentFiles!.execute(operation as import('../core/environment-file-ports.js').EnvironmentFileOperation));
         managedReady = true;
         if (launch.runtime?.kind === 'pi') await syncWorkspaceStorage(workspace);
         await environments.managedReady(sessionOwner, environmentId, runId, prepared.sandbox, launch.runtime?.kind === 'pi' ? { sandboxId: prepared.sandbox.id, ...digests } : undefined);
@@ -370,13 +368,6 @@ export async function runAgentWorker(): Promise<void> {
           context: () => launch.runtime?.kind === 'pi' ? { kind: 'unresolved', reason: 'unavailable' } : activeMcpTurnContext(currentRuntimeSnapshot),
       } });
       driverControl = { ...driverControl, sessionMcp, ...(sessionEnvironmentCredentials ? { sessionEnvironmentCredentials } : {}) };
-      if (launch.environment.type === 'self_hosted') {
-        if (!launch.environmentCredential) throw new Error('Session environment credential is missing');
-        const credential = parseEnvironmentCredentials(await secrets.get(launch.environmentCredential));
-        const identity = environmentTokenIdentity(credential.harness);
-        if (identity?.ownerId !== current.ownerId || identity.environmentId !== launch.environment.id || identity.role !== 'harness') throw new Error('Session environment credential does not match its owner');
-        driverControl = { ...driverControl, sessionEnvironmentToken: credential.harness };
-      }
     }
     if (!piHost && driver.name === 'codex' && codexAuthMode() === 'bedrock') {
       if (current.agentsSession && current.execution?.backend === 'ec2') {

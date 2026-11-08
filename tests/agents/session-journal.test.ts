@@ -118,7 +118,7 @@ describe('durable session journal', () => {
     const capture = new SessionArtifactCapture({ ownerId: 'alice',
       launch: { sessionId: 'session', turnId: 'turn', input: [], agent: sessionAgent({ model: 'fixture' }, 'agent', 1),
         environment: { type: 'openai_hosted', id: 'env', capability_directories: [], files: [], plugins: [], skills: [], network: { access: 'enabled', allowed_domains: [] }, packages: { npm: [], python: [], system: [] } } },
-      files: { execute: async (_id, _secret, operation) => operation.operation === 'list' ? [{ path: '/workspace/outputs/result.txt', size_bytes: contents.length }] : { path: '/workspace/outputs/result.txt', size_bytes: contents.length, version: contents.toString(), data: contents.toString('base64') } },
+      files: { execute: async (operation) => operation.operation === 'list' ? [{ path: '/workspace/outputs/result.txt', size_bytes: contents.length }] : { path: '/workspace/outputs/result.txt', size_bytes: contents.length, version: contents.toString(), data: contents.toString('base64') } },
       artifacts: { putBytes: async (key, bytes, contentType) => {
         writes.push(Buffer.from(bytes));
         return { bucket: 'private', key, contentType, bytes: bytes.length, sha256: 'fixture' };

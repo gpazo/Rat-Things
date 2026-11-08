@@ -30,7 +30,7 @@ export class SessionArtifactCapture {
     const { launch, files } = this.options;
     if (launch.environment.type !== 'openai_hosted') return [];
     if (!files) throw new Error('Environment output capture is not configured');
-    const entries = await files.execute(launch.environment.id, '', { operation: 'list', path: '/workspace/outputs', missingOk: true });
+    const entries = await files.execute({ operation: 'list', path: '/workspace/outputs', missingOk: true });
     if (!Array.isArray(entries)) throw new Error('Invalid output directory');
     if (entries.reduce((total, entry) => total + (record(entry) ? Number(entry.size_bytes) : Infinity), 0) > 500 * 1024 * 1024) throw new Error('Published outputs exceed 500 MiB');
     const saved: SavedSessionArtifact[] = [];
@@ -41,7 +41,7 @@ export class SessionArtifactCapture {
       let offset = 0;
       let version: unknown;
       do {
-        const result = await files.execute(launch.environment.id, '', { operation: 'read', path: entry.path, offset, length: 1024 * 1024 });
+        const result = await files.execute({ operation: 'read', path: entry.path, offset, length: 1024 * 1024 });
         if (!record(result) || typeof result.data !== 'string' || typeof result.version !== 'string' || result.size_bytes !== entry.size_bytes || version !== undefined && result.version !== version) throw new Error('Output file changed while it was being saved');
         version = result.version;
         const bytes = Buffer.from(decodeBase64(result.data, 'output.data'));

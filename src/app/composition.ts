@@ -79,8 +79,6 @@ import { RunSessionExecution } from './run-session-execution.js';
 import { EnvironmentService } from '../core/environment-service.js';
 import { SessionToolService } from '../core/session-tool-service.js';
 import { SecretsSessionTools } from '../adapters/secrets-session-tools.js';
-import { RelayEnvironmentFiles } from '../adapters/relay-environment-files.js';
-import { SecretsEnvironmentCredentials } from '../adapters/secrets-environment-credentials.js';
 import { DynamoAgentsStore } from '../adapters/dynamo-agents-store.js';
 import { DynamoOwnerRateLimit } from '../adapters/dynamo-owner-rate-limit.js';
 import { ownerRateLimits } from './owner-rate-limits.js';
@@ -139,7 +137,6 @@ export function getAgentsApiServices() {
   const base = getBaseServices();
   const guardedStore = new GuardedAgentsStore(new DynamoAgentsStore(base.clients.dynamodb, requiredEnv('AGENTS_TABLE_NAME'), base.definitions));
   const store = new SessionEventStore(guardedStore);
-  const environmentCredentials = new SecretsEnvironmentCredentials(base.clients.secrets, requiredEnv('INTEGRATION_CREDENTIAL_NAME_PREFIX'), requiredEnv('INTEGRATION_CREDENTIAL_KMS_KEY_ARN'));
   const templates = new EnvironmentTemplateService({ store });
   const files = new FileService({ store, artifacts: base.artifacts });
   const skills = new SkillService({ store, artifacts: base.artifacts });
@@ -175,7 +172,7 @@ export function getAgentsApiServices() {
     tools: new SessionToolService({ store, vaults, secrets: new SecretsSessionTools(
       base.clients.secrets, requiredEnv('INTEGRATION_CREDENTIAL_NAME_PREFIX'), requiredEnv('INTEGRATION_CREDENTIAL_KMS_KEY_ARN'),
     ) }),
-    environments: new EnvironmentService({ store, credentials: environmentCredentials, templates, uploadedFiles: files, skills, fileContent: (owner, id) => files.bytes(owner, id),
+    environments: new EnvironmentService({ store, templates, uploadedFiles: files, skills, fileContent: (owner, id) => files.bytes(owner, id),
       ...(process.env.SESSION_CHECKPOINTS_ENABLED === 'true' ? { handoffs: new WorkspaceHandoffService({ store, enabled: true,
         runEnded: async id => { const run = await new DynamoRunStore(base.clients.dynamodb, requiredEnv('RUNS_TABLE_NAME')).get(id); return Boolean(run && isTerminal(run.status)); },
         sourceStopped: workspaceSourceStopped(id => new DynamoRunStore(base.clients.dynamodb, requiredEnv('RUNS_TABLE_NAME')).get(id), requiredEnv('AWS_REGION')) }) } : {}),
@@ -187,7 +184,6 @@ export function getAgentsApiServices() {
         if (run.status !== 'running' || !run.execution || !controller.environmentFiles) throw new AgentsApiError(503, 'The environment is unavailable.', 'environment_unavailable');
         return controller.environmentFiles({ runId: run.runId, execution: run.execution }, operation);
       },
-      ...(process.env.AGENTS_ENVIRONMENT_RELAY_URL ? { relayURL: process.env.AGENTS_ENVIRONMENT_RELAY_URL, fileOperations: new RelayEnvironmentFiles(environmentCredentials, process.env.AGENTS_ENVIRONMENT_RELAY_URL) } : {}),
     }),
     get sessions(): SessionService {
       agentsSessionService ??= new SessionService({

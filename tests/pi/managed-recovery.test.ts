@@ -19,7 +19,7 @@ it('preserves a Pi workspace and setup identity only after verified termination,
     const store = new MemoryAgentsStore();
     const stopped = vi.fn(async () => false);
     const handoffs = new WorkspaceHandoffService({ store, enabled: true, sourceStopped: stopped });
-    const environments = new EnvironmentService({ store, handoffs, credentials: { create: async () => '', read: async () => ({ executor: '', harness: '' }), revoke: async () => {} }, templates: new EnvironmentTemplateService({ store }), managedFiles: async () => [] });
+    const environments = new EnvironmentService({ store, handoffs,  templates: new EnvironmentTemplateService({ store }), managedFiles: async () => [] });
     const environment = await environments.prepare('owner', 'session', { type: 'openai_hosted', network: { access: 'disabled' }, files: [{ type: 'inline', path: '/workspace/input.txt', data: Buffer.from('original').toString('base64') }] });
     if (environment.type !== 'openai_hosted') throw new Error('Expected managed environment');
     const descriptor: PiModelDescriptor = { id: 'fixture', name: 'Fixture', provider: 'amazon-bedrock', api: 'bedrock-converse-stream', region: 'us-east-1', input: ['text'], reasoning: [], contextWindow: 1000, maxTokens: 100 };

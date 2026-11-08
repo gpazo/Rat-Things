@@ -49,7 +49,7 @@ async function services() {
   const store = new MemoryAgentsStore();
   const environments = new EnvironmentService({ store, templates: new EnvironmentTemplateService({ store }),
     managedFiles: async () => { throw new Error('Fixture does not read files'); },
-    credentials: { create: async () => { throw new Error('Fixture has no credentials'); }, read: async () => { throw new Error('Fixture has no credentials'); }, revoke: async () => {} } });
+    });
   const managed = new LocalManagedEnvironment({ store, environments, runtime: native.runtime, maxSessions: 2,
     hostCodex: developmentLocalCodexHost(native.directory, {}) });
   const execution = new LocalSessionExecution({ store, directory: native.directory, maxSessions: 2, managed, environment: {} });

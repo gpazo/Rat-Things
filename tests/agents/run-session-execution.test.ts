@@ -19,11 +19,8 @@ import { routeAgentsRequest } from '../../src/lambdas/agents-router.js';
 async function fixture(placement?: SessionPlacementPolicy) {
   const store = new MemoryAgentsStore();
   let now = 100;
-  const environments = new EnvironmentService({ store, clock: { now: () => now }, relayURL: 'https://relay.example/agents/api', credentials: {
-    create: async (_owner, id) => id,
-    read: async () => ({ executor: 'executor', harness: 'harness' }), revoke: async () => {},
-  }, templates: new EnvironmentTemplateService({ store }), managedFiles: async () => [] });
-  const environment = await environments.prepare('alice', 'sess', { type: 'self_hosted', workspace_directory: '/workspace' });
+  const environments = new EnvironmentService({ store, clock: { now: () => now }, templates: new EnvironmentTemplateService({ store }), managedFiles: async () => [] });
+  const environment = { type: 'none' as const };
   const session: AgentSession = { id: 'sess', object: 'agent.session', agent: sessionAgent({ model: 'fixture' }, 'agent', now), environment,
     created_at: now, last_active_at: now, status: 'idle', error: null, required_actions: [], usage: null, vault_ids: [], metadata: {} };
   const turn: Turn = { id: 'followup', object: 'agent.session.turn', session_id: 'sess', agent_id: 'agent', subagent_id: null, status: 'queued',
@@ -45,30 +42,12 @@ async function fixture(placement?: SessionPlacementPolicy) {
     artifacts: { getJson: async () => { throw new Error('Unexpected object read'); }, putJson, getBytes: async () => new Uint8Array(), getStream: async () => { throw new Error('Unexpected stream'); } },
     vaults: { requireVaults: async () => {} }, tools: { prepare: async () => {}, launch: async () => [], close: async () => {} },
   });
-  if (environment.type !== 'self_hosted') throw new Error('Unexpected environment');
-  const connect = () => environments.connection({ ownerId: 'alice', environmentId: environment.id, role: 'executor' }, `connection_${now}`, true);
-  return { execution, session, turn, run, getRun, submit, cancel, putJson, start, steer, interrupt, events, runtime, environments, connect, store, clock: { now: () => now }, now: (time: number) => { now = time; } };
+  return { execution, session, turn, run, getRun, submit, cancel, putJson, start, steer, interrupt, events, runtime, environments, store, clock: { now: () => now }, now: (time: number) => { now = time; } };
 }
 
 describe('persistent harness input admission', () => {
-  it('checks a dispatched batch follower connection when its caller waits for acceptance', async () => {
-    const f = await fixture();
-    await f.store.put({ id: f.session.id, ownerId: 'alice', collection: 'sessions', createdAt: 100, revision: 1, value: { session: f.session, turns: [], receipts: {}, deletedArtifacts: [] } }, 0);
-    f.execution.start = vi.fn(async () => {});
-    f.execution.observe = async (_owner, _session, turn) => ({ turn, requiredActions: [] });
-    f.execution.items = async () => [];
-    const sessions = new SessionService({ store: f.store, agents: new AgentService({ store: f.store }), execution: f.execution, clock: f.clock });
-    const body = { events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text: 'Continue' }] }] }] };
-    const caller = { actor: { id: 'alice', kind: 'human' as const } };
-    await sessions.events('alice', f.session.id, body, 'leader', { waitForConnection: false, caller });
-    await sessions.events('alice', f.session.id, body, 'follower', { waitForConnection: false, caller });
-    await sessions.dispatch('alice', f.session.id);
-    f.execution.checkInputConnection = vi.fn(async () => { throw new AgentsApiError(408, 'Connection timed out', 'environment_connection_timeout'); });
-    await expect(sessions.events('alice', f.session.id, body, 'follower', { waitForConnection: true, caller })).rejects.toMatchObject({ code: 'environment_connection_timeout' });
-    expect(f.execution.checkInputConnection).toHaveBeenCalledTimes(1);
-  });
   it('waits for the native control bridge even after the Run starts heartbeating', async () => {
-    const f = await fixture(); await f.connect();
+    const f = await fixture();
     f.events.mockResolvedValueOnce({ runId: f.run.runId, active: true, ready: false, oldestSequence: 0, nextSequence: 0, events: [], pendingRequests: [] });
     await expect(f.execution.start('alice', f.session, { turn: f.turn, input: [] })).rejects.toMatchObject({ status: 503, code: 'service_unavailable' });
     expect(f.start).not.toHaveBeenCalled();
@@ -141,7 +120,6 @@ describe('persistent harness input admission', () => {
   });
   it('sends only API message fields when continuing a worker with saved input', async () => {
     const f = await fixture();
-    await f.connect();
     const content = [{ type: 'input_text' as const, text: 'Continue' }];
     await f.execution.start('alice', f.session, { turn: f.turn, input: [
       { role: 'user', content, id: 'message', afterItemId: 'previous', acceptedOrdinal: 1 },
@@ -171,7 +149,6 @@ describe('persistent harness input admission', () => {
     const f = await fixture();
     f.run.status = 'succeeded';
     f.submit.mockResolvedValueOnce(f.run);
-    await f.connect();
     await f.execution.start('alice', f.session, { turn: f.turn, input: [] });
     expect(f.submit).toHaveBeenCalledExactlyOnceWith('alice', expect.objectContaining({
       agent: expect.objectContaining({ driver: 'codex' }),
@@ -218,24 +195,6 @@ describe('persistent harness input admission', () => {
     expect(f.steer).toHaveBeenCalledExactlyOnceWith(target, 'Continue', 'operation_1', input);
     expect(f.interrupt).toHaveBeenCalledExactlyOnceWith(target);
   });
-  it.each([false, true])('holds the HTTP acknowledgement for connection, with expired=%s', async (expired) => {
-    const f = await fixture();
-    await f.store.put({ id: f.session.id, ownerId: 'alice', collection: 'sessions', createdAt: 100, revision: 1, value: { session: f.session, turns: [], receipts: {}, deletedArtifacts: [] } }, 0);
-    const agents = new AgentService({ store: f.store });
-    const sessions = new SessionService({ store: f.store, agents, execution: f.execution, clock: f.clock, streamIntervalMs: 1 });
-    let inspected!: () => void; const inspecting = new Promise<void>((resolve) => { inspected = resolve; });
-    const check = f.execution.checkInputConnection.bind(f.execution);
-    f.execution.checkInputConnection = async (...args) => { inspected(); await check(...args); };
-    let settled = false;
-    const response = routeAgentsRequest(new Request('https://api.example/v1/agents/sessions/sess/events', { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': 'input' }, body: JSON.stringify({ events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text: 'Continue' }] }] }] }) }), iamApiPrincipal('alice'), { agents, sessions }).then((value) => { settled = true; return value; });
-    await Promise.race([inspecting, response.then(async (value) => { throw new Error(`Response settled before waiting: ${value.status} ${await value.text()}`); })]); expect(settled).toBe(false); expect(f.start).not.toHaveBeenCalled();
-    if (expired) f.now(401);
-    await f.connect();
-    expect((await response).status).toBe(expired ? 408 : 204);
-    await sessions.dispatch('alice', f.session.id);
-    expect(f.start).toHaveBeenCalledTimes(expired ? 0 : 1);
-    if (expired) expect((await sessions.turns('alice', f.session.id, {})).data[0]).toMatchObject({ status: 'failed', error: { code: 'connection_failed' } });
-  });
 
   it('validates the 256-character idempotency boundary before accepting input', async () => {
     const f = await fixture();
@@ -248,42 +207,7 @@ describe('persistent harness input admission', () => {
     expect((await sessions.turns('alice', f.session.id, {})).data).toHaveLength(1);
   });
 
-  it('waits for reconnection before sending a new Turn to an existing harness', async () => {
-    const f = await fixture();
-    await expect(f.execution.start('alice', f.session, { turn: f.turn, input: [] })).rejects.toMatchObject({ status: 503 });
-    expect(f.start).not.toHaveBeenCalled();
-    await f.connect();
-    await f.execution.start('alice', f.session, { turn: f.turn, input: [] });
-    expect(f.start).toHaveBeenCalledTimes(1);
-    expect(f.start).toHaveBeenCalledWith(expect.objectContaining({ runId: 'run' }), f.turn, [], { model: 'fixture', reasoning: { effort: null }, service_tier: 'auto' });
-  });
 
-  it('does not replay input when the executor connects after its deadline', async () => {
-    const f = await fixture(); f.now(401); await f.connect();
-    await expect(f.execution.start('alice', f.session, { turn: f.turn, input: [] })).rejects.toMatchObject({ status: 408, code: 'environment_connection_timeout' });
-    expect(f.start).not.toHaveBeenCalled();
-  });
-
-  it.each([false, true])('acknowledges saved work without replay after disconnect, with stopped harness=%s', async (stopped) => {
-    const f = await fixture();
-    await f.runtime.publish('alice', f.session.id, 'run', { ...initialSessionRuntime(f.session.id, f.session.agent.id, 'root'), turns: [{ threadId: 'root', nativeTurnId: 'native', turn: { ...f.turn, status: 'completed' }, items: [] }] });
-    f.now(401);
-    if (stopped) { f.run.status = 'succeeded'; await f.runtime.close('alice', f.session.id); }
-    await expect(f.execution.checkInputConnection('alice', f.session, f.turn)).resolves.toBeUndefined();
-    await expect(f.execution.start('alice', f.session, { turn: f.turn, input: [] })).resolves.toBeUndefined();
-    expect(f.start).not.toHaveBeenCalled();
-    await expect(f.execution.checkInputConnection('alice', f.session, { ...f.turn, id: 'another' })).rejects.toBeInstanceOf(AgentsApiError);
-  });
-
-  it('rechecks native acknowledgement when the executor disconnects during the HTTP wait', async () => {
-    const f = await fixture();
-    vi.spyOn(f.environments, 'launchReference').mockImplementation(async () => {
-      await f.runtime.publish('alice', f.session.id, 'run', { ...initialSessionRuntime(f.session.id, f.session.agent.id, 'root'), turns: [{ threadId: 'root', nativeTurnId: 'native', turn: { ...f.turn, status: 'in_progress' }, items: [] }] });
-      throw new AgentsApiError(408, 'Connection deadline elapsed', 'environment_connection_timeout');
-    });
-    await expect(f.execution.checkInputConnection('alice', f.session, f.turn)).resolves.toBeUndefined();
-    expect(f.start).not.toHaveBeenCalled();
-  });
 });
 
 
@@ -293,9 +217,6 @@ describe('Session observation before the first Run', () => {
     ['openai_hosted', 'disconnected', 'in_progress'],
     ['openai_hosted', 'connected', 'in_progress'],
     ['openai_hosted', 'failed', 'failed'],
-    ['self_hosted', 'pending', 'requires_action'],
-    ['self_hosted', 'disconnected', 'requires_action'],
-    ['self_hosted', 'connected', 'in_progress'],
   ] as const)('reports a %s environment that is %s as %s', async (type, status, sessionStatus) => {
     const f = await fixture();
     await f.store.delete((await f.runtime.get('alice', f.session.id))!);
@@ -315,7 +236,7 @@ describe('Session observation before the first Run', () => {
 
     expect(snapshot.session).toMatchObject({
       status: sessionStatus,
-      required_actions: sessionStatus === 'requires_action' ? [{ type: 'environment_connection', environment_id: environment.id }] : [],
+      required_actions: [],
       error: status === 'failed' ? 'The execution environment is unavailable. Create a new session.' : null,
     });
     expect(snapshot.environment).toMatchObject({ type, status,
@@ -383,7 +304,7 @@ it('launches with the fixed admission reference while applying the accepted Turn
 });
 
 it.each(['closing', 'fork'] as const)('does not continue an active harness when %s wins legacy baseline admission', async fence => {
-  const f = await fixture(); await f.connect();
+  const f = await fixture();
   const resource = { ownerId: 'alice', id: f.session.id, collection: 'sessions', createdAt: 100, revision: 1,
     value: { session: f.session, turns: [], receipts: {}, deletedArtifacts: [] } };
   await f.store.put(resource, 0);
@@ -405,7 +326,7 @@ it.each(['closing', 'fork'] as const)('does not continue an active harness when 
 });
 
 it('continues an active harness with the refreshed legacy Session after baseline contention', async () => {
-  const f = await fixture(); await f.connect();
+  const f = await fixture();
   const resource = { ownerId: 'alice', id: f.session.id, collection: 'sessions', createdAt: 100, revision: 1,
     value: { session: f.session, turns: [], receipts: {}, deletedArtifacts: [] } };
   await f.store.put(resource, 0);

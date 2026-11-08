@@ -61,6 +61,7 @@ export class SessionService {
       if (previous) return previous.value.session;
     }
     const input = parseAgentsContract('SessionCreate', raw);
+    if (input.environment.type === 'self_hosted') invalid('Self-hosted environments are unavailable.', 'environment.type');
     validateAgentMetadata(input.metadata);
     const messages = initialMessages(input.input);
     if (input.environment.type === 'none' && !messages.length && !restored?.importedHistory?.length) invalid('Sessions without an environment require initial input', 'input');
@@ -564,7 +565,7 @@ export class SessionService {
     return { id, object: 'agent.session.deleted', deleted: true };
   }
 
-  public async events(ownerId: string, id: string, raw: unknown, idempotencyKey?: string, response?: { waitForConnection: boolean; signal?: AbortSignal; caller?: SessionCaller }): Promise<void> {
+  public async events(ownerId: string, id: string, raw: unknown, idempotencyKey?: string, response?: { caller?: SessionCaller }): Promise<void> {
     const acceptedStarted = performance.now();
     const { events } = performancePhaseSync('SubmissionContractDuration', () => parseAgentsContract('SessionEvents', raw));
     if (idempotencyKey !== undefined && (!idempotencyKey || idempotencyKey.length > 256)) invalid('Idempotency-Key must contain 1–256 characters', 'Idempotency-Key');
@@ -573,12 +574,8 @@ export class SessionService {
     const key = hash(caller ? canonicalJson([caller.actor.id, requestKey]) : requestKey);
     const digest = hash(canonicalJson(events));
     if (caller && events.length && events.every((event): event is FeedbackEvent => event.type === 'agent.session.input.message')) {
-      const environmentType = await this.acceptFeedback(ownerId, id, events, key, digest, caller);
+      await this.acceptFeedback(ownerId, id, events, key, digest, caller);
       performanceCount('SubmissionAcceptedDuration', performance.now() - acceptedStarted);
-      if (response?.waitForConnection && environmentType === 'self_hosted') {
-        await this.flushFeedback(ownerId, id, true);
-        await performancePhase('InputConnectionDuration', () => this.waitForInputConnection(ownerId, id, key, response.signal));
-      }
       return;
     }
     if (events.some(event => event.type === 'agent.session.input.cancel')) await this.flushFeedback(ownerId, id, true);
@@ -612,30 +609,6 @@ export class SessionService {
       }
     }
     performanceCount('SubmissionAcceptedDuration', performance.now() - acceptedStarted);
-    if (response?.waitForConnection) await this.waitForInputConnection(ownerId, id, key, response.signal);
-  }
-
-  private async waitForInputConnection(ownerId: string, id: string, key: string, signal?: AbortSignal): Promise<void> {
-    if (!this.options.execution.checkInputConnection) return;
-    while (true) {
-      signal?.throwIfAborted();
-      const { value } = await this.required(ownerId, id);
-      const receipt = value.receipts[key];
-      if (!receipt) { await delay(Math.min(this.options.streamIntervalMs ?? 500, 2_000), undefined, { signal }); continue; }
-      if (receipt.failure) throw new AgentsApiError(receipt.failure.code === 'environment_connection_timeout' ? 408 : 400, receipt.failure.message, receipt.failure.code);
-      if (value.session.environment.type !== 'self_hosted') return;
-      try {
-        for (const command of (receipt.batchLeader ? value.receipts[receipt.batchLeader]?.commands : receipt.commands) ?? []) {
-          if (command.type !== 'start') continue;
-          const binding = value.turns.find(({ turn }) => turn.id === command.turnId) ?? resourceNotFound();
-          if (!binding.cancelRequested && !terminalTurn(binding.turn)) await this.options.execution.checkInputConnection(ownerId, value.session, binding.turn);
-        }
-        return;
-      } catch (error) {
-        if (!(error instanceof AgentsApiError) || error.code !== 'environment_unavailable' || error.status !== 503) throw error;
-      }
-      await delay(Math.min(this.options.streamIntervalMs ?? 500, 2_000), undefined, { signal });
-    }
   }
 
   public async hasPendingFeedback(ownerId: string, id: string): Promise<boolean> {

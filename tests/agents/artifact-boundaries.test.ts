@@ -25,7 +25,7 @@ function fixture(sizes: number[], changedVersion = false) {
   const capture = new SessionArtifactCapture({ ownerId: 'alice',
     launch: { sessionId: 'session', turnId: 'turn', input: [], agent: sessionAgent({ model: 'fixture' }, 'agent', 1),
       environment: { type: 'openai_hosted', id: 'env', capability_directories: [], files: [], plugins: [], skills: [], network: { access: 'disabled', allowed_domains: [] }, packages: { npm: [], python: [], system: [] } } },
-    files: { execute: async (_id, _secret, operation) => {
+    files: { execute: async (operation) => {
       if (operation.operation === 'list') return entries;
       if (operation.operation !== 'read') throw new Error('Unexpected file operation');
       return read(operation.path, operation.offset, operation.length);
