@@ -61,14 +61,14 @@ describe('published machine contracts', () => {
   });
 
   it('publishes the deployment Web Function server and caller base URL', async () => {
-    const openapi = deploymentOpenApi('https://agents.example.test/Prod/');
+    const openapi = deploymentOpenApi('https://agents.example.test/v1/');
     const paths = openapi.paths as Record<string, Record<string, { tags?: string[]; servers?: Array<{ url: string }> }>>;
     const agentOperations = Object.values(paths).flatMap((item) => Object.values(item))
       .filter((operation) => operation.tags?.includes('Agents'));
     expect(agentOperations.length).toBeGreaterThan(0);
-    expect(agentOperations.every((operation) => operation.servers?.[0]?.url === 'https://agents.example.test/Prod')).toBe(true);
-    expect(ratThingsDiscovery(undefined, 'https://agents.example.test/Prod/').api).toMatchObject({
-      agentsBaseUrl: 'https://agents.example.test/Prod/v1',
+    expect(agentOperations.every((operation) => operation.servers?.[0]?.url === 'https://agents.example.test')).toBe(true);
+    expect(ratThingsDiscovery(undefined, 'https://agents.example.test/v1/').api).toMatchObject({
+      agentsBaseUrl: 'https://agents.example.test/v1',
     });
     expect(ratThingsDiscovery().api).toMatchObject({ agentsBaseUrl: '/v1' });
   });

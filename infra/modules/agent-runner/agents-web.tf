@@ -97,6 +97,12 @@ resource "aws_cloudwatch_log_group" "agents_operator_web" {
   tags              = local.tags
 }
 
+resource "aws_cloudwatch_log_group" "agents_operator_web_local" {
+  name              = "${aws_cloudwatch_log_group.agents_operator_web.name}.local"
+  retention_in_days = var.log_retention_days
+  tags              = local.tags
+}
+
 resource "aws_iam_role" "agents_operator_web" {
   name               = "${local.name}-agents-operator-web"
   assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
@@ -113,9 +119,12 @@ data "aws_iam_policy_document" "agents_operator_web" {
   }
 
   statement {
-    sid       = "Logs"
-    actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
-    resources = ["${aws_cloudwatch_log_group.agents_operator_web.arn}:*"]
+    sid     = "Logs"
+    actions = ["logs:CreateLogStream", "logs:PutLogEvents"]
+    resources = [
+      "${aws_cloudwatch_log_group.agents_operator_web.arn}:*",
+      "${aws_cloudwatch_log_group.agents_operator_web_local.arn}:*",
+    ]
   }
 }
 
@@ -199,7 +208,7 @@ locals {
     }
   }
 
-  agents_web_shared_template = {
+  agents_web_shared_template = local.team_api_enabled ? {
     AWSTemplateFormatVersion = "2010-09-09"
     Resources = {
       SharedFunction = {
@@ -262,7 +271,7 @@ locals {
         }
       }
     }
-  }
+  } : null
 }
 
 resource "aws_cloudformation_stack" "agents_operator_web" {
@@ -276,6 +285,14 @@ resource "aws_cloudwatch_log_group" "agents_shared_web" {
   count = local.team_api_enabled ? 1 : 0
 
   name              = "/aws/lambda/web/${local.name}-agents-shared"
+  retention_in_days = var.log_retention_days
+  tags              = local.tags
+}
+
+resource "aws_cloudwatch_log_group" "agents_shared_web_local" {
+  count = local.team_api_enabled ? 1 : 0
+
+  name              = "${aws_cloudwatch_log_group.agents_shared_web[0].name}.local"
   retention_in_days = var.log_retention_days
   tags              = local.tags
 }

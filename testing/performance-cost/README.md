@@ -1,5 +1,7 @@
 # Collaboration cost from exported logs
 
+This calculator prices Event Function REPORT records. Web Function CPU and memory consumption require separate AWS usage exports; do not pass Agents Web Function logs as Event Function billing evidence. See the [export guide](export-guide.md).
+
 This tool estimates a measured variable collaboration subtotal from a bounded phase. It does not estimate a bill or a universal price per collaborator. Unknown components remain `null`, and the output lists costs that are excluded. Calculations and parsing are pure functions in `cost.ts`; file reads and output belong to `cli.ts`.
 
 Use Node 22 from the repository root. The CLI makes no network calls and reads no AWS credentials.
@@ -15,20 +17,19 @@ node --import tsx testing/performance-cost/cli.ts \
 
 ## Inputs
 
-A manifest identifies the exact phase window, functions, architecture and exported files. Paths in `files` are relative to the manifest. Combine paginated or overlapping exports for the same function in one source. Use separate sources for the API and outbox functions. Do not mix local logs into an AWS function source.
+A manifest identifies the exact phase window, functions, architecture and exported files. Paths in `files` are relative to the manifest. Combine paginated or overlapping exports for the same function in one source. Use separate sources for token issuance, control and outbox Event Functions. Do not mix local logs into an AWS function source.
 
 ```json
 {
   "schemaVersion": 1,
   "region": "us-west-2",
-  "phase": "20-viewers-idle",
+  "phase": "event-jobs-during-collaboration",
   "start": "2026-11-07T15:00:00Z",
   "end": "2026-11-07T15:05:00Z",
   "isolatedPhase": true,
   "completeWindowExport": true,
-  "viewerHours": 1.6666666666666667,
   "sources": [
-    { "function": "agents-api", "architecture": "arm64", "files": ["api-logs.json"] },
+    { "function": "agents-token-issuer", "architecture": "arm64", "files": ["api-logs.json"] },
     { "function": "agents-outbox", "architecture": "arm64", "files": ["outbox-logs.json"] }
   ]
 }
@@ -54,7 +55,7 @@ DynamoDB uses actual classified read and write capacity returned by the SDK. Tra
 
 S3 counts are logical GET/PUT calls. Extra SDK attempts are aggregate counts without request class or billing-status attribution. The request subtotal therefore has uncertainty when retries or errors occur. Attempted write payload bytes and consumed read bytes are usage diagnostics, not storage or transfer charges. Multipart stream uploads are outside this instrumentation.
 
-Request records also aggregate elapsed milliseconds for authorization, submission reads/validation/rate admission/commit/recovery, self-hosted connection waiting, and DynamoDB/S3 operations. Submission contract validation, configuration resolution and input planning have separate timers; caller validation remains `SubmissionValidationDuration`. Synchronous validation and planning keep their existing ordering and failure behavior. Operation timings include SDK retries and failed operations. Parallel calls and nested phases overlap: do not add all timers together as a decomposition of request wall time or billed duration. Compare each phase with its count and request latency. `OutboxRetryCount` records deferred work and recognized retryable errors; `OutboxFailureCount` records unclassified job or enqueue failures. Both retain failed-item delivery semantics, so an outbox scope marked `error` can represent a scheduled retry. Bounded `agents.outbox.retry` and `agents.outbox.failure` records provide classification without exception messages or payloads.
+Request records also aggregate elapsed milliseconds for authorization, submission reads/validation/rate admission/commit/recovery, and DynamoDB/S3 operations. Submission contract validation, configuration resolution and input planning have separate timers; caller validation remains `SubmissionValidationDuration`. Synchronous validation and planning keep their existing ordering and failure behavior. Operation timings include SDK retries and failed operations. Parallel calls and nested phases overlap: do not add all timers together as a decomposition of request wall time or billed duration. Compare each phase with its count and request latency. `OutboxRetryCount` records deferred work and recognized retryable errors; `OutboxFailureCount` records unclassified job or enqueue failures. Both retain failed-item delivery semantics, so an outbox scope marked `error` can represent a scheduled retry. Bounded `agents.outbox.retry` and `agents.outbox.failure` records provide classification without exception messages or payloads.
 
 Submission configuration and planning timers cover shared collaborator-message admission. Other event types follow the existing Session event path, and idempotent replays can return before those phases. Missing phase values do not mean zero work.
 

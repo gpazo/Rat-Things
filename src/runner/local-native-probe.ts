@@ -63,7 +63,7 @@ export class LocalNativeReleaseProbe implements NativeReleaseProbe {
           method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}', redirect: 'error', signal,
         });
         await denied.body?.cancel();
-        if (denied.ok) throw new Error('Native probe accepted an unauthenticated harness');
+        if (denied.status !== 401 && denied.status !== 403) throw new Error('Native probe did not confirm rejection of an unauthenticated harness');
         const marker = randomBytes(32).toString('base64');
         const path = '/workspace/.rat-native-release-probe';
         const result = await this.files({ binary: input.release.hostCodexPath,

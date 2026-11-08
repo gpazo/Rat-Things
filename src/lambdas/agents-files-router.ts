@@ -60,14 +60,10 @@ async function multipart(request: Request) {
   try { return await request.formData(); } catch { throw new AgentsApiError(400, 'A multipart upload is required.', 'invalid_request'); }
 }
 async function* fileChunks(file: File) {
-  const reader = file.stream().getReader();
-  try {
-    while (true) {
-      const next = await reader.read();
-      if (next.done) return;
-      yield next.value;
-    }
-  } finally { reader.releaseLock(); }
+  const chunkSize = 1024 * 1024;
+  for (let offset = 0; offset < file.size; offset += chunkSize) {
+    yield new Uint8Array(await file.slice(offset, offset + chunkSize).arrayBuffer());
+  }
 }
 function rejectFields(form: FormData, allowed: string[], repeated: string[] = []) {
   const names = new Set<string>();

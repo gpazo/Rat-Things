@@ -39,7 +39,6 @@ jobs:
       - run: npm run test:infra
       - name: Verify durable storage with LocalStack
         run: npm run test:e2e:localstack
-      - run: npm run test:e2e:relay-image
       - run: npm run test:e2e:microvm-image
       - run: npm run test:e2e:native-image
       - name: Archive verified Linux ARM64 runtime

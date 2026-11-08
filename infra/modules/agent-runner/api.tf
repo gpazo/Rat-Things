@@ -43,7 +43,6 @@ locals {
 
   control_routes = toset([
     "POST /v1/rat/spaces",
-    "GET /v1/models",
     "POST /v1/sessions/{sessionId}/publications",
     "GET /v1/webhooks",
     "POST /v1/webhooks",

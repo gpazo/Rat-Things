@@ -59,6 +59,7 @@ identity, retention, network policy, and operational limits for the environment 
 - **Browser scope:** an ordinary Session has no browser provider. The optional provider must be
   installed in its execution environment. The console has no live browser viewer or takeover;
   authenticated browser-profile restoration is not a supported continuity guarantee.
+- **Execution placement:** the harness and workspace run together locally or in managed AWS execution. Cloud Sessions cannot attach a command executor on another computer. Local work uses the configured subscription; Share transfers execution to AWS.
 - **Runtime differences:** Pi supports function tools, MCP, and durable subagents. Hosted skills
   and plugins, self-hosted environments, JSON-schema output, and built-in web search are unsupported.
   Model and reasoning settings must match the approved Pi catalog.

@@ -22,7 +22,7 @@ live('shares real execution and progress across verified team identities with re
   const endpoint = new URL(baseURL);
   const region = required('AWS_REGION');
   if (endpoint.protocol !== 'https:' || !endpoint.hostname.endsWith(`.lambda-web.${region}.on.aws`)) {
-    throw new Error('Use the disposable application-authenticated Lambda URL.');
+    throw new Error('Use the disposable application-authenticated Web Function endpoint.');
   }
   const fixture = JSON.parse(required('TEAM_OIDC_FIXTURE_JSON')) as TeamIdentityFixture;
   const identities = await createTeamIdentities(fixture, region, ['manager', 'alice', 'bob', 'viewer', 'follower', 'outsider']);

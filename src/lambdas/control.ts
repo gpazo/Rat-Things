@@ -14,7 +14,7 @@ import { cloudFrontSignedAccess } from '../adapters/cloudfront-publications.js';
 import { createAwsClients, publicationShareObjectKey } from '../adapters/aws-runtime.js';
 import { requiredEnv } from '../adapters/executors.js';
 import {
-  RAT_THINGS_OPENAPI,
+  deploymentOpenApi,
   RAT_THINGS_SCHEMAS,
   ratThingsDiscovery,
 } from '../app/discovery.js';
@@ -39,7 +39,7 @@ import { apiIngressContext } from '../identity/context.js';
 import { getAgentsApiServices } from '../app/composition.js';
 import { agentsErrorResponse, routeAgentsRequest } from './agents-router.js';
 import { AgentsApiError } from '../domain/agents-api-validation.js';
-import { errorResponse, iamPrincipal, jsonBody, principal, response, secretValue } from './runtime.js';
+import { errorResponse, iamPrincipal, jsonBody, principal, rawBody, response, secretValue } from './runtime.js';
 
 const awsClients = createAwsClients();
 const artifactClient = awsClients.s3;
@@ -54,12 +54,12 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       return response(200, { status: 'ok', service: 'rat-things' });
     }
     if (method === 'GET' && path === '/.well-known/rat-things') {
-      return response(200, ratThingsDiscovery(process.env.RAT_THINGS_DOCS_URL), {
+      return response(200, ratThingsDiscovery(process.env.RAT_THINGS_DOCS_URL, process.env.AGENTS_PUBLIC_BASE_URL), {
         'cache-control': 'public, max-age=300',
       });
     }
     if (method === 'GET' && path === '/openapi.json') {
-      return response(200, RAT_THINGS_OPENAPI, {
+      return response(200, deploymentOpenApi(process.env.AGENTS_PUBLIC_BASE_URL), {
         'cache-control': 'public, max-age=300',
       });
     }
@@ -109,18 +109,16 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
         const request = new Request(`https://control.invalid${path}${event.rawQueryString ? `?${event.rawQueryString}` : ''}`, {
           method,
           headers: Object.fromEntries(Object.entries(event.headers).filter((entry): entry is [string, string] => entry[1] !== undefined)),
-          ...(event.body && method !== 'GET' && method !== 'HEAD' ? { body: event.isBase64Encoded ? Buffer.from(event.body, 'base64') : event.body } : {}),
+          ...(event.body ? { body: rawBody(event) } : {}),
         });
         apiResponse = await routeAgentsRequest(request, iamApiPrincipal(owner), getAgentsApiServices(), event.requestContext.requestId, false);
       } catch (error) { apiResponse = agentsErrorResponse(error, event.requestContext.requestId); }
       const headers: Record<string, string> = {};
       apiResponse.headers.forEach((value, key) => { headers[key] = value; });
-      const binary = ['application/octet-stream', 'application/zip'].includes(apiResponse.headers.get('content-type') ?? '');
       return {
         statusCode: apiResponse.status,
         headers,
-        body: binary ? Buffer.from(await apiResponse.arrayBuffer()).toString('base64') : await apiResponse.text(),
-        ...(binary ? { isBase64Encoded: true } : {}),
+        body: await apiResponse.text(),
       };
     }
     const context = apiIngressContext(principal(event));

@@ -162,20 +162,6 @@ resource_is_gone_or_deleting() {
       status="$(aws ec2 describe-snapshots --region "$aws_region" --filters "Name=snapshot-id,Values=$resource_id" --query 'Snapshots[].SnapshotId' --output text)" || return 1
       [[ -z "$status" || "$status" == "None" ]]
       ;;
-    arn:aws:ecs:*:cluster/*)
-      status="$(aws ecs describe-clusters --region "$aws_region" --clusters "$resource_arn" --query 'clusters[0].status' --output text 2>/dev/null || true)"
-      [[ -z "$status" || "$status" == "None" || "$status" == "INACTIVE" ]]
-      ;;
-    arn:aws:ecs:*:task/*)
-      resource_path="${resource_arn##*:task/}"
-      cluster_name="${resource_path%%/*}"
-      status="$(aws ecs describe-tasks --region "$aws_region" --cluster "$cluster_name" --tasks "$resource_arn" --query 'tasks[0].lastStatus' --output text 2>/dev/null || true)"
-      [[ -z "$status" || "$status" == "None" || "$status" == "STOPPED" ]]
-      ;;
-    arn:aws:ecs:*:task-definition/*)
-      status="$(aws ecs describe-task-definition --region "$aws_region" --task-definition "$resource_arn" --query 'taskDefinition.status' --output text 2>/dev/null || true)"
-      [[ -z "$status" || "$status" == "None" || "$status" == "INACTIVE" || "$status" == "DELETE_IN_PROGRESS" ]]
-      ;;
     arn:aws:ec2:*:natgateway/*)
       resource_id="${resource_arn##*/}"
       status="$(aws ec2 describe-nat-gateways --region "$aws_region" --nat-gateway-ids "$resource_id" --query 'NatGateways[0].State' --output text 2>/dev/null || true)"

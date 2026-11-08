@@ -25,10 +25,10 @@ live('delivers a committed Session event to the deployment-owned webhook capture
     expect(typeof endpoint.signing_secret).toBe('string');
     const retrieved = await client.get<WebhookEndpoint>(`/webhooks/${endpoint.id}`);
     expect(Object.hasOwn(retrieved, 'signing_secret')).toBe(false);
-    // A disconnected environment with no input needs no harness or model call.
+    // An empty managed Session creates metadata without requesting model work.
     const session = await client.beta.agents.sessions.create({
       agent: { model: required('AWS_E2E_CODEX_MODEL_ID'), tools: [] },
-      environment: { type: 'self_hosted', workspace_directory: '/workspace' },
+      environment: { type: 'openai_hosted', network: { access: 'disabled' } },
     });
     sessionId = session.id;
     let captured: unknown;
@@ -75,7 +75,7 @@ live('retries a rejected webhook independently of another endpoint and retains i
     const ready = await client.post<WebhookEndpoint>('/webhooks', { body: { name: 'Disposable fanout proof', url: required('AWS_E2E_WEBHOOK_CAPTURE_URL'), events: ['agent.session.created'] } });
     endpoints.push(ready.id);
     const session = await client.beta.agents.sessions.create({ agent: { model: required('AWS_E2E_CODEX_MODEL_ID'), tools: [] },
-      environment: { type: 'self_hosted', workspace_directory: '/workspace' } });
+      environment: { type: 'openai_hosted', network: { access: 'disabled' } } });
     sessionId = session.id;
     let rejected: WebhookDelivery | undefined;
     await waitFor(async () => {

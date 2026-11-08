@@ -19,7 +19,7 @@ async function request(path: string, authenticated = true, body = '{}') {
   const result = await handler({ rawPath: path, headers: { 'content-type': 'application/json', 'x-runtime-owner': 'chosen-owner' },
     body, requestContext: { requestId: 'request-1', http: { method: 'POST' },
       ...(authenticated ? { authorizer: { iam: { userArn: 'arn:aws:iam::123456789012:user/operator' } } } : {}) },
-  } as APIGatewayProxyEventV2);
+  } as unknown as APIGatewayProxyEventV2);
   return { ...result, body: JSON.parse(result.body ?? '{}') };
 }
 

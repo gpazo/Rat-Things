@@ -1,6 +1,8 @@
-# Export boundaries for the AWS controller
+# Export cost data for the AWS controller
 
-Export after the workload and its Lambda invocations have finished. Client response headers, a cancelled HTTP body and a completed controller cleanup do not independently establish Lambda completion. Keep the workload artifact beside the exports and cost report so request outcomes and measurement gaps remain auditable.
+The existing calculator prices Lambda Event Functions from their REPORT records. It does not price Web Function CPU or memory consumption. Keep Web Function exports separate; report their cost as unmeasured until AWS usage measurements and regional rates are available. Never treat concurrent stream durations as independent billed environments.
+
+Export after the workload and its background Lambda invocations have finished. Client response headers, a cancelled HTTP body and a completed controller cleanup do not independently establish Lambda completion. Keep the workload artifact beside the exports and cost report so request outcomes and measurement gaps remain auditable.
 
 ## Select the scope
 
@@ -8,26 +10,26 @@ For the current controller, use the entire isolated matrix as the primary cost w
 
 A per-scenario report is useful only if adjacent scenarios have no overlapping invocations or outbox work. `scenarios[].startedAt`, `finishedAt` and `phases[].atUtc` are client boundaries, not proof of a server drain. Attribute a window as isolated only when unrelated work is absent. If that cannot be shown, use `isolatedPhase: false` and keep the result partial.
 
-Persistent observers open near `observers_connecting` and close during cleanup. One invocation can cover every round. A window from `round_N_prepared` to `round_N_complete` cannot isolate that round's actual billed duration. Do not allocate the invocation's cost by first-byte time or prorate its REPORT. Use a containing window, or label the narrow result partial and avoid marginal claims.
+Persistent observers open near `observers_connecting` and close during cleanup. One Web Function environment can serve several overlapping observers and requests. A window from `round_N_prepared` to `round_N_complete` does not isolate that round's CPU or memory consumption. Use a containing window, or label the narrow result partial and avoid marginal claims.
 
 Prepare an export interval that starts before the first setup request and ends after the last relevant server REPORT and outbox completion. Fetch it again after delayed log delivery. Use the same fixed interval when reconciling repeated exports; ingestion delay does not change an event's timestamp. Do not assume a fixed wait proves all requests completed. Retain timeout and failed-request evidence if completion never appears.
 
 ## Export complete events
 
-The deployment has three relevant functions. The controller's authenticated shared API uses `agents-shared`; its IAM operator setup uses `agents-api`; asynchronous work uses `agents-outbox`. Terraform names log groups `/aws/lambda/${local.name}-${each.key}`. Resolve the actual deployed names from existing deployment outputs. Do not substitute the code bundle name `agents-api` for the shared function's log group.
+The Agents API uses operator and shared Web Functions, whose log groups are `/aws/lambda/web/${local.name}-agents-operator` and `/aws/lambda/web/${local.name}-agents-shared`. Export their application logs and AWS consumption metrics separately. IAM bootstrap uses the `control` Event Function, token issuance uses `agents-token-issuer`, and asynchronous work uses `agents-outbox`. Event Function log groups use `/aws/lambda/${local.name}-${each.key}`. Verify names from the deployed resources.
 
 The following is an operator command template, not a command run by this review. Set the variables to the verified deployed log-group names, exact epoch-millisecond export interval and private output directory. Default AWS CLI pagination must remain enabled. Do not use `--no-paginate`, `--max-items`, a message filter or a query that drops event IDs/timestamps. Do not print raw exported messages into the report.
 
 ```sh
 umask 077
 aws logs filter-log-events --region us-west-2 \
-  --log-group-name "$COST_SHARED_LOG_GROUP" \
+  --log-group-name "$COST_CONTROL_LOG_GROUP" \
   --start-time "$COST_EXPORT_START_MS" --end-time "$COST_EXPORT_END_MS" \
-  --output json --no-cli-pager > "$COST_INPUT_DIR/shared.json"
+  --output json --no-cli-pager > "$COST_INPUT_DIR/control.json"
 aws logs filter-log-events --region us-west-2 \
-  --log-group-name "$COST_OPERATOR_LOG_GROUP" \
+  --log-group-name "$COST_ISSUER_LOG_GROUP" \
   --start-time "$COST_EXPORT_START_MS" --end-time "$COST_EXPORT_END_MS" \
-  --output json --no-cli-pager > "$COST_INPUT_DIR/operator.json"
+  --output json --no-cli-pager > "$COST_INPUT_DIR/issuer.json"
 aws logs filter-log-events --region us-west-2 \
   --log-group-name "$COST_OUTBOX_LOG_GROUP" \
   --start-time "$COST_EXPORT_START_MS" --end-time "$COST_EXPORT_END_MS" \
@@ -50,8 +52,8 @@ Use ISO timestamps with timezones for the exact analysis interval. It can equal 
   "isolatedPhase": false,
   "completeWindowExport": false,
   "sources": [
-    { "function": "REPLACE-agents-shared", "architecture": "arm64", "files": ["shared.json"] },
-    { "function": "REPLACE-agents-api", "architecture": "arm64", "files": ["operator.json"] },
+    { "function": "REPLACE-control", "architecture": "arm64", "files": ["control.json"] },
+    { "function": "REPLACE-agents-token-issuer", "architecture": "arm64", "files": ["issuer.json"] },
     { "function": "REPLACE-agents-outbox", "architecture": "arm64", "files": ["outbox.json"] }
   ]
 }

@@ -5,7 +5,7 @@ The command receives an environment variable containing a placeholder. The trust
 host replaces that placeholder with the credential only in HTTPS request headers
 sent to an allowed host.
 
-This guide uses a managed AWS environment. Local workspaces, `none` environments,
+This guide uses a managed AWS environment. Local workspaces and `none` environments
 do not support this environment-credential path.
 
 ## Create and attach the credential

@@ -36,6 +36,6 @@ async function invoke(authenticated: boolean): Promise<APIGatewayProxyStructured
     requestContext: { requestId: 'bootstrap', http: { method: 'POST' },
       ...(authenticated ? { authorizer: { iam: { userArn: 'arn:aws:iam::123456789012:user/operator' } } } : {}),
     },
-  } as APIGatewayProxyEventV2;
+  } as unknown as APIGatewayProxyEventV2;
   return await (handler as (event: APIGatewayProxyEventV2) => Promise<APIGatewayProxyStructuredResultV2>)(event);
 }

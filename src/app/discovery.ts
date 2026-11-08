@@ -10,7 +10,7 @@ export function deploymentOpenApi(agentsBaseUrl?: string): Record<string, unknow
   };
   if (!agentsBaseUrl) return document;
 
-  const serverUrl = withoutTrailingSlashes(agentsBaseUrl);
+  const serverUrl = agentsApiRoot(agentsBaseUrl);
   for (const pathItem of Object.values(document.paths)) {
     for (const [method, operation] of Object.entries(pathItem)) {
       if (isRecord(operation) && operation.tags instanceof Array && operation.tags.includes('Agents')) {
@@ -30,7 +30,7 @@ export function ratThingsDiscovery(docsUrl?: string, agentsBaseUrl?: string): Re
   const documentationRoot = withTrailingSlash(
     docsUrl ?? 'https://gpazo.github.io/Rat-Things/docs/',
   );
-  const agentsRoot = agentsBaseUrl ? withoutTrailingSlashes(agentsBaseUrl) : '';
+  const agentsRoot = agentsBaseUrl ? agentsApiRoot(agentsBaseUrl) : '';
   return {
     version: '1',
     service: 'rat-things',
@@ -89,8 +89,8 @@ export function ratThingsDiscovery(docsUrl?: string, agentsBaseUrl?: string): Re
   };
 }
 
-function withoutTrailingSlashes(value: string): string {
-  return value.replace(/\/+$/, '');
+function agentsApiRoot(value: string): string {
+  return value.replace(/\/+$/, '').replace(/\/v1$/, '');
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

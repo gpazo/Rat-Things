@@ -57,7 +57,9 @@ Expected log-group naming for a stack named `<prefix>-<environment>` is:
 
 ```text
 /aws/lambda/<name>-control
-/aws/lambda/<name>-agents-api
+/aws/lambda/<name>-agents-token-issuer
+/aws/lambda/web/<name>-agents-operator
+/aws/lambda/web/<name>-agents-shared
 /aws/lambda/<name>-agents-outbox
 /aws/lambda/<name>-dispatcher
 /aws/lambda/<name>-reconciler
@@ -70,6 +72,26 @@ Expected log-group naming for a stack named `<prefix>-<environment>` is:
 ```
 
 Use Terraform outputs/resource tags instead of guessing physical names.
+Web Functions also write regional lifecycle logs to the corresponding `.local`
+log group. Check both groups when diagnosing startup or environment termination.
+
+## Remove an older hybrid executor deployment
+
+Cloud `self_hosted` Sessions are unsupported. Before upgrading an installation
+that used them, cancel its active Turns, export any history you need, and delete
+those Sessions through the previous deployment. Deletion retires their relay
+credentials. Stop the local executor clients as well. True local Sessions and
+managed AWS Sessions do not require this cleanup.
+
+After upgrade, existing hybrid Sessions remain readable and can be cancelled or
+deleted, but cannot accept or resume work. Deleting them no longer manages the
+removed relay's Secrets Manager credentials. If pre-upgrade cleanup was missed,
+use the operator role to identify secrets tagged
+`rat-things-resource=environment-connection` under this deployment's
+`/agents/environments/` prefix, verify each against its stored environment's
+`credentialReference`, and schedule those exact secrets for deletion. Do not
+delete Vault or integration credentials. Terraform removes the old cloud relay
+infrastructure when applying the new configuration.
 
 ## Session input and execution triage
 

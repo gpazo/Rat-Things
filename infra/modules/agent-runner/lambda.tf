@@ -192,6 +192,7 @@ locals {
         {
           ALLOW_OWNER_HEADER       = "false"
           AGENTS_TABLE_NAME        = aws_dynamodb_table.agents.name
+          AGENTS_PUBLIC_BASE_URL   = aws_cloudformation_stack.agents_operator_web.outputs["BaseUrl"]
           ARTIFACT_URL_TTL_SECONDS = tostring(var.artifact_url_ttl_seconds)
         },
         local.publication_delivery_enabled ? {

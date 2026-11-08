@@ -8,19 +8,19 @@ locals {
 
   lambda_zip_paths = {
     agents-token-issuer = "${path.root}/../../dist/agents-token-issuer.zip"
-    agents-outbox     = "${path.root}/../../dist/agents-outbox.zip"
-    connection-health = "${path.root}/../../dist/connection-health.zip"
-    control           = "${path.root}/../../dist/control.zip"
-    dispatcher        = "${path.root}/../../dist/dispatcher.zip"
-    notifier          = "${path.root}/../../dist/notifier.zip"
-    reconciler        = "${path.root}/../../dist/reconciler.zip"
-    state-stream      = "${path.root}/../../dist/state-stream.zip"
-    thing-schedule    = "${path.root}/../../dist/thing-schedule.zip"
-    watchdog          = "${path.root}/../../dist/watchdog.zip"
-    webhook-github    = "${path.root}/../../dist/webhook-github.zip"
-    webhook-gitlab    = "${path.root}/../../dist/webhook-gitlab.zip"
-    webhook-teams     = "${path.root}/../../dist/webhook-teams.zip"
-    webhook-slack     = "${path.root}/../../dist/webhook-slack.zip"
+    agents-outbox       = "${path.root}/../../dist/agents-outbox.zip"
+    connection-health   = "${path.root}/../../dist/connection-health.zip"
+    control             = "${path.root}/../../dist/control.zip"
+    dispatcher          = "${path.root}/../../dist/dispatcher.zip"
+    notifier            = "${path.root}/../../dist/notifier.zip"
+    reconciler          = "${path.root}/../../dist/reconciler.zip"
+    state-stream        = "${path.root}/../../dist/state-stream.zip"
+    thing-schedule      = "${path.root}/../../dist/thing-schedule.zip"
+    watchdog            = "${path.root}/../../dist/watchdog.zip"
+    webhook-github      = "${path.root}/../../dist/webhook-github.zip"
+    webhook-gitlab      = "${path.root}/../../dist/webhook-gitlab.zip"
+    webhook-teams       = "${path.root}/../../dist/webhook-teams.zip"
+    webhook-slack       = "${path.root}/../../dist/webhook-slack.zip"
   }
 }
 

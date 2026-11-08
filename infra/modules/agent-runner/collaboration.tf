@@ -49,9 +49,12 @@ data "aws_iam_policy_document" "agents_shared" {
   count                   = local.team_api_enabled ? 1 : 0
   source_policy_documents = [data.aws_iam_policy_document.agents_service.json]
   statement {
-    sid       = "Logs"
-    actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
-    resources = ["${aws_cloudwatch_log_group.agents_shared_web[0].arn}:*"]
+    sid     = "Logs"
+    actions = ["logs:CreateLogStream", "logs:PutLogEvents"]
+    resources = [
+      "${aws_cloudwatch_log_group.agents_shared_web[0].arn}:*",
+      "${aws_cloudwatch_log_group.agents_shared_web_local[0].arn}:*",
+    ]
   }
   statement {
     sid       = "AbortArtifactUploads"

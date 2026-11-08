@@ -29,7 +29,7 @@ live('enforces scoped inference, validates model updates and exports live OTLP h
     await expect(reader.beta.agents.update(agent.id, { name: 'forbidden' })).rejects.toMatchObject({ status: 403 });
     await expect(reader.beta.agents.vaults.list()).rejects.toMatchObject({ status: 403 });
     await expect(writer.beta.agents.sessions.create({ agent_id: agent.id, environment: { type: 'none' }, input: marker })).rejects.toMatchObject({ status: 403 });
-    const session = await writer.beta.agents.sessions.create({ agent_id: agent.id, environment: { type: 'self_hosted', workspace_directory: '/workspace' } });
+    const session = await writer.beta.agents.sessions.create({ agent_id: agent.id, environment: { type: 'openai_hosted', network: { access: 'disabled' } } });
     sessionId = session.id;
     const original = await admin.beta.agents.sessions.retrieve(session.id);
     await expect(writer.beta.agents.sessions.events.create(session.id, { events: [

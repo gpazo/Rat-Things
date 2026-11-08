@@ -163,10 +163,11 @@ a model allowed by that runtime's deployment catalog. Environment templates defi
 managed workspace setup, network access, files, and runtime-supported capabilities.
 The upstream `openai_hosted`
 discriminator selects a managed environment running in **your AWS account**.
-Codex also supports self-hosted executors through the private authenticated relay.
+Local workspaces run the harness on your computer using your ChatGPT subscription.
+AWS Sessions use managed AWS execution; attaching a remote command executor is unsupported.
 
 The [Agents API guide](docs/agents-api.md) covers authentication, resources,
-continuation, streaming, tools, files, environment connections and current limits.
+continuation, streaming, tools, files, managed environments and current limits.
 The [agent operating guide](docs/agents.md) provides a concise entry point.
 Use [configuration and authorization history](docs/authority-audit.md) to inspect
 the settings a Session received and export service MCP decisions as OTLP.

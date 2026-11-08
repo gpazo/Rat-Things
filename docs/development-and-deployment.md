@@ -123,6 +123,10 @@ terraform -chdir=infra apply dev.tfplan
 
 Review the target account/Region, public webhook routes, `iam:PassRole`, the isolated
 `lambda:PassNetworkConnector` wildcard action, retention, logging, quotas, and deletion settings.
+The deployment identity also needs permission to manage the Web Function CloudFormation
+stacks and read their versioned code objects with `s3:GetObject` and `s3:GetObjectVersion`.
+Those deployment permissions are separate from the API's execution role and Lambda's
+code-bucket policy. See [Web Function code storage](https://docs.aws.amazon.com/lambda/latest/dg/web-functions-code-s3.html).
 Image creation can take several minutes.
 
 ### Enable a self-hosted OAuth provider

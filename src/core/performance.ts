@@ -19,7 +19,7 @@ const units = {
   SubmissionContractDuration: 'Milliseconds', SubmissionConfigurationDuration: 'Milliseconds', SubmissionPlanningDuration: 'Milliseconds',
   SubmissionReadDuration: 'Milliseconds', SubmissionValidationDuration: 'Milliseconds',
   SubmissionRateLimitDuration: 'Milliseconds', SubmissionCommitDuration: 'Milliseconds',
-  SubmissionRecoveryDuration: 'Milliseconds', InputConnectionDuration: 'Milliseconds',
+  SubmissionRecoveryDuration: 'Milliseconds',
   OutboxRetryCount: 'Count', OutboxFailureCount: 'Count',
   ShareQuiesceDuration: 'Milliseconds', ShareSnapshotDuration: 'Milliseconds',
   ShareUploadDuration: 'Milliseconds', ShareStageDuration: 'Milliseconds',
