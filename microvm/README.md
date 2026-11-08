@@ -50,9 +50,11 @@ Lifecycle endpoints listen on port 8080 under
 `/aws/lambda-microvms/runtime/v1/{ready,validate,run,resume,suspend,terminate}`.
 AWS invokes these hooks, including storage synchronization on suspend and mount
 validation on resume. The image `/ready` hook checks the packaged files and
-isolation configuration. After snapshot creation, `/validate` starts Codex and
-completes its initialization handshake in separate network and PID namespaces with a
-temporary home and no inherited credentials. It creates no Session or Turn and
+isolation configuration. After snapshot creation, `/validate` exercises the storage
+utilities through fixed version and help commands, then starts Codex and completes
+its initialization handshake. These checks run in separate network and PID namespaces
+as the agent UID, with a temporary home and no inherited credentials. Storage utility
+checks share a 30-second deadline and never mount Session storage. Validation creates no Session or Turn and
 makes no inference request. The hook returns 503 while that check runs and 200
 only after process and temporary-file cleanup succeeds. Failure rejects the image.
 AWS uses the validation workload's accessed snapshot regions to optimize later

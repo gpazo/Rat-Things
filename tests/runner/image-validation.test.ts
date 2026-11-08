@@ -37,7 +37,7 @@ beforeEach(async () => {
 });
 afterEach(async () => { vi.unstubAllEnvs(); await rm(home, { recursive: true, force: true }); });
 
-it('performs only the bounded initialize handshake with a scrubbed environment, then closes', async () => {
+it('prepares storage utilities before the bounded Codex handshake, then closes', async () => {
   await import('../../src/runner/image-validation.js');
 
   expect(protocol.options).toMatchObject({
