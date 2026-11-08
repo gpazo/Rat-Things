@@ -88,7 +88,7 @@ it('keeps ready cheap and returns validate success only after an isolated Codex 
     '/usr/bin/setpriv', '--reuid=10001', '--regid=10001', '--clear-groups',
     process.execPath, '/opt/agent-runtime/image-validation.mjs',
   ]);
-  expect(options).toMatchObject({ detached: true, stdio: 'ignore', env: {
+  expect(options).toMatchObject({ detached: true, stdio: ['ignore', 'pipe', 'ignore'], env: {
     PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
     CODEX_BINARY: '/opt/codex-runtime/bin/codex',
   } });

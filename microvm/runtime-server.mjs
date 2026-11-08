@@ -198,6 +198,7 @@ function validateCodexStartup() {
     },
   ).catch(() => {
     imageValidationState = 'failed';
+    log('info', 'Codex image validation cleanup failed');
     logImageValidationResult('failed', startedAt);
   });
   return 'running';
@@ -233,9 +234,20 @@ function startImageValidation() {
       CODEX_HOME: join(imageValidationHome, '.codex'),
       CODEX_BINARY: '/opt/codex-runtime/bin/codex',
     },
-    stdio: 'ignore',
+    stdio: ['ignore', 'pipe', 'ignore'],
   });
   imageValidationChild = child;
+  let progressBuffer = '';
+  child.stdout?.on('data', (chunk) => {
+    progressBuffer = (progressBuffer + chunk.toString('utf8')).slice(-1_024);
+    const lines = progressBuffer.split('\n');
+    progressBuffer = lines.pop() ?? '';
+    for (const line of lines) {
+      if (/^rat-validation:(preparing|initializing|initialized|closed)$/.test(line)) {
+        log('info', 'Codex image validation phase', { phase: line.slice('rat-validation:'.length) });
+      }
+    }
+  });
 
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -246,10 +258,12 @@ function startImageValidation() {
       error ? reject(error) : resolve();
     };
     const deadline = setTimeout(() => {
+      log('info', 'Codex image validation deadline exceeded');
       finish(new Error('Image validation timed out'));
     }, imageValidationTimeoutMs);
     child.once('error', () => finish(new Error('Image validation process failed to start')));
     child.once('close', (code, signal) => {
+      log('info', 'Codex image validation child exited', { code, signal });
       finish(code === 0 && signal === null ? undefined : new Error('Codex initialization failed'));
     });
   });

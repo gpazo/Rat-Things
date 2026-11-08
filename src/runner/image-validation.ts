@@ -6,6 +6,7 @@ const home = process.env.HOME;
 const codexHome = process.env.CODEX_HOME;
 
 if (!binary || !home || !codexHome) throw new Error('Image validation environment is incomplete');
+console.info('rat-validation:preparing');
 await mkdir(codexHome, { recursive: true, mode: 0o700 });
 
 const client = new CodexRpcClient({
@@ -15,7 +16,10 @@ const client = new CodexRpcClient({
 });
 
 try {
+  console.info('rat-validation:initializing');
   await client.initialize(120_000);
+  console.info('rat-validation:initialized');
 } finally {
   await client.close();
+  console.info('rat-validation:closed');
 }
