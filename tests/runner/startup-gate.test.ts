@@ -94,3 +94,30 @@ it('fails closed when the private gate times out', async () => {
   });
   expect(await exited).toBe(9);
 });
+
+it('keeps direct runner startup open when no private descriptor is supplied', async () => {
+  const child = startGateChild(`
+    import { awaitStartupRelease } from ${JSON.stringify(gateModule)};
+    await awaitStartupRelease(undefined);
+    process.stdout.write('direct');
+  `);
+  const output = new Promise<string>((resolve, reject) => {
+    let value = '';
+    child.stdout!.on('data', chunk => { value += chunk.toString(); });
+    child.once('error', reject);
+    child.once('exit', code => code === 0 ? resolve(value) : reject(new Error(`gate child exited ${code}`)));
+  });
+  expect(await output).toBe('direct');
+});
+
+it('rejects an invalid private descriptor', async () => {
+  const child = startGateChild(`
+    import { awaitStartupRelease } from ${JSON.stringify(gateModule)};
+    await awaitStartupRelease('5').then(() => process.exit(0), () => process.exit(9));
+  `);
+  const exited = new Promise<number>((resolve, reject) => {
+    child.once('error', reject);
+    child.once('exit', code => resolve(code ?? -1));
+  });
+  expect(await exited).toBe(9);
+});

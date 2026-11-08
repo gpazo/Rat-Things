@@ -53,6 +53,31 @@ let runnerChild: EventEmitter & {
   stdio?: Array<PassThrough | undefined>;
 };
 
+function createRunnerChild(pid: number, holdExitOnKill = false) {
+  const child = Object.assign(new EventEmitter(), {
+    connected: true,
+    pid,
+    exitCode: null as number | null,
+    signalCode: null as NodeJS.Signals | null,
+    stdio: [undefined, undefined, undefined, undefined, createGateStream()],
+    kill(signal: NodeJS.Signals) {
+      if (!holdExitOnKill) {
+        queueMicrotask(() => {
+          child.signalCode = signal;
+          child.emit('exit', null, signal);
+        });
+      }
+      return true;
+    },
+    send(message: Record<string, unknown>, callback?: (error?: Error | null) => void) {
+      callback?.(null);
+      queueMicrotask(() => ipc.emit('message', message));
+      return true;
+    },
+  });
+  return child;
+}
+
 const processProxy = new Proxy(actualProcess, {
   get(target, property) {
     if (property === 'getuid') return () => 0;
@@ -74,7 +99,7 @@ afterAll(() => {
   vi.unstubAllEnvs();
 });
 
-async function startRuntimeWithRunner(options: { storage?: boolean; checkpoint?: boolean; failMount?: boolean } = {}) {
+async function startRuntimeWithRunner(options: { storage?: boolean; checkpoint?: boolean; failMount?: boolean; holdFailedChildExit?: boolean } = {}) {
   vi.resetModules();
   ipc.removeAllListeners();
   vi.stubEnv('AGENT_RUNNER_ENTRY', '/fixture/runner.mjs');
@@ -87,26 +112,13 @@ async function startRuntimeWithRunner(options: { storage?: boolean; checkpoint?:
     ? { status: options.failMount ? 1 : 0, stdout: options.failMount ? '' : '/mnt/state', stderr: '' }
     : { status: options.failMount ? 1 : 0, stdout: '', stderr: options.failMount ? 'mount failed' : '' });
 
-  runnerChild = Object.assign(new EventEmitter(), {
-    connected: true,
-    pid: 42,
-    exitCode: null,
-    signalCode: null,
-    stdio: [undefined, undefined, undefined, undefined, createGateStream()],
-    kill(signal: NodeJS.Signals) {
-      queueMicrotask(() => {
-        runnerChild.signalCode = signal;
-        runnerChild.emit('exit', null, signal);
-      });
-      return true;
-    },
-    send(message: Record<string, unknown>, callback?: (error?: Error | null) => void) {
-      callback?.(null);
-      queueMicrotask(() => ipc.emit('message', message));
-      return true;
-    },
+  let runnerCount = 0;
+  runtime.spawn.mockReset().mockImplementation((executable: string) => {
+    if (executable !== process.execPath) return createRunnerChild(900 + runnerCount++);
+    runnerChild = createRunnerChild(42 + runnerCount, Boolean(options.holdFailedChildExit && runnerCount === 0));
+    runnerCount += 1;
+    return runnerChild;
   });
-  runtime.spawn.mockReset().mockReturnValue(runnerChild);
   await import('../../microvm/runtime-server.mjs');
   const handler = runtime.handler;
   if (!handler) throw new Error('runtime HTTP handler was not installed');
@@ -158,7 +170,10 @@ async function startRuntimeWithRunner(options: { storage?: boolean; checkpoint?:
     microvmId: 'microvm-worker-exit-test', runHookPayload: JSON.stringify(hookPayload),
   });
   expect(started.status).toBe(options.failMount ? 500 : 200);
-  return { post };
+  const startSameRun = () => post('/aws/lambda-microvms/runtime/v1/run', {
+    microvmId: 'microvm-worker-exit-test', runHookPayload: JSON.stringify(hookPayload),
+  });
+  return { post, startSameRun };
 }
 
 function createGateStream() {
@@ -190,12 +205,38 @@ it('mounts checkpoint storage before release without legacy Session preparation'
   expect(runtime.sequence).not.toContain(`mkdir:/mnt/rat-things-state/${'c'.repeat(64)}`);
 });
 
+it('joins a duplicate same-Run start without spawning or releasing twice', async () => {
+  const { startSameRun } = await startRuntimeWithRunner({ storage: true });
+  const child = runnerChild;
+  expect((await startSameRun()).status).toBe(200);
+  expect(runnerChild).toBe(child);
+  expect(runtime.spawn.mock.calls.filter(call => call[0] === process.execPath)).toHaveLength(1);
+  expect(runtime.sequence.filter(event => event === 'gate:release')).toHaveLength(1);
+});
+
 it('closes the private gate and leaves no active runner when mount fails', async () => {
   await startRuntimeWithRunner({ storage: true, failMount: true });
   expect(runtime.sequence).not.toContain('gate:release');
   expect(runnerChild.stdio?.[4]?.destroyed).toBe(true);
   expect(runtime.spawn.mock.calls.some(call => call[0] === process.execPath && (call[2] as { stdio?: unknown[] })?.stdio?.[4] === 'pipe')).toBe(true);
   expect(runtime.spawn).toHaveBeenCalledTimes(2);
+});
+
+it('retries failed storage startup and ignores the old child exit after the retry is active', async () => {
+  const { post, startSameRun } = await startRuntimeWithRunner({ storage: true, failMount: true, holdFailedChildExit: true });
+  const failedChild = runnerChild;
+  runtime.spawnSync.mockImplementation((command: string) => command === 'findmnt'
+    ? { status: 0, stdout: '/mnt/state', stderr: '' }
+    : { status: 0, stdout: '', stderr: '' });
+
+  expect((await startSameRun()).status).toBe(200);
+  const retryChild = runnerChild;
+  expect(retryChild).not.toBe(failedChild);
+  expect(runtime.sequence.filter(event => event === 'gate:release')).toHaveLength(1);
+  failedChild.emit('exit', null, 'SIGTERM');
+  expect(await post('/agent-runtime/v1/runs/worker-exit-run/health', {}, 'GET')).toMatchObject({ status: 200, body: { active: true } });
+  expect(runnerChild).toBe(retryChild);
+  expect(runtime.spawn.mock.calls.filter(call => call[0] === process.execPath)).toHaveLength(2);
 });
 
 it('stops a runner when the private gate reports an asynchronous write error', async () => {
