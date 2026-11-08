@@ -68,8 +68,22 @@ import { syncWorkspaceStorage } from './workspace-sync.js';
 import { prepareForkWorkspace } from './fork-workspace.js';
 import { stopCheckpointWriters } from './checkpoint-writers.js';
 import { prepareSessionEnvironmentCredentials, type SessionEnvironmentCredentialsRuntime } from './session-environment-credentials.js';
+import { createStartupTraceObserver, hasFirstRootAssistantText, publishStartupSnapshot, type StartupTraceObserver } from './startup-observer.js';
 
 export async function runAgentWorker(): Promise<void> {
+  const startupTrace = createStartupTraceObserver();
+  startupTrace.mark('runner_entered');
+  try {
+    await runAgentWorkerInvocation(startupTrace);
+  } catch (error) {
+    startupTrace.finish('failed');
+    throw error;
+  } finally {
+    startupTrace.finish('shutdown');
+  }
+}
+
+async function runAgentWorkerInvocation(startupTrace: StartupTraceObserver): Promise<void> {
   const clients = createAwsClients();
   const runId = requiredEnv('RUN_ID');
   const store = new DynamoRunStore(clients.dynamodb, requiredEnv('RUNS_TABLE_NAME'), Number(process.env.RUN_RETENTION_SECONDS ?? 2_592_000));
@@ -79,6 +93,7 @@ export async function runAgentWorker(): Promise<void> {
   const credentials = new CredentialBroker(secrets);
   let current = await store.get(runId);
   if (!current) throw new Error(`run ${runId} does not exist`);
+  startupTrace.mark('run_loaded');
   if (current.status !== 'dispatching' || isRetiredRun(current)) return;
   const abort = new AbortController();
   const stop = () => abort.abort();
@@ -177,6 +192,7 @@ export async function runAgentWorker(): Promise<void> {
       process.env.RUN_TIMEOUT_SECONDS ?? effectiveRequest.execution?.timeoutSeconds ?? 900,
     );
     const driver = driverFor('codex');
+    startupTrace.mark('driver_ready');
     let piHost: PiHostDependencies | undefined;
     let piContextId: string | undefined;
     let safeSessionOutput = <T>(value: T): T => value;
@@ -320,7 +336,8 @@ export async function runAgentWorker(): Promise<void> {
       });
       sessionJournal = new SessionRuntimeJournal({
         redact: safeOutput,
-        publish: async (snapshot) => runtimes.publish(sessionOwner, launch.sessionId, runId, await capture.capture(snapshot)),
+        publish: (snapshot) => publishStartupSnapshot(snapshot, launch.turnId, startupTrace, async (state) =>
+          runtimes.publish(sessionOwner, launch.sessionId, runId, await capture.capture(state))),
         onFailure: (error) => {
           console.error(JSON.stringify({ message: 'Session journal failed; stopping the harness', error: error.name }));
           abort.abort();
@@ -348,7 +365,13 @@ export async function runAgentWorker(): Promise<void> {
         ...(checkpointOptions ? { checkpoint: checkpointOptions } : {}),
         ...(adoptedCheckpoint ? { requiredResumeThreadId: adoptedCheckpoint.rootThreadId } : {}),
         ...(runtime.value.snapshot ? { previous: runtime.value.snapshot } : {}),
-        changed: snapshot => { currentRuntimeSnapshot = snapshot; sessionJournal!.changed(snapshot); }, flush: sessionJournal.flush,
+        changed: snapshot => {
+          currentRuntimeSnapshot = snapshot;
+          if (startupTrace.active && hasFirstRootAssistantText(snapshot, launch.turnId)) startupTrace.mark('first_assistant_text');
+          sessionJournal!.changed(snapshot);
+        },
+        flush: sessionJournal.flush,
+        startupTrace,
       } };
       const sessionVaults = launch.mcp?.some((binding) => binding.vaultId) ? new VaultService({
         store: agentsStore,
@@ -416,6 +439,7 @@ export async function runAgentWorker(): Promise<void> {
     await codexAuthFileSession?.finalize();
     codexAuthFileSession = undefined;
     await sessionJournal?.flush();
+    if (execution.outcome === 'failed' || execution.outcome === 'interrupted') startupTrace.finish(execution.outcome === 'failed' ? 'failed' : 'shutdown');
     execution.fullText = safeSessionOutput(execution.fullText);
     executionError = safeSessionOutput(executionError);
     if (current.agentsSession) execution.events = Buffer.from(execution.events.toString('utf8').split('\n').map(line => {

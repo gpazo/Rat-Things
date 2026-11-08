@@ -12,6 +12,7 @@ import type { CodexAppServerRequest } from './codex-app-server.js';
 import { environmentToolConfig, sandboxPolicyFor } from './codex-app-server.js';
 import type { SessionModelSettings } from '../domain/session-execution.js';
 import { checkpointWorkspace, type WorkspaceHandoffPorts } from './workspace-handoff.js';
+import type { StartupTraceObserver } from './startup-observer.js';
 
 export type SessionCheckpointOptions = Omit<WorkspaceHandoffPorts, 'inspectIdle' | 'shutdownNative' | 'verifyNative' | 'settle' | 'commit'> & {
   prepareNativeVerification?(request: CodexAppServerRequest, manifest: NativeCheckpointManifest): Promise<PreparedColdVerification>;
@@ -47,6 +48,7 @@ export class SessionRuntime {
   public constructor(private readonly options: {
     sessionId: string; agentId: string; request: CodexAppServerRequest;
     now?: () => number; changed?: (state: SessionRuntimeState) => void;
+    startupTrace?: StartupTraceObserver;
     previous?: SessionRuntimeState;
     idleTimeoutMs?: number;
     /** Trusted host policy: dedicated workers terminate on authority loss or closure. */
@@ -173,7 +175,9 @@ export class SessionRuntime {
 
   public async initialize(timeoutMs = 30_000): Promise<SessionRuntimeState> {
     const request = this.options.request;
+    this.options.startupTrace?.mark('native_initialize_started');
     await this.rpc.initialize(timeoutMs);
+    this.options.startupTrace?.mark('native_initialized');
     if (request.permissions === 'rat_managed' && !request.managedPolicy) throw new Error('Managed executor policy intent is missing');
     if (request.managedPolicy && request.permissions !== 'rat_managed') throw new Error('Managed executor permission profile is not selected');
     if (request.managedPolicy) await verifyManagedCodexPolicy({ call: this.rpc.call.bind(this.rpc), policy: request.managedPolicy });
@@ -219,6 +223,7 @@ export class SessionRuntime {
       for (const turn of Array.isArray(thread.thread.turns) ? thread.thread.turns : []) if (record(turn) && typeof turn.id === 'string') this.inheritedNativeTurns.add(turn.id);
     }
     if (this.options.requiredResumeThreadId && thread.thread.id !== this.options.requiredResumeThreadId) throw new Error('Native checkpoint resumed a different thread');
+    this.options.startupTrace?.mark('thread_ready');
     this.state = initialSessionRuntime(this.options.sessionId, this.options.agentId, thread.thread.id);
     if (this.inheritedNativeTurns.size) this.state = { ...this.state, inheritedNativeTurnIds: [...this.inheritedNativeTurns] };
     if (this.options.previous) {
@@ -297,6 +302,7 @@ export class SessionRuntime {
     this.idleTimer = undefined;
     const request = this.options.request;
     try {
+      this.options.startupTrace?.mark('turn_requested');
       const result = await this.rpc.call('turn/start', {
         threadId: rootThreadId, input: nativeInput(input), cwd: request.executionWorkspace ?? request.workspace,
         environments: request.environments,

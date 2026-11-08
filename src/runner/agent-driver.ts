@@ -11,6 +11,7 @@ import type { SessionLaunch } from '../domain/session-execution.js';
 import { planSessionLaunch } from './session-launch-planning.js';
 import { SessionRuntime } from './session-runtime.js';
 import type { SessionRuntimeState } from '../core/session-runtime-planning.js';
+import type { StartupTraceObserver } from './startup-observer.js';
 
 export interface AgentExecution {
   environmentExpired?: boolean;
@@ -45,7 +46,7 @@ export interface AgentDriverControl {
   sessionMcp?: import('./session-mcp.js').SessionMcpRuntime;
   sessionEnvironmentCredentials?: import('./session-environment-credentials.js').SessionEnvironmentCredentialsRuntime;
   sessionRuntime?: { previous?: SessionRuntimeState; lifetime?: 'bounded' | 'host-managed'; changed(state: SessionRuntimeState): void; flush(): Promise<void>;
-    requiredResumeThreadId?: string; checkpoint?: import('./session-runtime.js').SessionCheckpointOptions };
+    requiredResumeThreadId?: string; checkpoint?: import('./session-runtime.js').SessionCheckpointOptions; startupTrace?: StartupTraceObserver };
   dynamicTools?: Array<Record<string, unknown>>;
   onEvent?(event: CodexAppServerEvent): void | Promise<void>;
   onServerRequest?(request: CodexAppServerInitiatedRequest): unknown | Promise<unknown>;
@@ -90,6 +91,7 @@ export class CodexDriver implements AgentDriver {
       const runtime = new SessionRuntime({ sessionId: control.session.sessionId, agentId: control.session.agent.id,
         ...(control.session.fork ? { fork: control.session.fork.checkpoint } : {}),
         request: launch, changed: control.sessionRuntime.changed,
+        ...(control.sessionRuntime.startupTrace ? { startupTrace: control.sessionRuntime.startupTrace } : {}),
         ...(control.session.turn ? { initialTurnId: control.session.turn.id } : {}),
         ...(control.sessionRuntime.requiredResumeThreadId ? { requiredResumeThreadId: control.sessionRuntime.requiredResumeThreadId } : {}),
         ...(control.sessionRuntime.checkpoint ? { checkpoint: control.sessionRuntime.checkpoint } : {}),

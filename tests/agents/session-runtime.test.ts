@@ -14,8 +14,9 @@ import { MemoryAgentsStore } from './fixtures.js';
 import { routeAgentsRequest } from '../../src/lambdas/agents-router.js';
 import type { CodexTurnController } from '../../src/runner/codex-app-server.js';
 import { providerModelId } from '../../src/domain/session-model-validation.js';
+import type { StartupPhase, StartupTraceObserver } from '../../src/runner/startup-observer.js';
 
-function fixture(lifetime?: 'bounded' | 'host-managed', modelProvider = 'openai', model = 'fixture', previous?: ReturnType<SessionRuntime['snapshot']>) {
+function fixture(lifetime?: 'bounded' | 'host-managed', modelProvider = 'openai', model = 'fixture', previous?: ReturnType<SessionRuntime['snapshot']>, startupTrace?: StartupTraceObserver) {
   let handlers: ConstructorParameters<typeof CodexRpcClient>[0];
   let counter = 0;
   let closed = false;
@@ -25,6 +26,7 @@ function fixture(lifetime?: 'bounded' | 'host-managed', modelProvider = 'openai'
   const runtime = new SessionRuntime({ sessionId: 'sess', agentId: 'agent', now: () => 100,
     ...(lifetime ? { lifetime } : {}),
     ...(previous ? { previous } : {}),
+    ...(startupTrace ? { startupTrace } : {}),
     request: { binary: 'unused', workspace: '/workspace', environment: {}, timeoutMs: 10_000, prompt: '', sandbox: 'read-only', persistent: true, modelProvider, model, networkAccess: false, environments: [], dynamicTools: [{ type: 'function', name: 'lookup', description: 'Lookup', inputSchema: { type: 'object', properties: {} } }], onTurnStarted: (value) => { controller = value; } },
     client: (options) => {
       handlers = options;
@@ -57,6 +59,16 @@ const responseUsage = (threadId: string, turnId: string, responseId: string, inp
 });
 
 describe('persistent native session runtime', () => {
+  it('reports native initialization, thread readiness, and turn request phases', async () => {
+    const phases: StartupPhase[] = [];
+    const f = fixture(undefined, 'openai', 'fixture', undefined, { active: true, mark: phase => phases.push(phase), finish: () => {} });
+    try {
+      await f.runtime.initialize();
+      await f.runtime.start(rootTurn('first'), message);
+      expect(phases).toEqual(['native_initialize_started', 'native_initialized', 'thread_ready', 'turn_requested']);
+    } finally { await f.runtime.close(); }
+  });
+
   it('keeps the logical model while using its known Bedrock namespace for startup and continuation', async () => {
     const f = fixture(undefined, 'amazon-bedrock', 'gpt-6-astra');
     const settings = { model: 'gpt-6-astra', reasoning: { effort: null }, service_tier: 'priority' as const };
