@@ -22,7 +22,7 @@ import { canonicalJson } from '../domain/json.js';
 import type { AgentService } from './agent-service.js';
 import type { AgentResource, AgentsClock, AgentsIds, AgentsStore } from './agents-ports.js';
 import type { SessionExecution, SessionObservation, SessionState } from './session-ports.js';
-import { cancelledStartTurn, cursorPage, initialMessages, observeSession, orderedTurnItems, planSessionInput, terminalTurn, updateSessionAgent } from './session-planning.js';
+import { cancelledStartTurn, cursorPage, initialMessages, observeSession, orderedTurnItems, planSessionInput, sessionModelSettings, terminalTurn, updateSessionAgent } from './session-planning.js';
 import { planSessionPreparation, preparationTools, requireActivePreparation, type SessionPreparation } from './session-preparation-planning.js';
 import { planSessionStream, type SessionStreamSnapshot } from './session-stream.js';
 import { sessionEventBatchId, type SessionEventBatch } from './session-event-store.js';
@@ -568,22 +568,23 @@ export class SessionService {
   public async events(ownerId: string, id: string, raw: unknown, idempotencyKey?: string, response?: { caller?: SessionCaller }): Promise<void> {
     const acceptedStarted = performance.now();
     const { events } = performancePhaseSync('SubmissionContractDuration', () => parseAgentsContract('SessionEvents', raw));
-    const legacySession = await this.required(ownerId, id);
-    const selfHosted = legacySession.value.session.environment.type === 'self_hosted';
+    const caller = response?.caller;
+    const feedbackOnly = caller && events.length && events.every((event): event is FeedbackEvent => event.type === 'agent.session.input.message');
+    const legacySession = feedbackOnly ? undefined : await this.required(ownerId, id);
+    const selfHosted = legacySession?.value.session.environment.type === 'self_hosted';
     if (selfHosted && events.some(event => event.type !== 'agent.session.input.cancel')) this.rejectSelfHostedWork();
     if (idempotencyKey !== undefined && (!idempotencyKey || idempotencyKey.length > 256)) invalid('Idempotency-Key must contain 1–256 characters', 'Idempotency-Key');
-    const caller = response?.caller;
     const requestKey = idempotencyKey ?? this.ids.next('request');
     const key = hash(caller ? canonicalJson([caller.actor.id, requestKey]) : requestKey);
     const digest = hash(canonicalJson(events));
-    if (caller && events.length && events.every((event): event is FeedbackEvent => event.type === 'agent.session.input.message')) {
+    if (feedbackOnly) {
       await this.acceptFeedback(ownerId, id, events, key, digest, caller);
       performanceCount('SubmissionAcceptedDuration', performance.now() - acceptedStarted);
       return;
     }
     if (!selfHosted && events.some(event => event.type === 'agent.session.input.cancel')) await this.flushFeedback(ownerId, id, true);
     for (let attempt = 0; attempt < 10; attempt++) {
-      let resource = await this.required(ownerId, id);
+      let resource = attempt === 0 && legacySession ? legacySession : await this.required(ownerId, id);
       if (resource.value.session.environment.type === 'self_hosted'
         && events.some(event => event.type !== 'agent.session.input.cancel')) this.rejectSelfHostedWork();
       requireSessionMutable(resource.value, this.clock.now());
@@ -800,27 +801,41 @@ export class SessionService {
   /** Retire old queued work without ever launching it; cancellations remain safe to deliver. */
   private async discardLegacySelfHostedWork(ownerId: string, id: string): Promise<void> {
     const unsupported = { code: 'unsupported_environment', message: 'Queued work was discarded because this Session uses an unsupported self-hosted environment.' };
-    const snapshot = await this.options.store.get<SessionState>(ownerId, 'sessions', id);
-    if (!snapshot) return;
-    for (const [, receipt] of Object.entries(snapshot.value.receipts).sort((left, right) => (left[1].sequence ?? 0) - (right[1].sequence ?? 0))) {
-      if (receipt.dispatched) continue;
-      for (const command of receipt.commands) {
-        if (command.type === 'cancel') await this.options.execution.cancel(ownerId, snapshot.value.session, command.turnId);
-        else if (command.type === 'start' && snapshot.value.turns.find(binding => binding.turn.id === command.turnId)?.cancelRequested) {
-          await this.options.execution.cancel(ownerId, snapshot.value.session, command.turnId);
-        }
-      }
-    }
-    for (const feedback of await this.pendingFeedback(ownerId, id)) {
-      await this.options.store.delete(feedback).catch(error => {
-        if (!(error instanceof AgentsApiError) || !['conflict', 'resource_not_found'].includes(error.code ?? '')) throw error;
-      });
-    }
     for (let attempt = 0; attempt < 10; attempt++) {
       const resource = await this.options.store.get<SessionState>(ownerId, 'sessions', id);
       if (!resource) return;
       if (resource.value.session.environment.type !== 'self_hosted') return;
-      const receipts = Object.fromEntries(Object.entries(resource.value.receipts).map(([key, receipt]) => {
+      for (const [, receipt] of Object.entries(resource.value.receipts).sort((left, right) => (left[1].sequence ?? 0) - (right[1].sequence ?? 0))) {
+        if (receipt.dispatched) continue;
+        for (const command of receipt.commands) {
+          if (command.type === 'cancel') await this.options.execution.cancel(ownerId, resource.value.session, command.turnId);
+          else if (command.type === 'start' && resource.value.turns.find(binding => binding.turn.id === command.turnId)?.cancelRequested) {
+            await this.options.execution.cancel(ownerId, resource.value.session, command.turnId);
+          }
+        }
+      }
+      const feedback = await this.pendingFeedback(ownerId, id);
+      let inputSequence = resource.value.inputSequence ?? 0;
+      const receipts = { ...resource.value.receipts };
+      const turns = [...resource.value.turns];
+      for (const entry of feedback) {
+        if (receipts[entry.id]) continue;
+        const accepted = entry.value;
+        const sequence = ++inputSequence;
+        receipts[entry.id] = {
+          digest: accepted.digest, commands: [], dispatched: true, failure: unsupported,
+          actor: accepted.actor, provenance: { kind: 'authenticated' }, sequence,
+          acceptedAt: accepted.acceptedAtMs / 1_000, messageIds: accepted.messages.map(message => message.id), turnIds: [accepted.turnId],
+        };
+        if (!turns.some(binding => binding.turn.id === accepted.turnId)) turns.push({
+          turn: { id: accepted.turnId, object: 'agent.session.turn', session_id: id, agent_id: resource.value.session.agent.id,
+            subagent_id: null, status: 'failed', created_at: Math.floor(accepted.acceptedAtMs / 1_000), started_at: null,
+            completed_at: this.clock.now(), error: { code: 'invalid_request', message: unsupported.message }, usage: null },
+          input: accepted.messages, ...(resource.value.configuration ? { configuration: resource.value.configuration.current } : {}),
+          modelSettings: sessionModelSettings(resource.value.session.agent),
+        });
+      }
+      const retiredReceipts = Object.fromEntries(Object.entries(receipts).map(([key, receipt]) => {
         if (receipt.dispatched) return [key, receipt];
         const hasUnsafeCommand = receipt.commands.some(command => command.type !== 'cancel'
           && !(command.type === 'start' && resource.value.turns.find(binding => binding.turn.id === command.turnId)?.cancelRequested));
@@ -836,7 +851,7 @@ export class SessionService {
           ? receipt.commands.filter(command => command.type === 'start' && resource.value.turns.find(binding => binding.turn.id === command.turnId)?.cancelRequested).map(command => command.turnId)
           : [],
       ));
-      const turns = resource.value.turns.map(binding => {
+      const retiredTurns = turns.map(binding => {
         if (failedTurnIds.has(binding.turn.id) && !terminalTurn(binding.turn)) return { ...binding, turn: { ...binding.turn, status: 'failed' as const, completed_at: this.clock.now(), error: { code: 'invalid_request' as const, message: unsupported.message } } };
         if (cancelledTurnIds.has(binding.turn.id) && !terminalTurn(binding.turn)) return { ...binding, turn: cancelledStartTurn(binding.turn, this.clock.now()) };
         return binding;
@@ -845,10 +860,20 @@ export class SessionService {
       const failedInitial = Boolean(initialReceipt && !initialReceipt.dispatched && initialReceipt.commands.some(command => command.type === 'start' && failedTurnIds.has(command.turnId)));
       const value: SessionState = { ...resource.value,
         ...(failedInitial ? { session: { ...resource.value.session, status: 'failed', required_actions: [], error: unsupported.message } } : {}),
-        turns, receipts,
+        inputSequence, turns: retiredTurns, receipts: retiredReceipts,
       };
-      try { await this.replace(resource, value); return; }
-      catch (error) { if (!(error instanceof AgentsApiError) || error.code !== 'conflict' || attempt === 9) throw error; }
+      try { await this.replace(resource, value); }
+      catch (error) {
+        if (!(error instanceof AgentsApiError) || error.code !== 'conflict' || attempt === 9) throw error;
+        continue;
+      }
+      for (const entry of feedback) {
+        if (retiredReceipts[entry.id]?.digest !== entry.value.digest) continue;
+        await this.options.store.delete(entry).catch(error => {
+          if (!(error instanceof AgentsApiError) || !['conflict', 'resource_not_found'].includes(error.code ?? '')) throw error;
+        });
+      }
+      return;
     }
   }
 

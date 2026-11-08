@@ -13,6 +13,7 @@ import type { AgentSession, Turn } from '../../src/domain/agents-api.js';
 import type { RunRecord } from '../../src/domain/contracts.js';
 import { MemoryAgentsStore } from './fixtures.js';
 import { SessionService } from '../../src/core/session-service.js';
+import { feedbackCollection, type SessionFeedback } from '../../src/core/session-feedback-planning.js';
 import { AgentService } from '../../src/core/agent-service.js';
 import { routeAgentsRequest } from '../../src/lambdas/agents-router.js';
 
@@ -75,6 +76,48 @@ describe('persistent harness input admission', () => {
     expect(f.submit).not.toHaveBeenCalled();
 
     await sessions.dispatch('alice', session.id);
+    expect(f.start).not.toHaveBeenCalled();
+    expect(f.submit).not.toHaveBeenCalled();
+  });
+
+  it('persists a failed attributed receipt before deleting pending feedback and retries after a failed commit', async () => {
+    const f = await fixture();
+    const session = { ...f.session, environment: { type: 'self_hosted' as const, id: 'env_legacy', workspace_directory: '/workspace', capability_directories: [], remote_url: 'https://relay.example' } };
+    await f.store.put({ ownerId: 'alice', id: session.id, collection: 'sessions', createdAt: 100, revision: 1, value: {
+      session, turns: [{ turn: f.turn, input: [] }], receipts: {}, deletedArtifacts: [],
+    } }, 0);
+    const actor = { id: 'alice', kind: 'human' as const };
+    const message = { role: 'user' as const, content: [{ type: 'input_text' as const, text: 'Accepted before upgrade' }], id: 'msg_legacy', actor, provenance: { kind: 'authenticated' as const } };
+    const feedback: SessionFeedback = { sessionId: session.id, digest: 'legacy-feedback-digest',
+      events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text: 'Accepted before upgrade' }] }] }],
+      actor, acceptedAtMs: 100_500, messages: [message], turnId: 'turn_legacy_feedback', operationId: 'op_legacy_feedback' };
+    await f.store.put({ ownerId: 'alice', id: 'receipt_legacy_feedback', collection: feedbackCollection(session.id), createdAt: 100_500, revision: 1, value: feedback }, 0);
+    const sessions = new SessionService({ store: f.store, agents: new AgentService({ store: f.store }), execution: f.execution, clock: f.clock });
+    const commit = f.store.commit.bind(f.store);
+    let failuresRemaining = 10;
+    f.store.commit = async (writes, observations) => {
+      if (failuresRemaining && writes.some(write => write.resource.collection === 'sessions')) {
+        failuresRemaining--;
+        throw new AgentsApiError(409, 'Forced Session commit conflict.', 'conflict');
+      }
+      return commit(writes, observations);
+    };
+
+    await expect(sessions.dispatch('alice', session.id)).rejects.toMatchObject({ code: 'conflict' });
+    expect(await f.store.get('alice', feedbackCollection(session.id), 'receipt_legacy_feedback')).toBeDefined();
+    expect((await f.store.get<import('../../src/core/session-ports.js').SessionState>('alice', 'sessions', session.id))?.value.receipts.receipt_legacy_feedback).toBeUndefined();
+
+    f.store.commit = commit;
+    await sessions.dispatch('alice', session.id);
+    expect(await f.store.get('alice', feedbackCollection(session.id), 'receipt_legacy_feedback')).toBeUndefined();
+    const retired = (await f.store.get<import('../../src/core/session-ports.js').SessionState>('alice', 'sessions', session.id))!.value;
+    expect(retired.receipts.receipt_legacy_feedback).toMatchObject({
+      digest: feedback.digest, dispatched: true, failure: { code: 'unsupported_environment' }, actor,
+      provenance: { kind: 'authenticated' }, messageIds: ['msg_legacy'], turnIds: ['turn_legacy_feedback'],
+    });
+    expect(retired.turns.find(binding => binding.turn.id === 'turn_legacy_feedback')).toMatchObject({
+      turn: { status: 'failed' }, input: [{ id: 'msg_legacy', actor, content: [{ type: 'input_text', text: 'Accepted before upgrade' }] }],
+    });
     expect(f.start).not.toHaveBeenCalled();
     expect(f.submit).not.toHaveBeenCalled();
   });
