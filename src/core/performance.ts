@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { writeMetricRecord } from './metrics.js';
 
 export type PerformanceOperation = 'session-input' | 'session-create' | 'activity-stream' | 'activity-snapshot' | 'share-request' | 'share-transfer' | 'outbox-batch' | 'other';
 export type PerformanceOutcome = 'success' | 'client-error' | 'server-error' | 'aborted' | 'error';
@@ -107,5 +108,5 @@ export function performanceMetricRecord(record: PerformanceRecord, deployment = 
   };
 }
 function emitPerformance(record: PerformanceRecord) {
-  console.info(JSON.stringify(performanceMetricRecord(record, process.env.METRIC_DEPLOYMENT, process.env.METRIC_NAMESPACE, process.env.RAT_PERFORMANCE_EMF === 'true')));
+  writeMetricRecord(performanceMetricRecord(record, process.env.METRIC_DEPLOYMENT, process.env.METRIC_NAMESPACE, process.env.RAT_PERFORMANCE_EMF === 'true'));
 }

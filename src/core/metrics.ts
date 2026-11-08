@@ -9,7 +9,14 @@ export function emitMetric(
   unit: MetricUnit,
   timestamp = Date.now(),
 ): void {
-  console.info(JSON.stringify(embeddedMetric(component, name, value, unit, timestamp)));
+  writeMetricRecord(embeddedMetric(component, name, value, unit, timestamp));
+}
+
+export function writeMetricRecord(record: Record<string, unknown>): void {
+  const line = JSON.stringify(record);
+  // Web Functions wrap console output, which hides the root EMF document.
+  if (process.env.AWS_LAMBDA_HTTP_ENDPOINT !== undefined) process.stdout.write(`${line}\n`);
+  else console.info(line);
 }
 
 export function embeddedMetric(

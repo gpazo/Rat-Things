@@ -1,12 +1,32 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { emitMicrovmStartupObservation } from '../../src/lambdas/dispatcher.js';
 import { embeddedMetric, emitSqsQueueDelay } from '../../src/lambdas/metrics.js';
+import { emitMetric } from '../../src/core/metrics.js';
+import { PerformanceScope } from '../../src/core/performance.js';
 
 describe('low-cardinality Lambda metrics', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     delete process.env.METRIC_DEPLOYMENT;
     delete process.env.METRIC_NAMESPACE;
+  });
+
+  it('emits unwrapped newline-delimited metrics through the Web Function runtime', () => {
+    vi.stubEnv('AWS_LAMBDA_HTTP_ENDPOINT', '127.0.0.1:8080');
+    vi.stubEnv('RAT_PERFORMANCE_EMF', 'true');
+    const output: string[] = [];
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => { output.push(String(chunk)); return true; });
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    emitMetric('integrations', 'OutputRedactions', 1, 'Count', 1000);
+    new PerformanceScope('session-input').finish('success');
+    expect(info).not.toHaveBeenCalled();
+    expect(stdout).toHaveBeenCalledTimes(2);
+    expect(output.every(line => line.endsWith('\n') && line.trim().split('\n').length === 1)).toBe(true);
+    const records = output.map(line => JSON.parse(line));
+    expect(records[0]).toMatchObject({ OutputRedactions: 1, _aws: { Timestamp: 1000 } });
+    expect(records[1]).toMatchObject({ event: 'rat.performance', Operation: 'session-input', _aws: { CloudWatchMetrics: expect.any(Array) } });
+    expect(records.every(record => record._aws && !record.message)).toBe(true);
   });
 
   it('uses only deployment and component as dimensions', () => {
