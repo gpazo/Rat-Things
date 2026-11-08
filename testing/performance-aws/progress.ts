@@ -72,8 +72,8 @@ function endpoint(value: string, region: string, kind: 'web' | 'operator') {
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.port) throw new Error(`Invalid ${kind} endpoint URL.`);
   if (kind === 'web') {
     if (!url.hostname.endsWith(`.lambda-web.${region}.on.aws`) || url.pathname !== '/v1') throw new Error('Use a deployed Lambda Web Function /v1 endpoint in the configured region.');
-  } else if (!url.hostname.endsWith(`.lambda-web.${region}.on.aws`) || url.pathname !== '/v1') {
-    throw new Error('Use the IAM operator Lambda Web Function /v1 endpoint in the configured region.');
+  } else if (!url.hostname.endsWith(`.execute-api.${region}.amazonaws.com`) || url.pathname !== '/v1') {
+    throw new Error('Use the IAM control API Gateway /v1 endpoint in the configured region.');
   }
   return value.replace(/\/$/, '');
 }

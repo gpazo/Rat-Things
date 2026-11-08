@@ -140,8 +140,9 @@ credentials are never written to performance artifacts.
 `progress.ts` measures accepted-input acknowledgement and exact peer receipt
 visibility through two deployed Lambda Web Function revisions. It exercises the
 normal OIDC create, input and SSE routes. Pass each Web Function's `/v1` URL for
-`--before-url`, `--after-url`, and the IAM-authorized operator Web Function URL
-for `--operator-url`. Each side of every pair gets a fresh space and Session.
+`--before-url` and `--after-url`. Pass the IAM control API Gateway's `/v1` URL
+for `--operator-url`, because space bootstrap is a SigV4 control operation.
+Each side of every pair gets a fresh space and Session.
 Persistent mode uses 20 writers and 50 viewers; desktop mode uses 20 writers and
 20 viewers.
 
@@ -157,7 +158,7 @@ AWS_E2E_PROGRESS=true AWS_E2E_SHARED_SESSIONS=true \
   node --import tsx testing/performance-aws/progress.ts \
   --before-url https://before.lambda-web.us-west-2.on.aws/v1 \
   --after-url https://after.lambda-web.us-west-2.on.aws/v1 \
-  --operator-url https://operator.lambda-web.us-west-2.on.aws/v1 \
+  --operator-url https://operator.execute-api.us-west-2.amazonaws.com/v1 \
   --mode both --pairs 5 --output /absolute/path/aws-peer-progress.json
 ```
 

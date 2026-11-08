@@ -4,7 +4,7 @@ import { cellCleanupHealthy, liveConfiguration, mapBounded, observersHealthy, pa
 const argumentsFor = (...rest: string[]) => parseArguments([
   '--before-url', 'https://before.lambda-web.us-west-2.on.aws/v1',
   '--after-url', 'https://after.lambda-web.us-west-2.on.aws/v1',
-  '--operator-url', 'https://operator.lambda-web.us-west-2.on.aws/v1',
+  '--operator-url', 'https://operator.execute-api.us-west-2.amazonaws.com/v1',
   '--output', '/tmp/aws-peer-progress.json',
   ...rest,
 ]);
@@ -41,7 +41,7 @@ it('rejects unsafe URL forms, same-side endpoints, and endpoint query strings', 
   expect(() => liveConfiguration(environment, { ...options, beforeUrl: 'https://user:pass@before.lambda-web.us-west-2.on.aws/api/v1' })).toThrow('endpoint URL');
   expect(() => liveConfiguration(environment, { ...options, afterUrl: `${options.afterUrl}?token=private` })).toThrow('endpoint URL');
   expect(() => liveConfiguration(environment, { ...options, beforeUrl: 'https://before.lambda-web.us-west-2.on.aws/api/v1' })).toThrow('/v1 endpoint');
-  expect(() => liveConfiguration(environment, { ...options, operatorUrl: 'https://operator.execute-api.us-west-2.amazonaws.com/v1' })).toThrow('operator Lambda Web Function');
+  expect(() => liveConfiguration(environment, { ...options, operatorUrl: 'https://operator.lambda-web.us-west-2.on.aws/v1' })).toThrow('control API Gateway');
   expect(liveConfiguration(environment, { ...options, beforeUrl: 'https://lm2trh10396zdh82.32l.lambda-web.us-west-2.on.aws/v1' }).beforeUrl)
     .toBe('https://lm2trh10396zdh82.32l.lambda-web.us-west-2.on.aws/v1');
 });
