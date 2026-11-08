@@ -15,21 +15,23 @@ locals {
   thing_schedule_target_arn = "arn:${data.aws_partition.current.partition}:lambda:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:function:${local.name}-thing-schedule"
 
   lambda_zip_paths = merge({
-    watchdog          = "${path.root}/../dist/watchdog.zip"
-    agents-api        = "${path.root}/../dist/agents-api.zip"
-    agents-outbox     = "${path.root}/../dist/agents-outbox.zip"
-    connection-health = "${path.root}/../dist/connection-health.zip"
-    control           = "${path.root}/../dist/control.zip"
-    dispatcher        = "${path.root}/../dist/dispatcher.zip"
-    notifier          = "${path.root}/../dist/notifier.zip"
-    reconciler        = "${path.root}/../dist/reconciler.zip"
-    state-stream      = "${path.root}/../dist/state-stream.zip"
-    thing-schedule    = "${path.root}/../dist/thing-schedule.zip"
-    webhook-github    = "${path.root}/../dist/webhook-github.zip"
-    webhook-gitlab    = "${path.root}/../dist/webhook-gitlab.zip"
-    webhook-teams     = "${path.root}/../dist/webhook-teams.zip"
-    webhook-slack     = "${path.root}/../dist/webhook-slack.zip"
+    watchdog            = "${path.root}/../dist/watchdog.zip"
+    agents-outbox       = "${path.root}/../dist/agents-outbox.zip"
+    agents-token-issuer = "${path.root}/../dist/agents-token-issuer.zip"
+    connection-health   = "${path.root}/../dist/connection-health.zip"
+    control             = "${path.root}/../dist/control.zip"
+    dispatcher          = "${path.root}/../dist/dispatcher.zip"
+    notifier            = "${path.root}/../dist/notifier.zip"
+    reconciler          = "${path.root}/../dist/reconciler.zip"
+    state-stream        = "${path.root}/../dist/state-stream.zip"
+    thing-schedule      = "${path.root}/../dist/thing-schedule.zip"
+    webhook-github      = "${path.root}/../dist/webhook-github.zip"
+    webhook-gitlab      = "${path.root}/../dist/webhook-gitlab.zip"
+    webhook-teams       = "${path.root}/../dist/webhook-teams.zip"
+    webhook-slack       = "${path.root}/../dist/webhook-slack.zip"
   }, var.lambda_zip_paths)
+
+  agents_web_zip_path = coalesce(var.web_function_zip_path, "${path.root}/../dist/agents-web.zip")
 
   microvm_source_zip_path = coalesce(
     var.microvm_source_zip_path,

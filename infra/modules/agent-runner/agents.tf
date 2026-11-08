@@ -49,12 +49,6 @@ resource "aws_lambda_event_source_mapping" "agents_outbox" {
   depends_on = [aws_iam_role_policy.agents_outbox]
 }
 
-resource "aws_lambda_function_url" "agents" {
-  function_name      = aws_lambda_function.this["agents-api"].function_name
-  authorization_type = "AWS_IAM"
-  invoke_mode        = "RESPONSE_STREAM"
-}
-
 resource "aws_sqs_queue" "agents_failures" {
   name                      = "${local.name}-agents-failures.fifo"
   fifo_queue                = true

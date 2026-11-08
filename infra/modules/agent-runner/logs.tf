@@ -1,18 +1,17 @@
 locals {
   lambda_names = merge(
     {
-      agents-api        = true
-      agents-outbox     = true
-      connection-health = true
-      control           = true
-      dispatcher        = true
-      notifier          = true
-      reconciler        = true
-      state-stream      = true
-      thing-schedule    = true
+      agents-outbox       = true
+      agents-token-issuer = true
+      connection-health   = true
+      control             = true
+      dispatcher          = true
+      notifier            = true
+      reconciler          = true
+      state-stream        = true
+      thing-schedule      = true
     },
     {
-      agents-shared  = local.team_api_enabled
       watchdog       = var.enable_watchdog
       webhook-github = local.github_enabled
       webhook-gitlab = local.gitlab_enabled

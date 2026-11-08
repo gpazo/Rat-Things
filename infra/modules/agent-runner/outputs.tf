@@ -163,26 +163,16 @@ output "reconciler_function_name" {
   value       = aws_lambda_function.this["reconciler"].function_name
 }
 output "agents_api_base_url" {
-  description = "OpenAI SDK base URL. The HTTP service supports large uploads and SSE; the Lambda fallback has AWS payload limits."
-  value       = local.environment_relay_enabled ? "https://${var.environment_relay_origin_hostname}/v1" : "${aws_lambda_function_url.agents.function_url}v1"
+  description = "Operator Agents API base URL."
+  value       = aws_cloudformation_stack.agents_operator_web.outputs["BaseUrl"]
 }
 
 output "agents_token_issuer_url" {
   description = "IAM-authenticated POST endpoint for short-lived OpenAI SDK API keys."
-  value       = "${aws_lambda_function_url.agents.function_url}v1/auth/tokens"
+  value       = "${aws_apigatewayv2_api.this.api_endpoint}/v1/auth/tokens"
 }
 
 output "budget_alert_name" {
   description = "Optional AWS account monthly cost alert name, or null when disabled."
   value       = try(aws_budgets_budget.account_monthly[0].name, null)
-}
-
-output "agents_observer_network" {
-  description = "Network coordinates for an operator-owned API validation client."
-  value = local.environment_relay_enabled ? {
-    cluster_arn               = aws_ecs_cluster.environment_relay[0].arn
-    vpc_id                    = aws_vpc.environment_relay[0].id
-    subnet_ids                = aws_subnet.environment_relay[*].id
-    token_issuer_function_arn = aws_lambda_function.this["agents-api"].arn
-  } : null
 }

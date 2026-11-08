@@ -51,7 +51,12 @@ data "aws_iam_policy_document" "agents_shared" {
   statement {
     sid       = "Logs"
     actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
-    resources = ["${aws_cloudwatch_log_group.lambda["agents-shared"].arn}:*"]
+    resources = ["${aws_cloudwatch_log_group.agents_shared_web[0].arn}:*"]
+  }
+  statement {
+    sid       = "AbortArtifactUploads"
+    actions   = ["s3:AbortMultipartUpload"]
+    resources = ["${aws_s3_bucket.artifacts.arn}/owners/*"]
   }
 }
 
@@ -61,33 +66,7 @@ resource "aws_iam_role_policy" "agents_shared" {
   policy = data.aws_iam_policy_document.agents_shared[0].json
 }
 
-resource "aws_lambda_function_url" "agents_shared" {
-  count              = local.team_api_enabled ? 1 : 0
-  function_name      = aws_lambda_function.this["agents-shared"].function_name
-  authorization_type = "NONE"
-  invoke_mode        = "RESPONSE_STREAM"
-}
-
-resource "aws_lambda_permission" "agents_shared_url" {
-  count                  = local.team_api_enabled ? 1 : 0
-  statement_id           = "PublicUrlWithApplicationAuthentication"
-  action                 = "lambda:InvokeFunctionUrl"
-  function_name          = aws_lambda_function_url.agents_shared[0].function_name
-  principal              = "*"
-  function_url_auth_type = "NONE"
-}
-
-resource "aws_lambda_permission" "agents_shared_invoke" {
-  count                    = local.team_api_enabled ? 1 : 0
-  statement_id             = "InvokeOnlyThroughApplicationAuthenticatedUrl"
-  action                   = "lambda:InvokeFunction"
-  function_name            = aws_lambda_function.this["agents-shared"].function_name
-  principal                = "*"
-  invoked_via_function_url = true
-  depends_on               = [aws_lambda_permission.agents_shared_url]
-}
-
 output "shared_agents_api_base_url" {
   description = "OIDC-authenticated team Agents API; null when no identity providers are configured."
-  value       = local.team_api_enabled ? "${aws_lambda_function_url.agents_shared[0].function_url}v1" : null
+  value       = local.team_api_enabled ? aws_cloudformation_stack.agents_shared_web[0].outputs["BaseUrl"] : null
 }

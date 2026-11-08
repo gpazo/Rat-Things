@@ -266,6 +266,12 @@ variable "lambda_zip_paths" {
   default     = {}
 }
 
+variable "web_function_zip_path" {
+  description = "Optional path to the packaged Lambda Web Functions ZIP. Defaults to dist/agents-web.zip under the Terraform root's parent directory."
+  type        = string
+  default     = null
+}
+
 variable "integration_plugin_base_urls" {
   description = "Non-secret HTTPS API base URLs for optional compiled integration plugins, keyed by plugin ID."
   type        = map(string)

@@ -42,83 +42,7 @@ locals {
   )
 
   control_routes = toset([
-    # Generated Agents API routes; run npm run agents-api:routes.
-    "GET /v1/agents/environments/{environment_id}",
-    "GET /v1/agents/environments/{environment_id}/files",
-    "POST /v1/agents/environments/{environment_id}/files",
-    "POST /v1/agents",
-    "GET /v1/agents",
-    "GET /v1/agents/{agent_id}",
-    "POST /v1/agents/{agent_id}",
-    "DELETE /v1/agents/{agent_id}",
-    "POST /v1/agents/environments/templates",
-    "GET /v1/agents/environments/templates",
-    "GET /v1/agents/environments/templates/{environment_template_id}",
-    "POST /v1/agents/environments/templates/{environment_template_id}",
-    "DELETE /v1/agents/environments/templates/{environment_template_id}",
-    "POST /v1/agents/sessions",
-    "GET /v1/agents/sessions",
-    "GET /v1/agents/sessions/{session_id}",
-    "POST /v1/agents/sessions/{session_id}",
-    "DELETE /v1/agents/sessions/{session_id}",
-    "POST /v1/agents/sessions/{session_id}/events",
-    "GET /v1/agents/sessions/{session_id}/events",
-    "GET /v1/agents/sessions/{session_id}/items",
-    "GET /v1/agents/sessions/{session_id}/turns",
-    "GET /v1/agents/sessions/{session_id}/turns/{turn_id}",
-    "GET /v1/agents/sessions/{session_id}/artifacts",
-    "GET /v1/agents/sessions/{session_id}/artifacts/{artifact_id}",
-    "DELETE /v1/agents/sessions/{session_id}/artifacts/{artifact_id}",
-    "GET /v1/agents/sessions/{session_id}/artifacts/{artifact_id}/content",
-    "POST /v1/vaults",
-    "GET /v1/vaults",
-    "GET /v1/vaults/{vault_id}",
-    "DELETE /v1/vaults/{vault_id}",
-    "POST /v1/vaults/{vault_id}/credentials",
-    "GET /v1/vaults/{vault_id}/credentials",
-    "GET /v1/vaults/{vault_id}/credentials/{credential_id}",
-    "POST /v1/vaults/{vault_id}/credentials/{credential_id}",
-    "DELETE /v1/vaults/{vault_id}/credentials/{credential_id}",
-    "GET /v1/agents/sessions/{session_id}/subagents",
-    "GET /v1/agents/sessions/{session_id}/subagents/{subagent_id}",
-    "GET /v1/agents/sessions/{session_id}/subagents/{subagent_id}/items",
-    "GET /v1/agents/sessions/{session_id}/subagents/{subagent_id}/turns",
-    "GET /v1/agents/sessions/{session_id}/subagents/{subagent_id}/turns/{turn_id}",
-    "GET /v1/agents/sessions/{session_id}/subagents/{subagent_id}/turns/{turn_id}/items",
-    "POST /v1/files",
-    "GET /v1/files",
-    "GET /v1/files/{file_id}",
-    "DELETE /v1/files/{file_id}",
-    "GET /v1/files/{file_id}/content",
-    "POST /v1/skills",
-    "GET /v1/skills",
-    "GET /v1/skills/{skill_id}",
-    "POST /v1/skills/{skill_id}",
-    "DELETE /v1/skills/{skill_id}",
-    "GET /v1/skills/{skill_id}/content",
-    "GET /v1/skills/{skill_id}/versions",
-    "POST /v1/skills/{skill_id}/versions",
-    "GET /v1/skills/{skill_id}/versions/{version}",
-    "DELETE /v1/skills/{skill_id}/versions/{version}",
-    "GET /v1/skills/{skill_id}/versions/{version}/content",
-    "GET /v1/agents/sessions/{session_id}/traces",
-    "POST /v1/agents/sessions/{session_id}/fork",
-    "GET /v1/agents/sessions/{session_id}/lineage",
-    "GET /v1/agents/sessions/{session_id}/runtime",
-    "GET /v1/agents/sessions/import",
-    "POST /v1/agents/sessions/import",
-    "GET /v1/agents/{agent_id}/revisions",
-    "GET /v1/agents/{agent_id}/revisions/{revision}",
-    "GET /v1/vaults/{vault_id}/revisions",
-    "GET /v1/vaults/{vault_id}/revisions/{revision}",
-    "GET /v1/vaults/{vault_id}/credentials/{credential_id}/revisions",
-    "GET /v1/vaults/{vault_id}/credentials/{credential_id}/revisions/{revision}",
-    "GET /v1/agents/sessions/{session_id}/configurations",
-    "GET /v1/agents/sessions/{session_id}/configurations/{revision}",
-    "GET /v1/agents/sessions/{session_id}/authorizations",
-    "GET /v1/agents/sessions/{session_id}/authorizations/{authorization_id}",
-    "GET /v1/agents/sessions/{session_id}/authorizations/otlp",
-    # End generated Agents API routes.
+    "POST /v1/rat/spaces",
     "GET /v1/models",
     "POST /v1/sessions/{sessionId}/publications",
     "GET /v1/webhooks",
@@ -182,6 +106,15 @@ resource "aws_apigatewayv2_integration" "lambda" {
   timeout_milliseconds   = 29000
 }
 
+resource "aws_apigatewayv2_integration" "agents_token_issuer" {
+  api_id                 = aws_apigatewayv2_api.this.id
+  integration_type       = "AWS_PROXY"
+  integration_method     = "POST"
+  integration_uri        = aws_lambda_function.this["agents-token-issuer"].invoke_arn
+  payload_format_version = "2.0"
+  timeout_milliseconds   = 29000
+}
+
 resource "aws_apigatewayv2_route" "control" {
   for_each = local.control_routes
 
@@ -196,6 +129,13 @@ resource "aws_apigatewayv2_route" "control" {
     "GET /v1/integrations/oauth/callback",
   ], each.value) ? "NONE" : "AWS_IAM"
   target = "integrations/${aws_apigatewayv2_integration.lambda["control"].id}"
+}
+
+resource "aws_apigatewayv2_route" "agents_token_issuer" {
+  api_id             = aws_apigatewayv2_api.this.id
+  route_key          = "POST /v1/auth/tokens"
+  authorization_type = "AWS_IAM"
+  target             = "integrations/${aws_apigatewayv2_integration.agents_token_issuer.id}"
 }
 
 resource "aws_apigatewayv2_route" "webhook" {
@@ -215,4 +155,12 @@ resource "aws_lambda_permission" "api" {
   function_name = each.value.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/*"
+}
+
+resource "aws_lambda_permission" "agents_token_issuer_api" {
+  statement_id  = "AllowApiGatewayTokenIssuer"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.this["agents-token-issuer"].function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/POST/v1/auth/tokens"
 }

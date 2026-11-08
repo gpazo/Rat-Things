@@ -112,30 +112,21 @@ locals {
   }
 
   lambda_definitions = {
-    agents-api = {
+    agents-token-issuer = {
       enabled  = true
-      zip_path = local.lambda_zip_paths["agents-api"]
-      role_arn = local.environment_relay_enabled ? aws_iam_role.agents_token_issuer.arn : aws_iam_role.control.arn
-      timeout  = 900
-      memory   = 512
-      environment = merge(local.executor_environment, local.model_catalog_environment, local.team_oidc_environment, {
+      zip_path = local.lambda_zip_paths["agents-token-issuer"]
+      role_arn = aws_iam_role.agents_token_issuer.arn
+      timeout  = 30
+      memory   = 256
+      environment = {
         AGENTS_TABLE_NAME        = aws_dynamodb_table.agents.name
-        AGENTS_TOKEN_ISSUER_ONLY = tostring(local.environment_relay_enabled)
+        DEFINITION_BUCKET        = aws_s3_bucket.definitions.id
+        DEFINITION_KMS_KEY_ARN   = aws_kms_key.data.arn
+        AGENTS_TOKEN_ISSUER_ONLY = "true"
         ALLOW_OWNER_HEADER       = "false"
-        AGENTS_PUBLIC_BASE_URL   = local.environment_relay_enabled ? "https://${var.environment_relay_origin_hostname}/v1" : ""
-      })
-    }
-    agents-shared = {
-      enabled  = local.team_api_enabled
-      zip_path = local.lambda_zip_paths["agents-api"]
-      role_arn = local.team_api_enabled ? aws_iam_role.agents_shared[0].arn : null
-      timeout  = 900
-      memory   = 512
-      environment = merge(local.executor_environment, local.model_catalog_environment, local.team_oidc_environment, {
-        AGENTS_TABLE_NAME  = aws_dynamodb_table.agents.name
-        AGENTS_AUTH_MODE   = "oidc"
-        ALLOW_OWNER_HEADER = "false"
-      })
+        AGENTS_PUBLIC_BASE_URL   = aws_cloudformation_stack.agents_operator_web.outputs["BaseUrl"]
+        AGENTS_TOKEN_ISSUER_URL  = "${aws_apigatewayv2_api.this.api_endpoint}/v1/auth/tokens"
+      }
     }
     agents-outbox = {
       enabled  = true

@@ -30,6 +30,15 @@ mock_provider "aws" {
   mock_resource "aws_lambda_function" {
     defaults = { arn = "arn:aws:lambda:us-west-2:123456789012:function:test" }
   }
+  mock_resource "aws_cloudformation_stack" {
+    defaults = { outputs = { BaseUrl = "https://web-function.example.test/v1", EndpointUrl = "https://web-function.example.test" } }
+  }
+  mock_resource "aws_s3_bucket" {
+    defaults = { id = "rat-web-functions", arn = "arn:aws:s3:::rat-web-functions" }
+  }
+  mock_resource "aws_s3_object" {
+    defaults = { version_id = "fixture-version" }
+  }
   mock_resource "aws_sqs_queue" {
     defaults = { arn = "arn:aws:sqs:us-west-2:123456789012:test" }
   }
@@ -45,15 +54,6 @@ mock_provider "aws" {
   mock_resource "aws_security_group" {
     defaults = { id = "sg-0123456789abcdef0" }
   }
-  mock_resource "aws_lb" {
-    defaults = { arn = "arn:aws:elasticloadbalancing:us-west-2:123456789012:loadbalancer/app/relay/0000000000000000" }
-  }
-  mock_resource "aws_lb_target_group" {
-    defaults = { arn = "arn:aws:elasticloadbalancing:us-west-2:123456789012:targetgroup/relay/0000000000000000" }
-  }
-  mock_resource "aws_lb_listener" {
-    defaults = { arn = "arn:aws:elasticloadbalancing:us-west-2:123456789012:listener/app/relay/0000000000000000/1111111111111111" }
-  }
   override_resource {
     target = aws_iam_role.ec2_worker
     values = { arn = "arn:aws:iam::123456789012:role/ec2-worker" }
@@ -66,6 +66,10 @@ mock_provider "aws" {
     target = aws_iam_role.agents_token_issuer
     values = { arn = "arn:aws:iam::123456789012:role/token-issuer" }
   }
+  override_resource {
+    target = aws_iam_role.agents_operator_web
+    values = { arn = "arn:aws:iam::123456789012:role/agents-operator-web" }
+  }
 }
 mock_provider "awscc" {
 }
@@ -74,10 +78,11 @@ variables {
   # Mock providers do not consume archives. This existing fixture satisfies the
   # path checks; separate packaging/image gates validate real executable bytes.
   lambda_zip_paths = { for name in [
-    "agents-api", "agents-outbox", "connection-health", "control", "dispatcher", "notifier",
+    "agents-token-issuer", "agents-outbox", "connection-health", "control", "dispatcher", "notifier",
     "reconciler", "state-stream", "thing-schedule", "watchdog", "webhook-github", "webhook-gitlab", "webhook-teams", "webhook-slack"
   ] : name => "tests/worker-backends.tftest.hcl" }
   microvm_source_zip_path        = "tests/worker-backends.tftest.hcl"
+  web_function_zip_path          = "tests/worker-backends.tftest.hcl"
   enable_s3_files                = true
   codex_auth_mode                = "bedrock"
   ec2_worker_ami_id              = "ami-0123456789abcdef0"
@@ -291,8 +296,8 @@ run "ec2_only_storage" {
     error_message = "Only the schedule outbox requires schedule mutation and its deployment-scoped execution-role grant."
   }
   assert {
-    condition     = local.lambda_definitions["agents-api"].role_arn == aws_iam_role.control.arn
-    error_message = "The Lambda API fallback must retain the control execution role."
+    condition     = local.lambda_definitions["agents-token-issuer"].role_arn == aws_iam_role.agents_token_issuer.arn
+    error_message = "Token issuance must retain its dedicated, narrow execution role."
   }
   assert {
     condition     = alltrue([for collection in ["session_tool_attempts", "session_preparations"] : contains(jsondecode(one(one(aws_lambda_event_source_mapping.agents_outbox.filter_criteria).filter).pattern).dynamodb.NewImage.collection.S, collection)])
@@ -422,7 +427,7 @@ run "chatgpt_unconfigured_model_catalog" {
   assert {
     condition = (
       length(local.model_catalog_environment) == 0 &&
-      !contains(keys(local.lambda_definitions["agents-api"].environment), "AGENTS_MODEL_IDS_JSON") &&
+      !contains(keys(local.agents_web_operator_template.Resources.OperatorRevision.Properties.ServiceConfig.EnvironmentVariables), "AGENTS_MODEL_IDS_JSON") &&
       !contains(keys(local.lambda_definitions["control"].environment), "AGENTS_MODEL_IDS_JSON")
     )
     error_message = "An unconfigured ChatGPT workspace must leave model discovery unavailable."
@@ -478,37 +483,52 @@ run "both_worker_backends" {
   }
 }
 
-run "dedicated_relay_administration" {
+run "operator_web_api_configuration" {
   command = apply
   module { source = "./modules/agent-runner" }
   variables {
-    enable_microvm                           = false
-    enable_ec2_worker                        = true
-    codex_auth_mode                          = "chatgpt"
-    codex_auth_file_secret_arn               = "arn:aws:secretsmanager:us-west-2:123456789012:secret:chatgpt-auth"
-    codex_chatgpt_model                      = "gpt-workspace"
-    codex_chatgpt_model_ids                  = ["gpt-workspace", "gpt-workspace-fast"]
-    environment_relay_image                  = "123456789012.dkr.ecr.us-west-2.amazonaws.com/relay@sha256:0000000000000000000000000000000000000000000000000000000000000000"
-    environment_relay_origin_hostname        = "relay.example.test"
-    environment_relay_origin_certificate_arn = "arn:aws:acm:us-west-2:123456789012:certificate/00000000-0000-0000-0000-000000000000"
+    enable_microvm             = false
+    enable_ec2_worker          = true
+    codex_auth_mode            = "chatgpt"
+    codex_auth_file_secret_arn = "arn:aws:secretsmanager:us-west-2:123456789012:secret:chatgpt-auth"
+    codex_chatgpt_model        = "gpt-workspace"
+    codex_chatgpt_model_ids    = ["gpt-workspace", "gpt-workspace-fast"]
   }
   assert {
-    condition     = local.lambda_definitions["agents-api"].role_arn == aws_iam_role.agents_token_issuer.arn && local.lambda_definitions["control"].role_arn == aws_iam_role.control.arn
-    error_message = "The relay deployment separates API token issuance from administration."
+    condition     = local.lambda_definitions["agents-token-issuer"].role_arn == aws_iam_role.agents_token_issuer.arn && local.lambda_definitions["control"].role_arn == aws_iam_role.control.arn
+    error_message = "Token issuance and operator administration must use separate IAM roles."
   }
   assert {
     condition     = alltrue([for statement in data.aws_iam_policy_document.control.statement : !contains(["SessionSchedules", "PassSessionScheduleRole", "SessionDeliverySecrets"], statement.sid)])
-    error_message = "Relay deployments must also keep scheduling and delivery-secret grants out of control administration."
+    error_message = "Operator administration must keep scheduling and delivery-secret grants out of the control role."
   }
   assert {
     condition = (
-      jsondecode(local.lambda_definitions["agents-api"].environment.AGENTS_MODEL_IDS_JSON) == ["gpt-workspace", "gpt-workspace-fast"] &&
+      jsondecode(local.agents_web_operator_template.Resources.OperatorRevision.Properties.ServiceConfig.EnvironmentVariables.AGENTS_MODEL_IDS_JSON) == ["gpt-workspace", "gpt-workspace-fast"] &&
       local.lambda_definitions["control"].environment.AGENTS_DEFAULT_MODEL == "gpt-workspace" &&
-      jsondecode(lookup({
-        for entry in jsondecode(aws_ecs_task_definition.agents_http[0].container_definitions)[0].environment : entry.name => entry.value
-      }, "AGENTS_MODEL_IDS_JSON", "[]")) == ["gpt-workspace", "gpt-workspace-fast"]
+      local.agents_web_operator_template.Resources.OperatorRevision.Properties.ServiceConfig.EnvironmentVariables.AWS_LAMBDA_NODEJS_ENTRYPOINT == "agents-server.mjs" &&
+      local.agents_web_operator_template.Resources.OperatorRevision.Properties.ServiceConfig.TimeoutSeconds == 900 &&
+      local.agents_web_operator_template.Resources.OperatorRevision.Properties.ServiceConfig.MaxConcurrencyPerEnvironment == 32 &&
+      local.agents_web_operator_template.Resources.OperatorEndpoint.Properties.AuthType == "ApplicationManaged" &&
+      local.agents_web_operator_template.Resources.OperatorEndpoint.Properties.EndpointType == "HomeRegion" &&
+      local.agents_web_operator_template.Resources.OperatorRevision.Properties.BuildConfig.CodeConfig.S3Object.Bucket == aws_s3_bucket.agents_web.id &&
+      local.agents_web_operator_template.Resources.OperatorRevision.Properties.BuildConfig.CodeConfig.S3Object.VersionId == aws_s3_object.agents_web.version_id &&
+      aws_s3_bucket_versioning.agents_web.versioning_configuration[0].status == "Enabled" &&
+      contains(one([for statement in data.aws_iam_policy_document.agents_operator_web.statement : statement.actions if statement.sid == "AbortArtifactUploads"]), "s3:AbortMultipartUpload")
     )
-    error_message = "The exact ChatGPT workspace catalog must reach both API Lambdas and the ECS Agents server."
+    error_message = "The operator Web Function must receive the configured model catalog and deploy as a bounded Node.js 24 application-managed HomeRegion endpoint."
+  }
+  assert {
+    condition = (
+      !contains(keys(local.lambda_definitions["agents-token-issuer"].environment), "AGENTS_MODEL_IDS_JSON") &&
+      contains(keys(local.lambda_definitions["agents-token-issuer"].environment), "DEFINITION_BUCKET") &&
+      local.lambda_definitions["agents-token-issuer"].environment.AGENTS_PUBLIC_BASE_URL == aws_cloudformation_stack.agents_operator_web.outputs.BaseUrl &&
+      local.lambda_definitions["agents-token-issuer"].environment.AGENTS_TOKEN_ISSUER_URL == "${aws_apigatewayv2_api.this.api_endpoint}/v1/auth/tokens" &&
+      aws_apigatewayv2_route.agents_token_issuer.authorization_type == "AWS_IAM" &&
+      aws_apigatewayv2_route.control["POST /v1/rat/spaces"].authorization_type == "AWS_IAM" &&
+      !contains(keys(aws_apigatewayv2_route.control), "POST /v1/agents")
+    )
+    error_message = "The narrow issuer must receive the real operator audience and API Gateway issuer route without model or execution configuration."
   }
 }
 
@@ -524,7 +544,7 @@ run "explicit_ec2_session_workloads" {
     condition = (
       local.executor_environment.DEFAULT_EXECUTION_BACKEND == "microvm" &&
       local.executor_environment.EC2_SESSION_WORKLOADS_JSON == jsonencode([{ owner_id = "alice", agent_id = "agent_long" }]) &&
-      local.lambda_definitions["agents-api"].environment.EC2_SESSION_WORKLOADS_JSON == local.executor_environment.EC2_SESSION_WORKLOADS_JSON &&
+      local.agents_web_operator_template.Resources.OperatorRevision.Properties.ServiceConfig.EnvironmentVariables.EC2_SESSION_WORKLOADS_JSON == local.executor_environment.EC2_SESSION_WORKLOADS_JSON &&
       local.lambda_definitions["agents-outbox"].environment.EC2_SESSION_WORKLOADS_JSON == local.executor_environment.EC2_SESSION_WORKLOADS_JSON
     )
     error_message = "The API and outbox must receive the explicit policy while ordinary execution remains on MicroVM."
@@ -600,8 +620,8 @@ run "pi_microvm_catalog_reaches_image" {
   }
   assert {
     condition = (
-      jsondecode(local.lambda_definitions["agents-api"].environment.AGENTS_MODEL_IDS_JSON) == ["gpt-5.4"] &&
-      local.lambda_definitions["agents-api"].environment.AGENTS_DEFAULT_MODEL == "gpt-5.4" &&
+      jsondecode(local.agents_web_operator_template.Resources.OperatorRevision.Properties.ServiceConfig.EnvironmentVariables.AGENTS_MODEL_IDS_JSON) == ["gpt-5.4"] &&
+      local.agents_web_operator_template.Resources.OperatorRevision.Properties.ServiceConfig.EnvironmentVariables.AGENTS_DEFAULT_MODEL == "gpt-5.4" &&
       lookup({ for entry in awscc_lambda_microvm_image.runner[0].environment_variables : entry.key => entry.value }, "CODEX_CHATGPT_MODEL", "MISSING") == "gpt-5.4"
     )
     error_message = "Adding Pi configuration must preserve the configured Codex model catalog and image default."
@@ -706,12 +726,11 @@ run "shared_api_requires_configured_identity" {
   }
   assert {
     condition = (
-      !contains(keys(aws_lambda_function.this), "agents-shared") &&
-      length(aws_lambda_function_url.agents_shared) == 0 &&
+      length(aws_cloudformation_stack.agents_shared_web) == 0 &&
       length(aws_iam_role.agents_shared) == 0 &&
-      aws_lambda_function_url.agents.authorization_type == "AWS_IAM"
+      local.agents_web_operator_template.Resources.OperatorEndpoint.Properties.AuthType == "ApplicationManaged"
     )
-    error_message = "Without a configured OIDC provider, no public team endpoint or team service role may exist."
+    error_message = "Without a configured OIDC provider, no shared Web Function or shared service role may exist."
   }
 }
 
@@ -734,23 +753,15 @@ run "shared_api_verifies_oidc_in_separate_entrypoint" {
   }
   assert {
     condition = (
-      aws_lambda_function.this["agents-shared"].environment[0].variables.AGENTS_AUTH_MODE == "oidc" &&
-      jsondecode(aws_lambda_function.this["agents-shared"].environment[0].variables.TEAM_OIDC_PROVIDERS_JSON)[0].audience == "rat-api" &&
-      aws_lambda_function.this["agents-shared"].filename == aws_lambda_function.this["agents-api"].filename &&
-      aws_lambda_function.this["agents-shared"].role == aws_iam_role.agents_shared[0].arn &&
-      aws_lambda_function_url.agents_shared[0].authorization_type == "NONE" &&
-      aws_lambda_function_url.agents_shared[0].invoke_mode == "RESPONSE_STREAM" &&
-      aws_lambda_function_url.agents.authorization_type == "AWS_IAM"
+      local.agents_web_shared_template.Resources.SharedRevision.Properties.ServiceConfig.EnvironmentVariables.AGENTS_AUTH_MODE == "oidc" &&
+      jsondecode(local.agents_web_shared_template.Resources.SharedRevision.Properties.ServiceConfig.EnvironmentVariables.TEAM_OIDC_PROVIDERS_JSON)[0].audience == "rat-api" &&
+      local.agents_web_shared_template.Resources.SharedRevision.Properties.ServiceConfig.ExecutionRoleArn == aws_iam_role.agents_shared[0].arn &&
+      local.agents_web_shared_template.Resources.SharedRevision.Properties.BuildConfig.RuntimeConfig.Runtime == "nodejs24.x" &&
+      local.agents_web_shared_template.Resources.SharedEndpoint.Properties.AuthType == "ApplicationManaged" &&
+      local.agents_web_shared_template.Resources.SharedEndpoint.Properties.EndpointType == "HomeRegion" &&
+      contains(one([for statement in data.aws_iam_policy_document.agents_shared[0].statement : statement.actions if statement.sid == "AbortArtifactUploads"]), "s3:AbortMultipartUpload")
     )
-    error_message = "Shared JWT streaming must use its configured application-authentication mode and service role while bootstrap remains IAM-only."
-  }
-  assert {
-    condition = (
-      aws_lambda_permission.agents_shared_url[0].function_url_auth_type == "NONE" &&
-      aws_lambda_permission.agents_shared_invoke[0].invoked_via_function_url &&
-      data.aws_iam_policy_document.agents_shared[0].source_policy_documents == tolist([data.aws_iam_policy_document.agents_service.json])
-    )
-    error_message = "Public invocation is only through the authenticated URL handler; its IAM permissions must reuse the scoped Agents service policy."
+    error_message = "Shared Web Functions must use their OIDC providers and dedicated service role behind an application-managed HomeRegion endpoint."
   }
 }
 

@@ -8,7 +8,7 @@ data "aws_iam_policy_document" "agents_token_issuer" {
   statement {
     sid       = "Logs"
     actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
-    resources = ["${aws_cloudwatch_log_group.lambda["agents-api"].arn}:*"]
+    resources = ["${aws_cloudwatch_log_group.lambda["agents-token-issuer"].arn}:*"]
   }
   statement {
     sid       = "IssueTokenIndex"

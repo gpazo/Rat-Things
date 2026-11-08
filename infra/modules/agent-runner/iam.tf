@@ -197,7 +197,7 @@ data "aws_iam_policy_document" "control" {
   statement {
     sid       = "Logs"
     actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
-    resources = ["${aws_cloudwatch_log_group.lambda["control"].arn}:*", "${aws_cloudwatch_log_group.lambda["agents-api"].arn}:*"]
+    resources = ["${aws_cloudwatch_log_group.lambda["control"].arn}:*"]
   }
 
   statement {

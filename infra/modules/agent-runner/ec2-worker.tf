@@ -302,7 +302,8 @@ resource "aws_iam_role_policy" "ec2_control" {
   for_each = var.enable_ec2_worker ? merge({
     control    = aws_iam_role.control.id, dispatcher = aws_iam_role.dispatcher.id,
     reconciler = aws_iam_role.reconciler.id, outbox = aws_iam_role.agents_outbox.id,
-  }, local.environment_relay_enabled ? { http = aws_iam_role.agents_http[0].id } : {}) : {}
+    operator   = aws_iam_role.agents_operator_web.id,
+  }) : {}
   name   = "ec2-session-control"
   role   = each.value
   policy = data.aws_iam_policy_document.ec2_control[0].json
