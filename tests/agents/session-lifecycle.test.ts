@@ -103,6 +103,26 @@ describe('Agents API session lifecycle through the OpenAI SDK', () => {
     expect(await f.store.list('alice', 'environments', {})).toMatchObject({ data: [], has_more: false });
   });
 
+  it('rejects messages and tool results on a persisted self-hosted Session before either receipt path writes', async () => {
+    const f = fixture();
+    const session = await f.api.sessions.create({ agent: { model: 'test' }, environment: { type: 'none' }, input: 'Start' });
+    const saved = await f.store.get<import('../../src/core/session-ports.js').SessionState>('alice', 'sessions', session.id);
+    if (!saved) throw new Error('Expected a stored Session');
+    const turnId = saved.value.turns[0]!.turn.id;
+    const legacy = { ...saved.value.session, environment: { type: 'self_hosted' as const, id: 'env_legacy', workspace_directory: '/workspace', capability_directories: [], remote_url: 'https://relay.example' } };
+    await f.store.put({ ...saved, revision: saved.revision + 1, value: { ...saved.value, session: legacy } }, saved.revision);
+    const before = await f.store.get<import('../../src/core/session-ports.js').SessionState>('alice', 'sessions', session.id);
+    const message = { events: [{ type: 'agent.session.input.message' as const, input: [{ role: 'user' as const, content: [{ type: 'input_text' as const, text: 'Continue' }] }] }] };
+    const caller = { actor: { id: 'alice', kind: 'human' as const } };
+    const toolResult = { events: [{ type: 'agent.session.input.tool_result' as const, turn_id: turnId, call_id: 'call_1', success: true, output: 'result' }] };
+
+    await expect(f.sessions.events('alice', session.id, message, 'message', { caller })).rejects.toMatchObject({ status: 409, code: 'unsupported_environment' });
+    await expect(f.sessions.events('alice', session.id, toolResult, 'tool-result')).rejects.toMatchObject({ status: 409, code: 'unsupported_environment' });
+
+    expect(await f.store.get('alice', 'sessions', session.id)).toEqual(before);
+    expect(await f.store.list('alice', `session_feedback:${session.id}`, {})).toMatchObject({ data: [], has_more: false });
+  });
+
   it('serves owner-scoped traces, validates cursors and preserves captured steps after runtime removal', async () => {
     const f = fixture();
     const session = await f.api.sessions.create({ agent: { model: 'test' }, environment: { type: 'none' }, input: 'Start' });

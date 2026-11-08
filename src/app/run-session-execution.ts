@@ -145,6 +145,7 @@ export class RunSessionExecution implements SessionExecution {
   }
 
   public async start(ownerId: string, session: AgentSession, binding: SessionTurnBinding, history: AgentSessionItem[] = [], placement: ExecutionBackend = 'microvm', bootstrap = false): Promise<void> {
+    if (session.environment.type === 'self_hosted') throw new AgentsApiError(409, 'This Session uses an unsupported self-hosted environment and cannot resume execution.', 'unsupported_environment', 'environment.type');
     const sessionResource = await this.options.store.get<SessionState>(ownerId, 'sessions', session.id);
     const sessionState = sessionResource ? (await ensureSessionConfiguration(this.options.store, sessionResource, Math.floor(Date.now() / 1000))).value : undefined;
     if (sessionState?.closing || sessionState?.forkLock && sessionState.forkLock.expiresAt > Math.floor(Date.now() / 1000)) return;

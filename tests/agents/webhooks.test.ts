@@ -5,7 +5,7 @@ import { MemoryAgentsStore } from './fixtures.js';
 import { SessionEventStore, type SessionEventBatch } from '../../src/core/session-event-store.js';
 import { WebhookService } from '../../src/core/webhook-service.js';
 import type { WebhookSecrets } from '../../src/credentials/webhooks.js';
-import { sessionWebhookTypes, webhookEndpointInput, type WebhookDelivery } from '../../src/domain/session-webhooks.js';
+import { planSessionWebhooks, sessionWebhookTypes, webhookEndpointInput, type WebhookDelivery } from '../../src/domain/session-webhooks.js';
 import { AgentService } from '../../src/core/agent-service.js';
 import { SessionService } from '../../src/core/session-service.js';
 import { SessionRuntimeStore } from '../../src/core/session-runtime-store.js';
@@ -56,6 +56,14 @@ function fixture() {
 }
 
 describe('standard outbound Session webhooks', () => {
+  it('does not publish private self-hosted relay coordinates', async () => {
+    const session = await fixture().create();
+    const legacy = { ...session, environment: { type: 'self_hosted' as const, id: 'env_legacy', workspace_directory: '/workspace', capability_directories: [], remote_url: 'https://relay.example' } };
+    const events = planSessionWebhooks(undefined, legacy);
+    expect(events).toContainEqual({ type: 'agent.session.created', data: { id: session.id, environment_id: 'env_legacy', environment_type: 'self_hosted' } });
+    expect(JSON.stringify(events)).not.toContain('relay.example');
+  });
+
   it('commits creation events with the Session, delivers SDK-verifiable bytes, and deduplicates fanout and delivery', async () => {
     const f = fixture();
     const endpoint = await f.endpoint();

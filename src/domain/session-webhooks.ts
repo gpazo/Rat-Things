@@ -8,8 +8,8 @@ export const sessionWebhookTypes = [
 export type SessionWebhookType = typeof sessionWebhookTypes[number];
 export interface SessionWebhookEvent {
   id: string; object: 'event'; created_at: number; type: SessionWebhookType;
-  data: { id: string; watchdog?: { finding_id: string; reason: string; judge_session_id: string | null; verdict: string | null }; required_action?: { type: 'function_call' | 'environment_connection' };
-    environment_id?: string; environment_type?: 'openai_hosted' | 'self_hosted'; connect?: { remote_url: string } };
+  data: { id: string; watchdog?: { finding_id: string; reason: string; judge_session_id: string | null; verdict: string | null }; required_action?: { type: 'function_call' };
+    environment_id?: string; environment_type?: 'openai_hosted' | 'self_hosted' };
 }
 export interface WebhookEndpoint {
   id: string; object: 'webhook.endpoint'; name: string; url: string;
@@ -30,11 +30,10 @@ export function planSessionWebhooks(previous: AgentSession | undefined, session:
     const environment = session.environment;
     events.push({ type: 'agent.session.created', data: { id: session.id,
       ...(environment.type === 'none' ? {} : { environment_id: environment.id, environment_type: environment.type }),
-      ...(environment.type === 'self_hosted' ? { connect: { remote_url: environment.remote_url } } : {}),
     } });
   }
   if (session.status === 'requires_action') {
-    const kinds = [...new Set(session.required_actions.map((action) => action.type))];
+    const kinds = [...new Set(session.required_actions.filter((action) => action.type === 'function_call').map((action) => action.type))];
     for (const type of kinds) {
       const before = previous?.required_actions.filter((action) => action.type === type) ?? [];
       const after = session.required_actions.filter((action) => action.type === type);

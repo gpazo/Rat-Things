@@ -568,6 +568,9 @@ export class SessionService {
   public async events(ownerId: string, id: string, raw: unknown, idempotencyKey?: string, response?: { caller?: SessionCaller }): Promise<void> {
     const acceptedStarted = performance.now();
     const { events } = performancePhaseSync('SubmissionContractDuration', () => parseAgentsContract('SessionEvents', raw));
+    const legacySession = await this.required(ownerId, id);
+    const selfHosted = legacySession.value.session.environment.type === 'self_hosted';
+    if (selfHosted && events.some(event => event.type !== 'agent.session.input.cancel')) this.rejectSelfHostedWork();
     if (idempotencyKey !== undefined && (!idempotencyKey || idempotencyKey.length > 256)) invalid('Idempotency-Key must contain 1–256 characters', 'Idempotency-Key');
     const caller = response?.caller;
     const requestKey = idempotencyKey ?? this.ids.next('request');
@@ -578,12 +581,16 @@ export class SessionService {
       performanceCount('SubmissionAcceptedDuration', performance.now() - acceptedStarted);
       return;
     }
-    if (events.some(event => event.type === 'agent.session.input.cancel')) await this.flushFeedback(ownerId, id, true);
+    if (!selfHosted && events.some(event => event.type === 'agent.session.input.cancel')) await this.flushFeedback(ownerId, id, true);
     for (let attempt = 0; attempt < 10; attempt++) {
       let resource = await this.required(ownerId, id);
+      if (resource.value.session.environment.type === 'self_hosted'
+        && events.some(event => event.type !== 'agent.session.input.cancel')) this.rejectSelfHostedWork();
       requireSessionMutable(resource.value, this.clock.now());
       if (!resource.value.receipts[key]) {
         resource = await ensureSessionConfiguration(this.options.store, resource, this.clock.now());
+        if (resource.value.session.environment.type === 'self_hosted'
+          && events.some(event => event.type !== 'agent.session.input.cancel')) this.rejectSelfHostedWork();
         requireSessionMutable(resource.value, this.clock.now());
       }
       const previous = resource.value.receipts[key];
@@ -636,6 +643,7 @@ export class SessionService {
     let rateAdmitted = false;
     for (let attempt = 0; attempt < 10; attempt++) {
       const [initial, previous] = await performancePhase('SubmissionReadDuration', () => Promise.all([this.required(ownerId, id), this.options.store.get<SessionFeedback>(ownerId, feedbackCollection(id), key)]));
+      if (initial.value.session.environment.type === 'self_hosted') this.rejectSelfHostedWork();
       requireSessionMutable(initial.value, this.clock.now());
       await performancePhase('SubmissionValidationDuration', () => validateSessionCaller(caller));
       const priorDigest = previous?.value.digest ?? initial.value.receipts[key]?.digest;
@@ -705,6 +713,12 @@ export class SessionService {
 
   /** Called by the durable outbox consumer. Every command is retryable with the same identity. */
   public async dispatch(ownerId: string, id: string): Promise<void> {
+    const initial = await this.options.store.get<SessionState>(ownerId, 'sessions', id);
+    if (!initial || initial.value.share && initial.value.share.phase !== 'quiescing' || initial.value.closing || initial.value.forkLock && initial.value.forkLock.expiresAt > this.clock.now()) return;
+    if (initial.value.session.environment.type === 'self_hosted') {
+      await this.discardLegacySelfHostedWork(ownerId, id);
+      return;
+    }
     await this.flushFeedback(ownerId, id);
     let resource = await this.options.store.get<SessionState>(ownerId, 'sessions', id);
     if (!resource || resource.value.share && resource.value.share.phase !== 'quiescing' || resource.value.closing || resource.value.forkLock && resource.value.forkLock.expiresAt > this.clock.now()) return;
@@ -776,6 +790,65 @@ export class SessionService {
         ...resource.value,
         receipts: Object.fromEntries(Object.entries(resource.value.receipts).map(([receiptKey, current]) => [receiptKey, receiptKey === key || current.batchLeader === key ? { ...current, dispatched: true, ...(failure ? { failure } : {}) } : current])),
       });
+    }
+  }
+
+  private rejectSelfHostedWork(): never {
+    throw new AgentsApiError(409, 'This Session uses an unsupported self-hosted environment and cannot accept new work.', 'unsupported_environment', 'environment.type');
+  }
+
+  /** Retire old queued work without ever launching it; cancellations remain safe to deliver. */
+  private async discardLegacySelfHostedWork(ownerId: string, id: string): Promise<void> {
+    const unsupported = { code: 'unsupported_environment', message: 'Queued work was discarded because this Session uses an unsupported self-hosted environment.' };
+    const snapshot = await this.options.store.get<SessionState>(ownerId, 'sessions', id);
+    if (!snapshot) return;
+    for (const [, receipt] of Object.entries(snapshot.value.receipts).sort((left, right) => (left[1].sequence ?? 0) - (right[1].sequence ?? 0))) {
+      if (receipt.dispatched) continue;
+      for (const command of receipt.commands) {
+        if (command.type === 'cancel') await this.options.execution.cancel(ownerId, snapshot.value.session, command.turnId);
+        else if (command.type === 'start' && snapshot.value.turns.find(binding => binding.turn.id === command.turnId)?.cancelRequested) {
+          await this.options.execution.cancel(ownerId, snapshot.value.session, command.turnId);
+        }
+      }
+    }
+    for (const feedback of await this.pendingFeedback(ownerId, id)) {
+      await this.options.store.delete(feedback).catch(error => {
+        if (!(error instanceof AgentsApiError) || !['conflict', 'resource_not_found'].includes(error.code ?? '')) throw error;
+      });
+    }
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const resource = await this.options.store.get<SessionState>(ownerId, 'sessions', id);
+      if (!resource) return;
+      if (resource.value.session.environment.type !== 'self_hosted') return;
+      const receipts = Object.fromEntries(Object.entries(resource.value.receipts).map(([key, receipt]) => {
+        if (receipt.dispatched) return [key, receipt];
+        const hasUnsafeCommand = receipt.commands.some(command => command.type !== 'cancel'
+          && !(command.type === 'start' && resource.value.turns.find(binding => binding.turn.id === command.turnId)?.cancelRequested));
+        return [key, { ...receipt, dispatched: true, ...(hasUnsafeCommand ? { failure: unsupported } : {}) }];
+      }));
+      const failedTurnIds = new Set(Object.entries(resource.value.receipts).flatMap(([key, receipt]) =>
+        !receipt.dispatched && (!receipt.batchLeader || receipt.batchLeader === key)
+          ? receipt.commands.filter(command => command.type === 'start' && !resource.value.turns.find(binding => binding.turn.id === command.turnId)?.cancelRequested).map(command => command.turnId)
+          : [],
+      ));
+      const cancelledTurnIds = new Set(Object.entries(resource.value.receipts).flatMap(([key, receipt]) =>
+        !receipt.dispatched && (!receipt.batchLeader || receipt.batchLeader === key)
+          ? receipt.commands.filter(command => command.type === 'start' && resource.value.turns.find(binding => binding.turn.id === command.turnId)?.cancelRequested).map(command => command.turnId)
+          : [],
+      ));
+      const turns = resource.value.turns.map(binding => {
+        if (failedTurnIds.has(binding.turn.id) && !terminalTurn(binding.turn)) return { ...binding, turn: { ...binding.turn, status: 'failed' as const, completed_at: this.clock.now(), error: { code: 'invalid_request' as const, message: unsupported.message } } };
+        if (cancelledTurnIds.has(binding.turn.id) && !terminalTurn(binding.turn)) return { ...binding, turn: cancelledStartTurn(binding.turn, this.clock.now()) };
+        return binding;
+      });
+      const initialReceipt = resource.value.receipts.initial;
+      const failedInitial = Boolean(initialReceipt && !initialReceipt.dispatched && initialReceipt.commands.some(command => command.type === 'start' && failedTurnIds.has(command.turnId)));
+      const value: SessionState = { ...resource.value,
+        ...(failedInitial ? { session: { ...resource.value.session, status: 'failed', required_actions: [], error: unsupported.message } } : {}),
+        turns, receipts,
+      };
+      try { await this.replace(resource, value); return; }
+      catch (error) { if (!(error instanceof AgentsApiError) || error.code !== 'conflict' || attempt === 9) throw error; }
     }
   }
 

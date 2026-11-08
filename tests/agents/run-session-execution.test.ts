@@ -46,6 +46,58 @@ async function fixture(placement?: SessionPlacementPolicy) {
 }
 
 describe('persistent harness input admission', () => {
+  it('blocks a persisted self-hosted Session before sending input to an active Run', async () => {
+    const f = await fixture();
+    const session = { ...f.session, environment: { type: 'self_hosted' as const, id: 'env_legacy', workspace_directory: '/workspace', capability_directories: [], remote_url: 'https://relay.example' } };
+    await expect(f.execution.start('alice', session, { turn: f.turn, input: [] }))
+      .rejects.toMatchObject({ status: 409, code: 'unsupported_environment' });
+    expect(f.events).not.toHaveBeenCalled();
+    expect(f.start).not.toHaveBeenCalled();
+    expect(f.submit).not.toHaveBeenCalled();
+  });
+
+  it('retires queued self-hosted launch commands so outbox retries cannot relaunch them', async () => {
+    const f = await fixture();
+    const session = { ...f.session, environment: { type: 'self_hosted' as const, id: 'env_legacy', workspace_directory: '/workspace', capability_directories: [], remote_url: 'https://relay.example' } };
+    await f.store.put({ ownerId: 'alice', id: session.id, collection: 'sessions', createdAt: 100, revision: 1, value: {
+      session, turns: [{ turn: f.turn, input: [] }],
+      receipts: { initial: { digest: 'fixture', commands: [{ type: 'start', turnId: f.turn.id, input: [] }], dispatched: false } },
+      deletedArtifacts: [],
+    } }, 0);
+    const sessions = new SessionService({ store: f.store, agents: new AgentService({ store: f.store }), execution: f.execution, clock: f.clock });
+
+    await sessions.dispatch('alice', session.id);
+    const retired = await f.store.get<import('../../src/core/session-ports.js').SessionState>('alice', 'sessions', session.id);
+    expect(retired?.value.receipts.initial).toMatchObject({ dispatched: true, failure: { code: 'unsupported_environment' } });
+    expect(retired?.value.session.status).toBe('failed');
+    expect(retired?.value.turns[0]?.turn).toMatchObject({ status: 'failed', error: { code: 'invalid_request' } });
+    expect(f.start).not.toHaveBeenCalled();
+    expect(f.submit).not.toHaveBeenCalled();
+
+    await sessions.dispatch('alice', session.id);
+    expect(f.start).not.toHaveBeenCalled();
+    expect(f.submit).not.toHaveBeenCalled();
+  });
+
+  it('still dispatches cancellation for a persisted self-hosted Session', async () => {
+    const f = await fixture();
+    const session = { ...f.session, environment: { type: 'self_hosted' as const, id: 'env_legacy', workspace_directory: '/workspace', capability_directories: [], remote_url: 'https://relay.example' } };
+    await f.store.put({ ownerId: 'alice', id: session.id, collection: 'sessions', createdAt: 100, revision: 1, value: {
+      session, turns: [{ turn: f.turn, input: [] }],
+      receipts: { cancel: { digest: 'fixture', commands: [{ type: 'cancel', turnId: f.turn.id }], dispatched: false } },
+      deletedArtifacts: [],
+    } }, 0);
+    const sessions = new SessionService({ store: f.store, agents: new AgentService({ store: f.store }), execution: f.execution, clock: f.clock });
+
+    await sessions.dispatch('alice', session.id);
+
+    expect(f.interrupt).toHaveBeenCalledExactlyOnceWith({ runId: 'run', execution: f.run.execution, turnId: f.turn.id });
+    expect((await f.store.get<import('../../src/core/session-ports.js').SessionState>('alice', 'sessions', session.id))?.value.receipts.cancel).toMatchObject({ dispatched: true });
+    expect((await f.store.get<import('../../src/core/session-ports.js').SessionState>('alice', 'sessions', session.id))?.value.receipts.cancel).not.toHaveProperty('failure');
+    expect(f.start).not.toHaveBeenCalled();
+    expect(f.submit).not.toHaveBeenCalled();
+  });
+
   it('waits for the native control bridge even after the Run starts heartbeating', async () => {
     const f = await fixture();
     f.events.mockResolvedValueOnce({ runId: f.run.runId, active: true, ready: false, oldestSequence: 0, nextSequence: 0, events: [], pendingRequests: [] });
