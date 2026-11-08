@@ -1,21 +1,29 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
-import { ratThingsDiscovery } from '../../src/app/discovery.js';
+import { deploymentOpenApi, ratThingsDiscovery } from '../../src/app/discovery.js';
 
 describe('published machine contracts', () => {
 
-  it('keeps the complete published API and installed API Gateway routes in lockstep', async () => {
+  it('keeps the Web Function Agents inventory and API Gateway control inventory separate', async () => {
     const openapi = await json('spec/openapi.json') as {
-      paths: Record<string, Record<string, unknown>>;
+      paths: Record<string, Record<string, { tags?: string[]; operationId?: string } | undefined>>;
     };
-    const terraform = await readFile('infra/modules/agent-runner/api.tf', 'utf8');
-    const documentedRoutes = new Set<string>();
+    const [terraform, routeInventory] = await Promise.all([
+      readFile('infra/modules/agent-runner/api.tf', 'utf8'),
+      json('spec/agents-api-routes.json') as Promise<Array<[string, string]>>,
+    ]);
+    const documentedAgentsRoutes = new Set<string>();
+    const documentedControlRoutes = new Set<string>();
     const operationIds = new Set<string>();
+    let operationCount = 0;
     for (const [path, pathItem] of Object.entries(openapi.paths)) {
       for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
-        const operation = pathItem[method] as { operationId?: string } | undefined;
+        const operation = pathItem[method];
         if (!operation) continue;
-        documentedRoutes.add(`${method.toUpperCase()} ${path}`);
+        operationCount += 1;
+        const route = `${method.toUpperCase()} ${path}`;
+        if (operation.tags?.includes('Agents')) documentedAgentsRoutes.add(route);
+        else documentedControlRoutes.add(route);
         if (operation.operationId) {
           expect(operationIds.has(operation.operationId)).toBe(false);
           operationIds.add(operation.operationId);
@@ -26,8 +34,43 @@ describe('published machine contracts', () => {
       [...terraform.matchAll(/"(GET|POST|PUT|PATCH|DELETE) ([^"$]+)"/g)]
         .map((match) => `${match[1]} ${match[2]}`),
     );
-    expect([...documentedRoutes].sort()).toEqual([...installedRoutes].sort());
-    expect(operationIds.size).toBe(documentedRoutes.size);
+    const expectedAgentsRoutes = new Set(routeInventory.map(([method, path]) => `${method} ${path}`));
+    expectedAgentsRoutes.add('GET /v1/models');
+    expect([...documentedAgentsRoutes].sort()).toEqual([...expectedAgentsRoutes].sort());
+    expect([...documentedControlRoutes].sort()).toEqual([...installedRoutes].sort());
+    expect(operationIds.size).toBe(operationCount);
+    expect(installedRoutes.has('POST /v1/auth/tokens')).toBe(true);
+    expect(installedRoutes.has('POST /v1/rat/spaces')).toBe(true);
+    expect([...documentedAgentsRoutes].filter((route) => installedRoutes.has(route))).toEqual([]);
+  });
+
+  it('documents bearer auth for Web Function resources and SigV4 for IAM bootstrap', async () => {
+    const openapi = await json('spec/openapi.json') as {
+      paths: Record<string, Record<string, { tags?: string[]; security?: Array<Record<string, unknown>> } | undefined>>;
+      components: { securitySchemes: Record<string, { type?: string; scheme?: string }> };
+    };
+    expect(openapi.components.securitySchemes.bearerAuth).toMatchObject({ type: 'http', scheme: 'bearer' });
+    for (const pathItem of Object.values(openapi.paths)) {
+      for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
+        const operation = pathItem[method];
+        if (operation?.tags?.includes('Agents')) expect(operation.security).toEqual([{ bearerAuth: [] }]);
+      }
+    }
+    expect(openapi.paths['/v1/rat/spaces']?.post?.security).toEqual([{ awsSigV4: [] }]);
+    expect(openapi.paths['/v1/auth/tokens']?.post?.security).toEqual([{ awsSigV4: [] }]);
+  });
+
+  it('publishes the deployment Web Function server and caller base URL', async () => {
+    const openapi = deploymentOpenApi('https://agents.example.test/Prod/');
+    const paths = openapi.paths as Record<string, Record<string, { tags?: string[]; servers?: Array<{ url: string }> }>>;
+    const agentOperations = Object.values(paths).flatMap((item) => Object.values(item))
+      .filter((operation) => operation.tags?.includes('Agents'));
+    expect(agentOperations.length).toBeGreaterThan(0);
+    expect(agentOperations.every((operation) => operation.servers?.[0]?.url === 'https://agents.example.test/Prod')).toBe(true);
+    expect(ratThingsDiscovery(undefined, 'https://agents.example.test/Prod/').api).toMatchObject({
+      agentsBaseUrl: 'https://agents.example.test/Prod/v1',
+    });
+    expect(ratThingsDiscovery().api).toMatchObject({ agentsBaseUrl: '/v1' });
   });
 
   it('makes configured OAuth application ARNs available to the refresh broker in MicroVMs', async () => {
@@ -69,7 +112,7 @@ describe('published machine contracts', () => {
     if (!schema) {
       throw new Error('OpenAPI components.schemas.Discovery is missing');
     }
-    expect(validateJsonSchema(ratThingsDiscovery(), schema, openapi as unknown as Record<string, unknown>))
+    expect(validateJsonSchema(ratThingsDiscovery(undefined, 'https://agents.example.test'), schema, openapi as unknown as Record<string, unknown>))
       .toEqual([]);
   });
 

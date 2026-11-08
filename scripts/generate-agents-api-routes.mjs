@@ -18,7 +18,16 @@ const errorSchema = {
   } },
 };
 const root = JSON.parse(await readFile('spec/openapi.json', 'utf8'));
-root.tags = [...root.tags.filter((tag) => tag.name !== 'Agents'), { name: 'Agents', description: 'OpenAI Agents API resources implemented in this AWS deployment. Use agents_api_base_url for all resource operations.' }];
+root.tags = [
+  ...root.tags.filter((tag) => !['Agents', 'Authentication', 'Spaces'].includes(tag.name)),
+  { name: 'Agents', description: 'OpenAI Agents API resources served by the Lambda Web Function. Use api.agentsBaseUrl from /.well-known/rat-things (or the Terraform agents_api_base_url output) as the server for every Agents operation. The checked-in OpenAPI uses relative paths; deployments publish an OpenAPI document with the Web Function server attached.' },
+  { name: 'Authentication', description: 'IAM-authenticated credentials for calling the Agents Web Function.' },
+  { name: 'Spaces', description: 'IAM bootstrap operation for creating the initial space and manager binding.' },
+];
+root.components.securitySchemes.bearerAuth = {
+  type: 'http', scheme: 'bearer', bearerFormat: 'Rat Things API key',
+  description: 'Short-lived Rat Things API key issued by POST /v1/auth/tokens. Send it as an Authorization: Bearer token.',
+};
 root.paths[schemaPath] = { get: { operationId: 'getAgentsApiSchema', tags: ['Discovery'], security: [], responses: { 200: { description: 'Pinned OpenAI Agents API schemas', content: { 'application/schema+json': { schema: { type: 'object' } } } } } } };
 for (const [method, path, input, output] of routes) {
   const parameters = [...path.matchAll(/\{([^}]+)\}/g)].map((match) => ({ name: match[1], in: 'path', required: true, schema: { type: 'string' } }));
@@ -41,7 +50,7 @@ for (const [method, path, input, output] of routes) {
   if (input === 'SessionCreate') content['text/event-stream'] = { schema: ref('SessionEvent') };
   root.paths[path] ??= {};
   root.paths[path][method.toLowerCase()] = {
-    tags: ['Agents'], operationId: `${method.toLowerCase()}_${path.replace(/^\/v1\//, '').replace(/[{}]/g, '').replaceAll('/', '_')}`,
+    tags: ['Agents'], security: [{ bearerAuth: [] }], operationId: `${method.toLowerCase()}_${path.replace(/^\/v1\//, '').replace(/[{}]/g, '').replaceAll('/', '_')}`,
     ...(parameters.length ? { parameters } : {}),
     ...(method === 'POST' && input ? { requestBody: { required: true, content: input.endsWith('Multipart') ? { 'multipart/form-data': { schema: multipartSchema(input) } } : { 'application/json': { schema: ref(input) } } } } : {}),
     responses: {
@@ -50,6 +59,32 @@ for (const [method, path, input, output] of routes) {
     },
   };
 }
+// The deployment model catalog is Rat Things-specific rather than an SDK resource route.
+root.paths['/v1/models'].get.security = [{ bearerAuth: [] }];
+root.paths['/v1/auth/tokens'] = {
+  post: {
+    tags: ['Authentication'], operationId: 'issueAgentsApiToken', security: [{ awsSigV4: [] }],
+    summary: 'Issue a short-lived Agents API key',
+    description: 'Requires IAM authentication. The returned API key is a secret and expires after 15 minutes. Use its base_url and scopes with the Agents API.',
+    requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', additionalProperties: false, properties: { scopes: { type: 'array', uniqueItems: true, items: { type: 'string', enum: ['api.agents.read', 'api.agents.write', 'api.responses.write', 'api.vaults.read', 'api.vaults.write', 'api.traces.read'] } } } } } } },
+    responses: {
+      200: { description: 'Short-lived API key. Treat api_key as a secret.', content: { 'application/json': { schema: { type: 'object', required: ['api_key', 'expires_at', 'base_url', 'scopes'], properties: { api_key: { type: 'string', writeOnly: true }, expires_at: { type: 'integer', description: 'Unix time in seconds.' }, base_url: { type: 'string', format: 'uri' }, scopes: { type: 'array', items: { type: 'string' } } }, additionalProperties: false } } } },
+      default: { description: 'OpenAI-shaped error response', content: { 'application/json': { schema: errorSchema } } },
+    },
+  },
+};
+root.paths['/v1/rat/spaces'] = {
+  post: {
+    tags: ['Spaces'], operationId: 'bootstrapRatSpace', security: [{ awsSigV4: [] }],
+    summary: 'Create a space and bind its initial manager',
+    description: 'Requires IAM authentication and api.agents.write scope. This bootstrap operation is the only space route exposed through the IAM control API. Resource operations use the Agents API endpoint advertised by discovery.',
+    requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['name', 'manager'], additionalProperties: false, properties: { name: { type: 'string', minLength: 1, maxLength: 128 }, manager: { type: 'object', required: ['issuer', 'subject'], additionalProperties: false, properties: { issuer: { type: 'string', format: 'uri', description: 'HTTPS OIDC issuer URL.' }, subject: { type: 'string', minLength: 1, maxLength: 1024 }, label: { type: 'string', minLength: 1, maxLength: 128 }, kind: { type: 'string', enum: ['human'], description: 'The bootstrap manager must be human; omitted defaults to human.' } } } } } } } },
+    responses: {
+      201: { description: 'Created space and manager binding', content: { 'application/json': { schema: { type: 'object', required: ['id', 'name', 'active'], properties: { id: { type: 'string' }, name: { type: 'string' }, active: { type: 'boolean', const: true } }, additionalProperties: false } } } },
+      default: { description: 'OpenAI-shaped error response', content: { 'application/json': { schema: errorSchema } } },
+    },
+  },
+};
 await update('spec/openapi.json', `${JSON.stringify(root, null, 2)}\n`);
 
 function externalRefs(value) {

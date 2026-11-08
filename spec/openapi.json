@@ -34,7 +34,15 @@
     },
     {
       "name": "Agents",
-      "description": "OpenAI Agents API resources implemented in this AWS deployment. Use agents_api_base_url for all resource operations."
+      "description": "OpenAI Agents API resources served by the Lambda Web Function. Use api.agentsBaseUrl from /.well-known/rat-things (or the Terraform agents_api_base_url output) as the server for every Agents operation. The checked-in OpenAPI uses relative paths; deployments publish an OpenAPI document with the Web Function server attached."
+    },
+    {
+      "name": "Authentication",
+      "description": "IAM-authenticated credentials for calling the Agents Web Function."
+    },
+    {
+      "name": "Spaces",
+      "description": "IAM bootstrap operation for creating the initial space and manager binding."
     }
   ],
   "paths": {
@@ -179,7 +187,12 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
       }
     },
     "/v1/integrations/plugins": {
@@ -842,6 +855,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "post_agents",
         "requestBody": {
           "required": true,
@@ -913,6 +931,11 @@
       "get": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "get_agents",
         "parameters": [
@@ -1028,6 +1051,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "get_agents_agent_id",
         "parameters": [
           {
@@ -1099,6 +1127,11 @@
       "post": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "post_agents_agent_id",
         "parameters": [
@@ -1182,6 +1215,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "delete_agents_agent_id",
         "parameters": [
           {
@@ -1256,6 +1294,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "post_agents_environments_templates",
         "requestBody": {
           "required": true,
@@ -1327,6 +1370,11 @@
       "get": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "get_agents_environments_templates",
         "parameters": [
@@ -1438,6 +1486,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "get_agents_environments_templates_environment_template_id",
         "parameters": [
           {
@@ -1509,6 +1562,11 @@
       "post": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "post_agents_environments_templates_environment_template_id",
         "parameters": [
@@ -1592,6 +1650,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "delete_agents_environments_templates_environment_template_id",
         "parameters": [
           {
@@ -1665,6 +1728,11 @@
       "post": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "post_agents_sessions",
         "requestBody": {
@@ -1742,6 +1810,11 @@
       "get": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "get_agents_sessions",
         "parameters": [
@@ -1865,6 +1938,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "get_agents_sessions_session_id",
         "parameters": [
           {
@@ -1936,6 +2014,11 @@
       "post": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "post_agents_sessions_session_id",
         "parameters": [
@@ -2019,6 +2102,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "delete_agents_sessions_session_id",
         "parameters": [
           {
@@ -2092,6 +2180,11 @@
       "post": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "post_agents_sessions_session_id_events",
         "parameters": [
@@ -2176,6 +2269,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "get_agents_sessions_session_id_events",
         "parameters": [
           {
@@ -2249,6 +2347,11 @@
       "get": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "get_agents_sessions_session_id_items",
         "parameters": [
@@ -2368,6 +2471,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "get_agents_sessions_session_id_turns",
         "parameters": [
           {
@@ -2486,6 +2594,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "get_agents_sessions_session_id_turns_turn_id",
         "parameters": [
           {
@@ -2567,6 +2680,11 @@
       "get": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "get_agents_sessions_session_id_artifacts",
         "parameters": [
@@ -2705,6 +2823,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "get_agents_sessions_session_id_artifacts_artifact_id",
         "parameters": [
           {
@@ -2784,6 +2907,11 @@
       "delete": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "delete_agents_sessions_session_id_artifacts_artifact_id",
         "parameters": [
@@ -2866,6 +2994,11 @@
       "get": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "get_agents_sessions_session_id_artifacts_artifact_id_content",
         "parameters": [
@@ -2950,6 +3083,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "post_vaults",
         "requestBody": {
           "required": true,
@@ -3021,6 +3159,11 @@
       "get": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "get_vaults",
         "parameters": [
@@ -3144,6 +3287,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "get_vaults_vault_id",
         "parameters": [
           {
@@ -3215,6 +3363,11 @@
       "delete": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "delete_vaults_vault_id",
         "parameters": [
@@ -3289,6 +3442,11 @@
       "post": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "post_vaults_vault_id_credentials",
         "parameters": [
@@ -3371,6 +3529,11 @@
       "get": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "get_vaults_vault_id_credentials",
         "parameters": [
@@ -3502,6 +3665,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "get_vaults_vault_id_credentials_credential_id",
         "parameters": [
           {
@@ -3581,6 +3749,11 @@
       "post": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "post_vaults_vault_id_credentials_credential_id",
         "parameters": [
@@ -3672,6 +3845,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "delete_vaults_vault_id_credentials_credential_id",
         "parameters": [
           {
@@ -3754,6 +3932,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "get_agents_environments_environment_id",
         "parameters": [
           {
@@ -3827,6 +4010,11 @@
       "get": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "get_agents_environments_environment_id_files",
         "parameters": [
@@ -3963,6 +4151,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "post_agents_environments_environment_id_files",
         "parameters": [
           {
@@ -4046,6 +4239,11 @@
       "get": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "get_agents_sessions_session_id_subagents",
         "parameters": [
@@ -4165,6 +4363,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "get_agents_sessions_session_id_subagents_subagent_id",
         "parameters": [
           {
@@ -4246,6 +4449,11 @@
       "get": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "get_agents_sessions_session_id_subagents_subagent_id_items",
         "parameters": [
@@ -4373,6 +4581,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "get_agents_sessions_session_id_subagents_subagent_id_turns",
         "parameters": [
           {
@@ -4499,6 +4712,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "get_agents_sessions_session_id_subagents_subagent_id_turns_turn_id",
         "parameters": [
           {
@@ -4588,6 +4806,11 @@
       "get": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "get_agents_sessions_session_id_subagents_subagent_id_turns_turn_id_items",
         "parameters": [
@@ -4723,6 +4946,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "post_files",
         "requestBody": {
           "required": true,
@@ -4813,6 +5041,11 @@
       "get": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "get_files",
         "parameters": [
@@ -4932,6 +5165,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "get_files_file_id",
         "parameters": [
           {
@@ -5003,6 +5241,11 @@
       "delete": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "delete_files_file_id",
         "parameters": [
@@ -5078,6 +5321,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "get_files_file_id_content",
         "parameters": [
           {
@@ -5152,6 +5400,11 @@
       "post": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "post_skills",
         "requestBody": {
@@ -5236,6 +5489,11 @@
       "get": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "get_skills",
         "parameters": [
@@ -5347,6 +5605,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "get_skills_skill_id",
         "parameters": [
           {
@@ -5418,6 +5681,11 @@
       "post": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "post_skills_skill_id",
         "parameters": [
@@ -5501,6 +5769,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "delete_skills_skill_id",
         "parameters": [
           {
@@ -5574,6 +5847,11 @@
       "get": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "get_skills_skill_id_content",
         "parameters": [
@@ -5649,6 +5927,11 @@
       "get": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "get_skills_skill_id_versions",
         "parameters": [
@@ -5766,6 +6049,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "post_skills_skill_id_versions",
         "parameters": [
           {
@@ -5865,6 +6153,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "get_skills_skill_id_versions_version",
         "parameters": [
           {
@@ -5944,6 +6237,11 @@
       "delete": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "delete_skills_skill_id_versions_version",
         "parameters": [
@@ -6026,6 +6324,11 @@
       "get": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "get_skills_skill_id_versions_version_content",
         "parameters": [
@@ -6558,6 +6861,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "get_agents_sessions_session_id_traces",
         "parameters": [
           {
@@ -6689,6 +6997,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "post_agents_sessions_session_id_fork",
         "parameters": [
           {
@@ -6773,6 +7086,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "get_agents_sessions_session_id_lineage",
         "parameters": [
           {
@@ -6846,6 +7164,11 @@
       "get": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "get_agents_sessions_session_id_runtime",
         "parameters": [
@@ -6921,6 +7244,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "get_agents_sessions_import",
         "responses": {
           "200": {
@@ -6982,6 +7310,11 @@
       "post": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "post_agents_sessions_import",
         "requestBody": {
@@ -7285,6 +7618,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "get_agents_agent_id_revisions",
         "parameters": [
           {
@@ -7416,6 +7754,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "get_agents_agent_id_revisions_revision",
         "parameters": [
           {
@@ -7497,6 +7840,11 @@
       "get": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "get_vaults_vault_id_revisions",
         "parameters": [
@@ -7629,6 +7977,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "get_vaults_vault_id_revisions_revision",
         "parameters": [
           {
@@ -7710,6 +8063,11 @@
       "get": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "get_vaults_vault_id_credentials_credential_id_revisions",
         "parameters": [
@@ -7850,6 +8208,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "get_vaults_vault_id_credentials_credential_id_revisions_revision",
         "parameters": [
           {
@@ -7939,6 +8302,11 @@
       "get": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "get_agents_sessions_session_id_configurations",
         "parameters": [
@@ -8071,6 +8439,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "get_agents_sessions_session_id_configurations_revision",
         "parameters": [
           {
@@ -8152,6 +8525,11 @@
       "get": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "get_agents_sessions_session_id_authorizations",
         "parameters": [
@@ -8284,6 +8662,11 @@
         "tags": [
           "Agents"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "operationId": "get_agents_sessions_session_id_authorizations_authorization_id",
         "parameters": [
           {
@@ -8365,6 +8748,11 @@
       "get": {
         "tags": [
           "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "operationId": "get_agents_sessions_session_id_authorizations_otlp",
         "parameters": [
@@ -8491,6 +8879,275 @@
           }
         }
       }
+    },
+    "/v1/auth/tokens": {
+      "post": {
+        "tags": [
+          "Authentication"
+        ],
+        "operationId": "issueAgentsApiToken",
+        "security": [
+          {
+            "awsSigV4": []
+          }
+        ],
+        "summary": "Issue a short-lived Agents API key",
+        "description": "Requires IAM authentication. The returned API key is a secret and expires after 15 minutes. Use its base_url and scopes with the Agents API.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "scopes": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "api.agents.read",
+                        "api.agents.write",
+                        "api.responses.write",
+                        "api.vaults.read",
+                        "api.vaults.write",
+                        "api.traces.read"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Short-lived API key. Treat api_key as a secret.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "api_key",
+                    "expires_at",
+                    "base_url",
+                    "scopes"
+                  ],
+                  "properties": {
+                    "api_key": {
+                      "type": "string",
+                      "writeOnly": true
+                    },
+                    "expires_at": {
+                      "type": "integer",
+                      "description": "Unix time in seconds."
+                    },
+                    "base_url": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "scopes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "OpenAI-shaped error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "required": [
+                        "message",
+                        "type",
+                        "param",
+                        "code"
+                      ],
+                      "properties": {
+                        "message": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string"
+                        },
+                        "param": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "code": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/rat/spaces": {
+      "post": {
+        "tags": [
+          "Spaces"
+        ],
+        "operationId": "bootstrapRatSpace",
+        "security": [
+          {
+            "awsSigV4": []
+          }
+        ],
+        "summary": "Create a space and bind its initial manager",
+        "description": "Requires IAM authentication and api.agents.write scope. This bootstrap operation is the only space route exposed through the IAM control API. Resource operations use the Agents API endpoint advertised by discovery.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "manager"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "manager": {
+                    "type": "object",
+                    "required": [
+                      "issuer",
+                      "subject"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "issuer": {
+                        "type": "string",
+                        "format": "uri",
+                        "description": "HTTPS OIDC issuer URL."
+                      },
+                      "subject": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1024
+                      },
+                      "label": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "human"
+                        ],
+                        "description": "The bootstrap manager must be human; omitted defaults to human."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created space and manager binding",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "name",
+                    "active"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "active": {
+                      "type": "boolean",
+                      "const": true
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "OpenAI-shaped error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "required": [
+                        "message",
+                        "type",
+                        "param",
+                        "code"
+                      ],
+                      "properties": {
+                        "message": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string"
+                        },
+                        "param": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "code": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -8500,6 +9157,12 @@
         "in": "header",
         "name": "Authorization",
         "description": "AWS Signature Version 4 for the reference deployment's execute-api routes. Host backends may wrap this endpoint and preserve a trusted principal."
+      },
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "Rat Things API key",
+        "description": "Short-lived Rat Things API key issued by POST /v1/auth/tokens. Send it as an Authorization: Bearer token."
       }
     },
     "headers": {

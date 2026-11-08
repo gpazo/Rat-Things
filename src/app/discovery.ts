@@ -3,15 +3,34 @@ import agentsSchema from '../../spec/schemas/agents-api.schema.json' with { type
 
 export const RAT_THINGS_OPENAPI = openApi;
 
+/** Attach the independently deployed Agents Web Function to its path operations. */
+export function deploymentOpenApi(agentsBaseUrl?: string): Record<string, unknown> {
+  const document = structuredClone(openApi) as Record<string, unknown> & {
+    paths: Record<string, Record<string, unknown>>;
+  };
+  if (!agentsBaseUrl) return document;
+
+  const serverUrl = withoutTrailingSlashes(agentsBaseUrl);
+  for (const pathItem of Object.values(document.paths)) {
+    for (const [method, operation] of Object.entries(pathItem)) {
+      if (isRecord(operation) && operation.tags instanceof Array && operation.tags.includes('Agents')) {
+        pathItem[method] = { ...operation, servers: [{ url: serverUrl, description: 'Deployed Agents Lambda Web Function' }] };
+      }
+    }
+  }
+  return document;
+}
+
 export const RAT_THINGS_SCHEMAS: Readonly<Record<string, unknown>> = {
   '/schemas/agents-api.schema.json': agentsSchema,
 };
 
 /** Relative links keep discovery valid for every independently operated deployment. */
-export function ratThingsDiscovery(docsUrl?: string): Record<string, unknown> {
+export function ratThingsDiscovery(docsUrl?: string, agentsBaseUrl?: string): Record<string, unknown> {
   const documentationRoot = withTrailingSlash(
     docsUrl ?? 'https://gpazo.github.io/Rat-Things/docs/',
   );
+  const agentsRoot = agentsBaseUrl ? withoutTrailingSlashes(agentsBaseUrl) : '';
   return {
     version: '1',
     service: 'rat-things',
@@ -26,6 +45,7 @@ export function ratThingsDiscovery(docsUrl?: string): Record<string, unknown> {
       version: 'v1',
       openapi: '/openapi.json',
       schemas: { agents: '/schemas/agents-api.schema.json' },
+      agentsBaseUrl: agentsRoot ? `${agentsRoot}/v1` : '/v1',
       docs: documentationRoot,
       agentGuide: `${documentationRoot}agents/`,
       agentDocs: 'https://gpazo.github.io/Rat-Things/llms.txt',
@@ -67,6 +87,14 @@ export function ratThingsDiscovery(docsUrl?: string): Record<string, unknown> {
       },
     },
   };
+}
+
+function withoutTrailingSlashes(value: string): string {
+  return value.replace(/\/+$/, '');
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function withTrailingSlash(value: string): string {
