@@ -69,14 +69,11 @@ import { prepareForkWorkspace } from './fork-workspace.js';
 import { stopCheckpointWriters } from './checkpoint-writers.js';
 import { prepareSessionEnvironmentCredentials, type SessionEnvironmentCredentialsRuntime } from './session-environment-credentials.js';
 import { createStartupTraceObserver, hasFirstRootAssistantText, publishStartupSnapshot, type StartupTraceObserver } from './startup-observer.js';
-import { awaitStartupRelease } from './startup-gate.js';
 
 export async function runAgentWorker(): Promise<void> {
   const startupTrace = createStartupTraceObserver();
   startupTrace.mark('runner_entered');
   try {
-    await awaitStartupRelease();
-    if (process.env.RT_STARTUP_GATE_FD !== undefined) startupTrace.mark('storage_ready');
     await runAgentWorkerInvocation(startupTrace);
   } catch (error) {
     startupTrace.finish('failed');

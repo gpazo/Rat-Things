@@ -228,24 +228,6 @@ object's SHA-256 with the local ZIP, then verifies the overlay manifest and prox
 hash before creating a Session. Fixture comparisons default to five alternating
 pairs. Set `STARTUP_PAIRS` from one through five for a smaller fixture run.
 
-For a same-image randomized fixture comparison, combine the baseline and
-candidate runtime paths, then apply the regular fixture proxy overlay to that
-single ZIP and publish one image version:
-
-```sh
-node testing/performance-aws/startup-randomized-image.mjs \
-  /absolute/path/baseline-source.zip /absolute/path/candidate-source.zip /absolute/path/combined-source.zip
-node testing/performance-aws/startup-responses-proxy-image.mjs \
-  /absolute/path/combined-source.zip /absolute/path/randomized-fixture.zip --mode fixture
-```
-
-Run with `STARTUP_RANDOMIZED_VERSION` and `STARTUP_RANDOMIZED_SOURCE_ZIP` set to
-that one published version, plus `STARTUP_RANDOMIZED_SAMPLES=20` (or omit it to
-use the fixed 20 samples). This mode is fixture-only, retains every assignment
-without balancing retries, and requires at least five observed runs on each
-side. Each assignment comes from the attached Run ID and is checked against
-the worker's `startup comparison selected` host log.
-
 For one diagnostic, replace the before/after variables with
 `STARTUP_DIAGNOSTIC_VERSION` and `STARTUP_DIAGNOSTIC_SOURCE_ZIP`. Do not also set
 `STARTUP_PAIRS`. A diagnostic is not a comparative performance result.

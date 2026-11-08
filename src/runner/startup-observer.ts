@@ -3,7 +3,6 @@ import type { SessionRuntimeState } from '../core/session-runtime-planning.js';
 
 const startupPhases = [
   'runner_entered',
-  'storage_ready',
   'run_loaded',
   'driver_ready',
   'native_initialize_started',

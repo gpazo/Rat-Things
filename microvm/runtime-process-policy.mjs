@@ -1,4 +1,4 @@
-export function trustedRunnerOptions({ uid, gid, environment, startupGate = false }) {
+export function trustedRunnerOptions({ uid, gid, environment }) {
   if (!Number.isInteger(uid) || uid < 1) throw new Error('untrusted runtime UID is invalid');
   if (!Number.isInteger(gid) || gid < 1) throw new Error('untrusted runtime GID is invalid');
   if (!environment || typeof environment !== 'object') {
@@ -12,6 +12,6 @@ export function trustedRunnerOptions({ uid, gid, environment, startupGate = fals
     // Codex and repository commands to the separate identity above.
     uid: 0,
     gid: 0,
-    stdio: startupGate ? ['inherit', 'inherit', 'inherit', 'ipc', 'pipe'] : ['inherit', 'inherit', 'inherit', 'ipc'],
+    stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
   };
 }
