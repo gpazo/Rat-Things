@@ -203,7 +203,7 @@ export async function run(
     plannedCells, maxWallTimeMs: RUN_LIMIT_MS, observationWindowMs: OBSERVATION_MS,
     workload: { writers: WRITERS, persistentViewers: PERSISTENT_VIEWERS, desktopViewers: DESKTOP_VIEWERS, maxConcurrentInputs: WRITERS, retries: 0,
       inputsPerCell: WRITERS, eachCellHasFreshSpaceAndSession: true, execution: 'outbox and reconciler must be disabled by deployment operator; controller makes no inference calls' },
-    order: modes.flatMap(mode => Array.from({ length: options.pairs }, (_, index) => ({ mode, pair: index + 1, order: ['before', 'after'] as const }))),
+    order: modes.flatMap(mode => Array.from({ length: options.pairs }, (_, index) => ({ mode, pair: index + 1, order: index % 2 === 0 ? ['before', 'after'] : ['after', 'before'] }))),
     provenance: { beforeBundleSha256: options.beforeBundleSha256, afterBundleSha256: options.afterBundleSha256,
       provenanceSource: 'caller-supplied SHA-256; deployment and artifact identity must be verified externally',
       beforeEndpoint: configuration.beforeUrl, afterEndpoint: configuration.afterUrl, region: configuration.region,
@@ -251,7 +251,7 @@ export async function run(
       return (response.status === 204 ? undefined : await response.json()) as T;
     };
 
-    for (const mode of modes) for (let pair = 1; pair <= options.pairs; pair += 1) for (const side of ['before', 'after'] as const) {
+    for (const mode of modes) for (let pair = 1; pair <= options.pairs; pair += 1) for (const side of (pair % 2 === 1 ? ['before', 'after'] : ['after', 'before']) as readonly Side[]) {
       if (runSignal.aborted) throw new Error('Run interrupted or exceeded 60 minutes.');
       const baseUrl = side === 'before' ? configuration.beforeUrl : configuration.afterUrl;
       const cellViewers = viewers.slice(0, mode === 'persistent' ? PERSISTENT_VIEWERS : DESKTOP_VIEWERS);
@@ -379,7 +379,8 @@ export async function run(
             sample.acknowledgement = { state: timeout.aborted ? 'timeout' : 'error', latencyMs: now() - sample.startedMs!, error: runSignal.aborted ? 'interrupted' : timeout.aborted ? 'request_timeout' : 'transport_error' };
           }
         }));
-        await phase('inputs_acknowledged');
+        // Persist after observation so serializing earlier cells cannot delay peer timestamps.
+        cell.phase = 'inputs_acknowledged';
         const deadline = Math.max(submitStart + OBSERVATION_MS, ...cell.samples.map(sample => sample.deadlineMs));
         while (now() < deadline && !runSignal.aborted && !cell.samples.every(sample => sample.peers.every(peer => peer.observation.state !== 'pending'))) {
           await delay(Math.min(100, deadline - now()), undefined, { signal: runSignal }).catch(() => undefined);
@@ -409,7 +410,8 @@ export async function run(
         cell.probes.viewerWriteStatus = await statusOnly(() => request(baseUrl, probeViewer, spaceId!, `/agents/sessions/${sessionId}/events`, 'POST', probeBody, AbortSignal.timeout(10_000), { 'idempotency-key': randomUUID() }));
         cell.probes.revocationStatus = await statusOnly(() => request(baseUrl, manager, spaceId!, `/rat/spaces/${spaceId}/bindings/${oidcActorId(probeViewer.issuer, probeViewer.subject)}`, 'DELETE', undefined, AbortSignal.timeout(10_000)));
         cell.probes.revokedWriteStatus = await statusOnly(() => request(baseUrl, probeViewer, spaceId!, `/agents/sessions/${sessionId}/events`, 'POST', eventBody(`Revoked peer probe ${randomUUID()}.`), AbortSignal.timeout(10_000), { 'idempotency-key': randomUUID() }));
-        if (cell.probes.viewerWriteStatus !== 403 || cell.probes.revocationStatus !== 200 || cell.probes.revokedWriteStatus !== 403) cell.status = 'failed';
+        cell.probes.revokedReadStatus = await statusOnly(() => request(baseUrl, probeViewer, spaceId!, `/rat/sessions/${sessionId}/activity`, 'GET', undefined, AbortSignal.timeout(10_000)));
+        if (cell.probes.viewerWriteStatus !== 403 || cell.probes.revocationStatus !== 200 || cell.probes.revokedWriteStatus !== 403 || cell.probes.revokedReadStatus !== 403) cell.status = 'failed';
         await phase('probed');
       } catch (error) {
         cell.status = 'failed';

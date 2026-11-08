@@ -142,7 +142,8 @@ visibility through two deployed Lambda Web Function revisions. It exercises the
 normal OIDC create, input and SSE routes. Pass each Web Function's `/v1` URL for
 `--before-url` and `--after-url`. Pass the IAM control API Gateway's `/v1` URL
 for `--operator-url`, because space bootstrap is a SigV4 control operation.
-Each side of every pair gets a fresh space and Session.
+Each side of every pair gets a fresh space and Session. Odd pairs run before/after;
+even pairs reverse the order to reduce ordering bias.
 Persistent mode uses 20 writers and 50 viewers; desktop mode uses 20 writers and
 20 viewers.
 
@@ -169,10 +170,14 @@ observation per cell, and 60 minutes total. It makes no retries. The optional
 `run` dependency `prepareSession` is a trusted in-process fixture hook for direct
 storage setup such as older Session history; it is not a public route. Shared-space
 Session import is forbidden, so do not use the public import endpoint to seed it.
+Record the seeded history and keep fixture space-discovery counts equal when
+reusing identities: desktop playback lists their spaces outside the Session stream.
 
 The artifact includes submission-to-acknowledgement, exact receipt/message/actor
 visibility, acknowledgement-to-peer timing, and per-viewer HTTP bytes, errors and
-connection occupancy. Missing and failed observations remain explicit. It does
+connection occupancy. Missing and failed observations remain explicit. Probes
+check viewer write denial and revoked viewer read/write denial after measurement.
+Artifact serialization runs outside the timed peer-observation window. The run does
 not measure assistant progress or completion, native UI behavior, Lambda billing,
 or model-provider cost. Bundle SHA-256 values can be supplied with
 `--before-bundle-sha256` and `--after-bundle-sha256`; independently verify those
