@@ -722,7 +722,7 @@ async function reconcileLaunch(client: LambdaMicrovmsClient, config: StorageProb
     const current = await listMicrovms(client, config.imageIdentifier, reconciliationDeadline, sample.imageVersion);
     const possible = current.filter(vm => !beforeIds.has(vm.microvmId) && (vm.startedAt === null || vm.startedAt >= requestStartedAt - 5_000));
     sample.possibleMicrovmIds = [...new Set([...(sample.possibleMicrovmIds ?? []), ...possible.map(vm => vm.microvmId)])];
-    candidates = possible.filter(vm => vm.startedAt !== null);
+    candidates = possible.length === 1 ? possible.filter(vm => vm.startedAt !== null) : [];
     if (candidates.length > 0) return candidates;
     await delay(Math.min(1_000, Math.max(0, reconciliationDeadline - performance.now())));
   }
