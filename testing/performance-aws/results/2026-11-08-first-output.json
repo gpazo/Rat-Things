@@ -1,0 +1,621 @@
+{
+  "schema": "rat-things.first-output-experiment.v1",
+  "date": "2026-11-08",
+  "decision": "Reject and revert empty native thread warmup. No demonstrated startup improvement; physical cause of the observed difference remains inconclusive.",
+  "retainedChanges": [
+    "Bounded worker startup phase records",
+    "Deterministic and provider-backed startup measurement with enforced inference limits"
+  ],
+  "boundary": "create request start to first manager-observed nonempty assistant text; Items and Turns endpoints polled concurrently with 500ms between iterations",
+  "workload": {
+    "environment": "none",
+    "input": "Initialize. Reply OK.",
+    "expectedAssistantText": "OK",
+    "parallelSessions": 1,
+    "clientPollingIntervalMs": 500,
+    "newSessionAndMicrovmPerSample": true
+  },
+  "fixtureComparison": {
+    "samplesPerSide": 5,
+    "order": [
+      "before",
+      "after",
+      "after",
+      "before",
+      "before",
+      "after",
+      "after",
+      "before",
+      "before",
+      "after"
+    ],
+    "outcomes": "passed",
+    "sides": {
+      "before": {
+        "count": 5,
+        "passed": 5,
+        "metrics": {
+          "acknowledgementMs": {
+            "n": 5,
+            "median": 592.533167000016,
+            "min": 561.0161249999946,
+            "max": 751.2649169999931
+          },
+          "firstProgressMs": {
+            "n": 5,
+            "median": 7506.394708000007,
+            "min": 6744.231459000002,
+            "max": 30719.365542
+          },
+          "completedMs": {
+            "n": 5,
+            "median": 9370.185916999995,
+            "min": 8674.71325,
+            "max": 31338.183124999996
+          },
+          "startupDurationMs": {
+            "n": 5,
+            "median": 1938,
+            "min": 914,
+            "max": 12465
+          },
+          "storageMountDurationMs": {
+            "n": 5,
+            "median": 1630,
+            "min": 631,
+            "max": 9045
+          },
+          "storagePreparationDurationMs": {
+            "n": 5,
+            "median": 252,
+            "min": 248,
+            "max": 3396
+          },
+          "nativeInitializeMs": {
+            "n": 5,
+            "median": 1055.05886,
+            "min": 900.3482,
+            "max": 1625.7835230000003
+          },
+          "threadCreateMs": {
+            "n": 5,
+            "median": 112.36395799999991,
+            "min": 109.38462600000003,
+            "max": 4010.5199710000006
+          },
+          "turnToTextMs": {
+            "n": 5,
+            "median": 139.53007300000058,
+            "min": 135.95216500000015,
+            "max": 1690.500031999999
+          },
+          "textToPublishCompleteMs": {
+            "n": 5,
+            "median": 946.8007889999999,
+            "min": 825.1546350000008,
+            "max": 999.5511419999993
+          },
+          "proxyMs": {
+            "n": 5,
+            "median": 3,
+            "min": 1,
+            "max": 3
+          }
+        }
+      },
+      "after": {
+        "count": 5,
+        "passed": 5,
+        "metrics": {
+          "acknowledgementMs": {
+            "n": 5,
+            "median": 590.7321669999947,
+            "min": 545.8249170000199,
+            "max": 660.9570409999869
+          },
+          "firstProgressMs": {
+            "n": 5,
+            "median": 12457.722584000003,
+            "min": 11192.362792,
+            "max": 15921.391415999999
+          },
+          "completedMs": {
+            "n": 5,
+            "median": 13105.385167,
+            "min": 12436.162499999991,
+            "max": 16668.755040999997
+          },
+          "startupDurationMs": {
+            "n": 5,
+            "median": 4373,
+            "min": 4124,
+            "max": 7154
+          },
+          "storageMountDurationMs": {
+            "n": 5,
+            "median": 3311,
+            "min": 3056,
+            "max": 5444
+          },
+          "storagePreparationDurationMs": {
+            "n": 5,
+            "median": 1034,
+            "min": 1018,
+            "max": 1674
+          },
+          "nativeInitializeMs": {
+            "n": 5,
+            "median": 985.5897730000003,
+            "min": 945.7633839999999,
+            "max": 1104.8569859999998
+          },
+          "threadCreateMs": {
+            "n": 5,
+            "median": 212.36947900000018,
+            "min": 198.5904350000003,
+            "max": 217.62944400000038
+          },
+          "turnToTextMs": {
+            "n": 5,
+            "median": 616.808121,
+            "min": 584.8386150000006,
+            "max": 723.2530430000002
+          },
+          "textToPublishCompleteMs": {
+            "n": 5,
+            "median": 727.8814799999996,
+            "min": 664.7371989999992,
+            "max": 812.5029669999994
+          },
+          "proxyMs": {
+            "n": 5,
+            "median": 2,
+            "min": 1,
+            "max": 3
+          }
+        }
+      }
+    },
+    "pairs": [
+      {
+        "pair": 1,
+        "beforeMs": 30719.365542,
+        "afterMs": 13666.730665999989,
+        "deltaMs": -17052.63487600001
+      },
+      {
+        "pair": 2,
+        "beforeMs": 7506.394708000007,
+        "afterMs": 11771.778749999998,
+        "deltaMs": 4265.384041999991
+      },
+      {
+        "pair": 3,
+        "beforeMs": 7483.268167000002,
+        "afterMs": 11192.362792,
+        "deltaMs": 3709.094624999998
+      },
+      {
+        "pair": 4,
+        "beforeMs": 8791.344500000007,
+        "afterMs": 15921.391415999999,
+        "deltaMs": 7130.046915999992
+      },
+      {
+        "pair": 5,
+        "beforeMs": 6744.231459000002,
+        "afterMs": 12457.722584000003,
+        "deltaMs": 5713.4911250000005
+      }
+    ],
+    "samples": [
+      {
+        "pair": 1,
+        "side": "before",
+        "status": "passed",
+        "acknowledgementMs": 751.2649169999931,
+        "firstProgressMs": 30719.365542,
+        "completedMs": 31338.183124999996,
+        "traceCount": 1,
+        "hostCount": 1,
+        "proxyCount": 1,
+        "nativeInitializeMs": 1374.4059529999997,
+        "threadCreateMs": 4010.5199710000006,
+        "turnToTextMs": 1690.500031999999,
+        "textToPublishCompleteMs": 825.1546350000008,
+        "startupDurationMs": 12465,
+        "storageMountDurationMs": 9045,
+        "storagePreparationDurationMs": 3396,
+        "proxyMs": 1,
+        "proxyStatus": "success",
+        "proxyUsage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "total_tokens": 2
+        }
+      },
+      {
+        "pair": 1,
+        "side": "after",
+        "status": "passed",
+        "acknowledgementMs": 660.9570409999869,
+        "firstProgressMs": 13666.730665999989,
+        "completedMs": 14260.968624999994,
+        "traceCount": 1,
+        "hostCount": 1,
+        "proxyCount": 1,
+        "nativeInitializeMs": 945.7633839999999,
+        "threadCreateMs": 205.17631100000017,
+        "turnToTextMs": 723.2530430000002,
+        "textToPublishCompleteMs": 727.8814799999996,
+        "startupDurationMs": 5100,
+        "storageMountDurationMs": 3918,
+        "storagePreparationDurationMs": 1122,
+        "proxyMs": 1,
+        "proxyStatus": "success",
+        "proxyUsage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "total_tokens": 2
+        }
+      },
+      {
+        "pair": 2,
+        "side": "after",
+        "status": "passed",
+        "acknowledgementMs": 590.7321669999947,
+        "firstProgressMs": 11771.778749999998,
+        "completedMs": 12436.162499999991,
+        "traceCount": 1,
+        "hostCount": 1,
+        "proxyCount": 1,
+        "nativeInitializeMs": 978.8801359999998,
+        "threadCreateMs": 217.62944400000038,
+        "turnToTextMs": 654.876698,
+        "textToPublishCompleteMs": 712.4724150000002,
+        "startupDurationMs": 4162,
+        "storageMountDurationMs": 3118,
+        "storagePreparationDurationMs": 1018,
+        "proxyMs": 2,
+        "proxyStatus": "success",
+        "proxyUsage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "total_tokens": 2
+        }
+      },
+      {
+        "pair": 2,
+        "side": "before",
+        "status": "passed",
+        "acknowledgementMs": 578.6260830000101,
+        "firstProgressMs": 7506.394708000007,
+        "completedMs": 9370.185916999995,
+        "traceCount": 1,
+        "hostCount": 1,
+        "proxyCount": 1,
+        "nativeInitializeMs": 1625.7835230000003,
+        "threadCreateMs": 119.01742599999989,
+        "turnToTextMs": 155.8448940000003,
+        "textToPublishCompleteMs": 999.5511419999993,
+        "startupDurationMs": 1104,
+        "storageMountDurationMs": 819,
+        "storagePreparationDurationMs": 252,
+        "proxyMs": 3,
+        "proxyStatus": "success",
+        "proxyUsage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "total_tokens": 2
+        }
+      },
+      {
+        "pair": 3,
+        "side": "before",
+        "status": "passed",
+        "acknowledgementMs": 561.0161249999946,
+        "firstProgressMs": 7483.268167000002,
+        "completedMs": 9366.973499999993,
+        "traceCount": 1,
+        "hostCount": 1,
+        "proxyCount": 1,
+        "nativeInitializeMs": 949.93113,
+        "threadCreateMs": 109.38462600000003,
+        "turnToTextMs": 135.95216500000015,
+        "textToPublishCompleteMs": 946.8007889999999,
+        "startupDurationMs": 1938,
+        "storageMountDurationMs": 1630,
+        "storagePreparationDurationMs": 248,
+        "proxyMs": 3,
+        "proxyStatus": "success",
+        "proxyUsage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "total_tokens": 2
+        }
+      },
+      {
+        "pair": 3,
+        "side": "after",
+        "status": "passed",
+        "acknowledgementMs": 546.8229580000043,
+        "firstProgressMs": 11192.362792,
+        "completedMs": 12524.134500000015,
+        "traceCount": 1,
+        "hostCount": 1,
+        "proxyCount": 1,
+        "nativeInitializeMs": 987.1873809999997,
+        "threadCreateMs": 198.5904350000003,
+        "turnToTextMs": 584.8386150000006,
+        "textToPublishCompleteMs": 664.7371989999992,
+        "startupDurationMs": 4124,
+        "storageMountDurationMs": 3056,
+        "storagePreparationDurationMs": 1034,
+        "proxyMs": 3,
+        "proxyStatus": "success",
+        "proxyUsage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "total_tokens": 2
+        }
+      },
+      {
+        "pair": 4,
+        "side": "after",
+        "status": "passed",
+        "acknowledgementMs": 642.8015829999931,
+        "firstProgressMs": 15921.391415999999,
+        "completedMs": 16668.755040999997,
+        "traceCount": 1,
+        "hostCount": 1,
+        "proxyCount": 1,
+        "nativeInitializeMs": 1104.8569859999998,
+        "threadCreateMs": 212.36947900000018,
+        "turnToTextMs": 616.808121,
+        "textToPublishCompleteMs": 812.5029669999994,
+        "startupDurationMs": 7154,
+        "storageMountDurationMs": 5444,
+        "storagePreparationDurationMs": 1674,
+        "proxyMs": 2,
+        "proxyStatus": "success",
+        "proxyUsage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "total_tokens": 2
+        }
+      },
+      {
+        "pair": 4,
+        "side": "before",
+        "status": "passed",
+        "acknowledgementMs": 645.6809169999906,
+        "firstProgressMs": 8791.344500000007,
+        "completedMs": 9458.352874999982,
+        "traceCount": 1,
+        "hostCount": 1,
+        "proxyCount": 1,
+        "nativeInitializeMs": 900.3482,
+        "threadCreateMs": 111.77388199999996,
+        "turnToTextMs": 138.74997500000018,
+        "textToPublishCompleteMs": 990.0878970000001,
+        "startupDurationMs": 2225,
+        "storageMountDurationMs": 1946,
+        "storagePreparationDurationMs": 252,
+        "proxyMs": 2,
+        "proxyStatus": "success",
+        "proxyUsage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "total_tokens": 2
+        }
+      },
+      {
+        "pair": 5,
+        "side": "before",
+        "status": "passed",
+        "acknowledgementMs": 592.533167000016,
+        "firstProgressMs": 6744.231459000002,
+        "completedMs": 8674.71325,
+        "traceCount": 1,
+        "hostCount": 1,
+        "proxyCount": 1,
+        "nativeInitializeMs": 1055.05886,
+        "threadCreateMs": 112.36395799999991,
+        "turnToTextMs": 139.53007300000058,
+        "textToPublishCompleteMs": 904.8349249999997,
+        "startupDurationMs": 914,
+        "storageMountDurationMs": 631,
+        "storagePreparationDurationMs": 257,
+        "proxyMs": 3,
+        "proxyStatus": "success",
+        "proxyUsage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "total_tokens": 2
+        }
+      },
+      {
+        "pair": 5,
+        "side": "after",
+        "status": "passed",
+        "acknowledgementMs": 545.8249170000199,
+        "firstProgressMs": 12457.722584000003,
+        "completedMs": 13105.385167,
+        "traceCount": 1,
+        "hostCount": 1,
+        "proxyCount": 1,
+        "nativeInitializeMs": 985.5897730000003,
+        "threadCreateMs": 214.64297199999965,
+        "turnToTextMs": 596.8020230000002,
+        "textToPublishCompleteMs": 738.4030369999996,
+        "startupDurationMs": 4373,
+        "storageMountDurationMs": 3311,
+        "storagePreparationDurationMs": 1023,
+        "proxyMs": 3,
+        "proxyStatus": "success",
+        "proxyUsage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "total_tokens": 2
+        }
+      }
+    ],
+    "observedMedianDelta": {
+      "milliseconds": 4951.327875999996,
+      "percent": 65.96146443942088
+    },
+    "controller": {
+      "elapsedMs": 152060.81391599998,
+      "cpu": {
+        "user": 2663656,
+        "system": 415992
+      },
+      "eventLoopDelayP95Ms": 12.099583
+    },
+    "paidInferenceRequests": 0
+  },
+  "realProviderDiagnostic": {
+    "samples": [
+      {
+        "pair": null,
+        "side": "diagnostic",
+        "status": "passed",
+        "acknowledgementMs": 688.1314579999962,
+        "firstProgressMs": 16198.352915999996,
+        "completedMs": 17414.418583,
+        "traceCount": 1,
+        "hostCount": 1,
+        "proxyCount": 1,
+        "nativeInitializeMs": 1059.792234,
+        "threadCreateMs": 1115.0677879999998,
+        "turnToTextMs": 797.589164,
+        "textToPublishCompleteMs": 851.9718619999999,
+        "startupDurationMs": 5423,
+        "storageMountDurationMs": 4181,
+        "storagePreparationDurationMs": 1210,
+        "proxyMs": 237,
+        "proxyStatus": "success",
+        "proxyUsage": {
+          "input_tokens": 3693,
+          "output_tokens": 5,
+          "total_tokens": 3698
+        }
+      }
+    ],
+    "status": "passed",
+    "model": "openai.gpt-5.6-luna",
+    "provider": "Amazon Bedrock Mantle",
+    "region": "us-west-2",
+    "paidRequests": 1,
+    "usage": {
+      "inputTokens": 3693,
+      "outputTokens": 5,
+      "unknownSamples": 0,
+      "conservativeEstimateUsd": 0.0010221750000000002,
+      "usageKind": "provider-reported usage"
+    },
+    "controller": {
+      "elapsedMs": 21886.575541,
+      "cpu": {
+        "user": 562828,
+        "system": 80343
+      },
+      "eventLoopDelayP95Ms": 12.099583
+    },
+    "sourceSha256": "b14cfeb1b1d3df8d8c3c75066174de875ec3ab161d7201b5705726282a3d7423",
+    "imageVersion": "4.0",
+    "controllerSourceMatchesFixtureController": true,
+    "matchesRetainedImageValidationBundle": true
+  },
+  "preComparisonDiagnostics": [
+    {
+      "firstProgressMs": 42816.51325,
+      "excludedFromComparison": true
+    },
+    {
+      "firstProgressMs": 25020.577916000002,
+      "excludedFromComparison": true
+    }
+  ],
+  "provenance": {
+    "controller": {
+      "gitRevision": "983e74ca39d6648a3360b6b0a0d55750b190655f",
+      "dirtyState": "",
+      "sha256": {
+        "testing/performance-aws/startup.ts": "bd56d81921fe79e7ef8f94a4f45f71398ab8b5df890bdfa3d4bbd7efe3ca20c5",
+        "testing/performance-aws/startup-planning.ts": "3fd87e069922970fbd48304396867953f3486024706a49e55dfa13d1d41ccee3",
+        "src/agents-client.ts": "28e53711cc5a890b95159859e86697b94066a751a4fcc404b20e83271b50dc2b",
+        "package-lock.json": "bf53ac49bd2d39e93c9da800582ee486997e0cef53873d9f3310a38619904e8e"
+      }
+    },
+    "sourceComparison": {
+      "changedEntries": [
+        "image-validation.mjs"
+      ],
+      "sameProxyManifest": true,
+      "proxySha256": "0cfdc3273bf04a01bc4cd311b934cef8b290f792b8b90e347b7a9539d1b58c93",
+      "baselineSha256": "dc3ca463d4dfc1438a855f2f8ac4dd6e505888b7898a45434a510b002a8c553c",
+      "candidateSha256": "8e756d08bf85e1e04852b4bb95b774d449ed7929459a003d24601da25b4f54d5"
+    },
+    "imageResources": [
+      {
+        "minimumMemoryInMiB": 4096
+      }
+    ],
+    "managedBaseImageVersion": "1.0",
+    "nativeVersion": "0.164.0",
+    "rejectedCandidateRevision": "731febd",
+    "revertRevision": "69435d5"
+  },
+  "validation": {
+    "npmRunCheck": "passed after revert",
+    "testFilesPassed": 333,
+    "testsPassed": 3047,
+    "testsSkipped": 83,
+    "fixtureSessions": 12,
+    "providerSessions": 1,
+    "fixtureAndProviderSessionsPassed": 13,
+    "providerProxyRequests": 1,
+    "terraformValidation": "passed for root, LocalStack, and AWS test configurations",
+    "outcomeAudit": {
+      "verifiedAt": "2026-11-08T18:40:42.376343+00:00",
+      "distinctSessions": 13,
+      "distinctRuns": 13,
+      "distinctMicrovms": 13,
+      "successfulFixtureResponses": 12,
+      "successfulUpstreamResponses": 1,
+      "allExactAnswersAndUsageVerifiedByController": true,
+      "allSessionsAndAgentsDeleted": true,
+      "allImageSelectionsRestored": true
+    }
+  },
+  "cost": {
+    "inferenceEstimateUsd": 0.0010221750000000002,
+    "inferenceBudgetUsd": 1.2,
+    "astraRequests": 0,
+    "infrastructureActualUsd": null,
+    "infrastructurePlanningCeilingUsd": 10,
+    "infrastructureNote": "The planning ceiling is not an invoice or a measured total. Billing was unavailable at validation time.",
+    "modelPriceSource": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-56-luna.html"
+  },
+  "limits": [
+    "Fresh MicroVM does not guarantee cold or equal AWS snapshot-cache residency.",
+    "Five fixture pairs and one real-provider diagnostic do not establish fleet percentiles or a causal comparison with historical 89\u2013104 s measurements.",
+    "The test proxy strips tool definitions, forces tool_choice none and max_output_tokens 128, and adds a loopback hop.",
+    "This tests API-observed assistant output with a short prompt and no environment, not desktop rendering, repository checkout, tool execution, concurrency, or long conversations.",
+    "Cross-host wall clocks do not provide precise phase ordering. Worker phase durations use their own monotonic clock.",
+    "Post-result journal errors correlate with immediate Session deletion; all measured Turns completed successfully."
+  ],
+  "cleanup": {
+    "status": "complete",
+    "verifiedAt": "2026-11-08T18:44:58.362944+00:00",
+    "destroyExitCode": 0,
+    "remainingManagedResources": 0,
+    "runtimeEnvironmentRemoved": true,
+    "destroyedMarkerExists": true,
+    "tagAndOwningServiceAudit": "passed by teardown script",
+    "microvmImage": "confirmed absent",
+    "kms": "disabled and scheduled for deletion",
+    "allMeasuredMicrovmsVerifiedTerminatedOrAbsent": true
+  }
+}

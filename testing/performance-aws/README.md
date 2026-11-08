@@ -234,7 +234,9 @@ For one diagnostic, replace the before/after variables with
 
 Reserve Bedrock mode for a small provider integration check. Build both images
 with `--mode bedrock`, verify current model availability and pricing, and remove
-the fixture inference deny only for that check. Use `STARTUP_MODE=bedrock`.
+the fixture inference deny only for that check. Terminate all fixture workers before
+removing the deny so an existing Session cannot gain inference authority. Use
+`STARTUP_MODE=bedrock`.
 Bedrock comparisons permit one pair, or one Session in diagnostic mode. Each
 worker admits one request. The model's full context limit and higher long-context
 prices give a conservative two-request bound below $1.20. The request byte cap
