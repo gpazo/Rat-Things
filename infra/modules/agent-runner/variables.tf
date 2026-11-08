@@ -656,29 +656,6 @@ variable "tags" {
   default     = {}
 }
 
-variable "environment_relay_image" {
-  description = "ARM64 environment relay image pinned by sha256 digest. Null leaves the relay unprovisioned."
-  type        = string
-  default     = null
-  nullable    = true
-  validation {
-    condition     = var.environment_relay_image == null || can(regex("@sha256:[a-f0-9]{64}$", var.environment_relay_image))
-    error_message = "Pin the relay image by its sha256 digest."
-  }
-}
-
-variable "environment_relay_origin_hostname" {
-  description = "DNS hostname pointing to the relay ALB, covered by environment_relay_origin_certificate_arn."
-  type        = string
-  default     = null
-}
-
-variable "environment_relay_origin_certificate_arn" {
-  description = "ACM certificate in the deployment region covering the relay origin hostname."
-  type        = string
-  default     = null
-}
-
 variable "session_checkpoints_enabled" {
   description = "Enable durable Session checkpoints and managed Session forks. Requires the matching native runtime and S3 Files."
   type        = bool

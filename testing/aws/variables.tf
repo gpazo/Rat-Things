@@ -141,24 +141,6 @@ variable "ec2_worker_instance_type" {
   type    = string
   default = "m7g.large"
 }
-variable "environment_relay_image" {
-  description = "Pinned ARM64 image for the dedicated HTTPS API and executor relay."
-  type        = string
-  default     = null
-}
-
-variable "environment_relay_origin_hostname" {
-  description = "Dedicated API/relay hostname pointing to the output ALB DNS name."
-  type        = string
-  default     = null
-}
-
-variable "environment_relay_origin_certificate_arn" {
-  description = "Regional ACM certificate covering the dedicated API/relay hostname."
-  type        = string
-  default     = null
-}
-
 variable "ec2_session_workloads" {
   type        = set(object({ owner_id = string, agent_id = string }))
   default     = []

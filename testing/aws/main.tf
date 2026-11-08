@@ -120,23 +120,20 @@ module "agent_runner" {
     redirectUri           = "http://127.0.0.1:38173/callback"
     scopes                = ["openid", "profile", "rat-things/access"]
   }] : []
-  enable_watchdog                          = var.enable_super_agent_proof
-  watchdog_schedule_expression             = "rate(1 minute)"
-  watchdog_long_running_seconds            = 1800
-  watchdog_stuck_seconds                   = 300
-  watchdog_retry_backoff_seconds           = 1
-  watchdog_max_candidates                  = 100
-  watchdog_max_judges_per_tick             = 1
-  watchdog_model                           = var.codex_model_id
-  watchdog_destinations                    = [{ kind = "teams" }]
-  event_filter_model_id                    = var.event_filter_model_id
-  event_filter_inference_resource_arns     = var.event_filter_inference_resource_arns
-  slack_candidate_events_enabled           = var.enable_super_agent_proof
-  session_checkpoints_enabled              = var.session_checkpoints_enabled
-  environment_relay_image                  = var.environment_relay_image
-  environment_relay_origin_hostname        = var.environment_relay_origin_hostname
-  environment_relay_origin_certificate_arn = var.environment_relay_origin_certificate_arn
-  source                                   = "../../infra/modules/agent-runner"
+  enable_watchdog                      = var.enable_super_agent_proof
+  watchdog_schedule_expression         = "rate(1 minute)"
+  watchdog_long_running_seconds        = 1800
+  watchdog_stuck_seconds               = 300
+  watchdog_retry_backoff_seconds       = 1
+  watchdog_max_candidates              = 100
+  watchdog_max_judges_per_tick         = 1
+  watchdog_model                       = var.codex_model_id
+  watchdog_destinations                = [{ kind = "teams" }]
+  event_filter_model_id                = var.event_filter_model_id
+  event_filter_inference_resource_arns = var.event_filter_inference_resource_arns
+  slack_candidate_events_enabled       = var.enable_super_agent_proof
+  session_checkpoints_enabled          = var.session_checkpoints_enabled
+  source                               = "../../infra/modules/agent-runner"
 
   name_prefix                 = local.name_prefix
   environment                 = var.deployment_id

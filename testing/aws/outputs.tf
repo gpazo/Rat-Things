@@ -123,14 +123,6 @@ output "agents_api_base_url" {
   value = module.agent_runner.agents_api_base_url
 }
 
-output "environment_relay_origin_dns_name" {
-  value = module.agent_runner.environment_relay_origin_dns_name
-}
-
-output "environment_relay_url" {
-  value = module.agent_runner.environment_relay_url
-}
-
 output "ec2_worker" {
   value = {
     ami_pipeline_arn = module.agent_runner.ec2_worker_ami_pipeline_arn

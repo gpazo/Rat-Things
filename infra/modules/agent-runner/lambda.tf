@@ -41,9 +41,7 @@ locals {
     RUN_QUEUE_URL                       = aws_sqs_queue.runs.url
     RUN_RETENTION_SECONDS               = tostring(var.run_retention_seconds)
     AGENTS_QUEUE_URL                    = aws_sqs_queue.agents.url
-    }, local.environment_relay_enabled ? {
-    AGENTS_ENVIRONMENT_RELAY_URL = "https://${aws_cloudfront_distribution.environment_relay[0].domain_name}"
-    } : {}, length(var.integration_plugin_base_urls) > 0 ? {
+    }, length(var.integration_plugin_base_urls) > 0 ? {
     INTEGRATION_PLUGIN_BASE_URLS = jsonencode(var.integration_plugin_base_urls)
     } : {}, length(var.integration_oauth_app_secret_arns) > 0 ? {
     INTEGRATION_OAUTH_APP_SECRET_ARNS = jsonencode(var.integration_oauth_app_secret_arns)

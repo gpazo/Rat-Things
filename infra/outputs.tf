@@ -108,15 +108,3 @@ output "agents_api_base_url" {
 output "agents_token_issuer_url" {
   value = module.agent_runner.agents_token_issuer_url
 }
-
-output "environment_relay_repository_url" {
-  value = module.agent_runner.environment_relay_repository_url
-}
-
-output "environment_relay_url" {
-  value = module.agent_runner.environment_relay_url
-}
-
-output "environment_relay_origin_dns_name" {
-  value = module.agent_runner.environment_relay_origin_dns_name
-}

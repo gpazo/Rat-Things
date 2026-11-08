@@ -172,18 +172,6 @@ output "agents_token_issuer_url" {
   value       = "${aws_lambda_function_url.agents.function_url}v1/auth/tokens"
 }
 
-output "environment_relay_repository_url" {
-  value = aws_ecr_repository.environment_relay.repository_url
-}
-
-output "environment_relay_url" {
-  value = local.environment_relay_enabled ? "https://${aws_cloudfront_distribution.environment_relay[0].domain_name}" : null
-}
-
-output "environment_relay_origin_dns_name" {
-  value = local.environment_relay_enabled ? aws_lb.environment_relay[0].dns_name : null
-}
-
 output "budget_alert_name" {
   description = "Optional AWS account monthly cost alert name, or null when disabled."
   value       = try(aws_budgets_budget.account_monthly[0].name, null)

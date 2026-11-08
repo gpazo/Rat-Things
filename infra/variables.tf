@@ -485,23 +485,6 @@ variable "tags" {
   default = {}
 }
 
-variable "environment_relay_image" {
-  description = "ARM64 relay image pinned by sha256 digest; null disables provisioning."
-  type        = string
-  default     = null
-  nullable    = true
-}
-
-variable "environment_relay_origin_hostname" {
-  type    = string
-  default = null
-}
-
-variable "environment_relay_origin_certificate_arn" {
-  type    = string
-  default = null
-}
-
 variable "ec2_session_workloads" {
   type        = set(object({ owner_id = string, agent_id = string }))
   default     = []
