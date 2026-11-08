@@ -221,6 +221,104 @@ Cleanup DELETE requests allow two bounded SDK retries for transient conflicts.
 The controller deletes its Sessions and Agent; destroy the disposable stack
 after exporting evidence. Infrastructure costs require separate accounting.
 
+## Probe fresh S3 Files mount startup without inference
+
+`storage.ts` launches disposable MicroVMs directly with `RunMicrovm`. It sends a
+valid persistent-session lifecycle hook but does not create a Run record or call a
+Session API. The runner stops at its strongly consistent lookup for the absent Run,
+before it reads an artifact or starts an execution driver. The probe role must
+have an explicit Bedrock inference deny, and the operator must confirm that deny
+and the disposable deployment before launching.
+
+The default plan runs five alternating baseline and candidate pairs with storage
+enabled on every MicroVM. One MicroVM runs at a time. The plan makes ten launches.
+AWS caps each MicroVM lifetime at 120 seconds. The controller allows a 120-second
+work window and a separate 60-second cleanup window per probe, within a 30-minute
+overall deadline.
+`--pairs 1` through `--pairs 6` selects one through six pairs, up to twelve
+launches. For one diagnostic sample,
+pass `--diagnostic storage|control` and `--version baseline|candidate`. The
+`control` mode omits the S3 Files fields from the hook while keeping
+`persistentSession: true`. A diagnostic accepts matching baseline and candidate
+version strings because it uses one version only.
+
+The JSON configuration file contains exactly these string fields:
+
+```json
+{
+  "deploymentId": "st1108a",
+  "region": "us-west-2",
+  "account": "731841023867",
+  "imageIdentifier": "arn:aws:lambda:us-west-2:731841023867:microvm-image:rat-things-st1108a-agent",
+  "baselineVersion": "1.0",
+  "candidateVersion": "2.0",
+  "executionRoleArn": "arn:aws:iam::731841023867:role/rat-things-st1108a-microvm-execution",
+  "connectorArn": "arn:aws:lambda:us-west-2:731841023867:network-connector:nc-00000000-0000-0000-0000-000000000000",
+  "logGroupName": "/rat-things-st1108a/microvms",
+  "runsTableName": "rat-things-st1108a-runs",
+  "integrationsTableName": "rat-things-st1108a-integrations",
+  "artifactBucket": "rat-things-st1108a-artifacts-000000000000",
+  "filesystem": "fs-00000000000000000",
+  "accesspoint": "fsap-00000000000000000",
+  "targetIP": "10.0.0.7"
+}
+```
+
+Replace every example value with the disposable deployment's values. The
+controller checks the image ARN, execution role, network connector, log group,
+tables, artifact bucket, account, and region against the deployment ID. It checks
+the caller account with STS. Both image versions must be active successful builds
+with matching base image, CPU, and resource settings.
+
+Run the default comparison with:
+
+```sh
+AWS_E2E_STORAGE_PROBE=true \
+AWS_E2E_STORAGE_PROBE_DISPOSABLE_CONFIRMED=true \
+AWS_E2E_STORAGE_PROBE_MODEL_DENY_CONFIRMED=true \
+node --import tsx testing/performance-aws/storage.ts \
+  --config /absolute/path/storage-probe-config.json \
+  --output /absolute/path/storage-probe.json
+```
+
+The diagnostic flags select exactly one launch. For example, compare the mount
+path with its no-storage control on the baseline image:
+
+```sh
+AWS_E2E_STORAGE_PROBE=true \
+AWS_E2E_STORAGE_PROBE_DISPOSABLE_CONFIRMED=true \
+AWS_E2E_STORAGE_PROBE_MODEL_DENY_CONFIRMED=true \
+node --import tsx testing/performance-aws/storage.ts \
+  --config /absolute/path/storage-probe-config.json \
+  --output /absolute/path/storage-control.json \
+  --diagnostic control --version baseline
+```
+
+Pass `--expect-profile` only with one storage diagnostic on an image that includes
+the test-only storage-mount profiling overlay. The controller then requires the matching
+`rat-things.storage-mount-profile.v1` log marker and keeps only its allowlisted
+fields. Every unprofiled or timed comparison rejects a profile marker so it cannot
+mix traced and production image observations. Those probes need only the lifecycle
+mount, runner-start, missing-Run, and runner-exit records.
+
+Every probe reads its generated Run ID with a strongly consistent DynamoDB read
+before and after the launch. It records AWS image provenance, the actual image
+version returned by `GetMicrovm`, the mount and storage-preparation durations, and
+the missing-Run failure. It polls a unique CloudWatch log stream and terminates
+the exact MicroVM, then verifies `TERMINATED`. A launch response that is uncertain
+is reconciled against the new MicroVM list; when no unique resource can be found,
+the artifact fails and names any possible IDs. `RunMicrovm` and the AWS CLI calls
+use one attempt. No command goes through a shell, and the artifact omits AWS
+credentials and raw helper logs.
+
+The probe measures startup through storage preparation and the runner's expected
+missing-Run exit. It does not measure first output, write data, or prove storage
+durability across a replacement MicroVM. CloudWatch startup fields report
+`startupDurationMs`, `storageMountDurationMs`, `storagePreparationDurationMs`,
+and `storageAlreadyMounted`; the optional profile reports helper timing and its
+declared `mount-launcher-only` syscall scope. Do not present these results as a
+first-output latency comparison or as a durability proof.
+
 ## Focused checks
 
 ```sh
