@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { execFileSync } from 'node:child_process';
-import { hasUnconditionalInferenceDeny, planStartup, sourceArtifactLocation, startupLimits, validateStartupManifest } from './startup-planning.js';
+import { hasUnconditionalInferenceDeny, planStartup, sourceArtifactLocation, startupComparisonSide, startupLimits,
+  startupSelectionFromLogEvents, validateStartupManifest, validateStartupOverlapManifest } from './startup-planning.js';
 import { SSMClient, GetParameterCommand, PutParameterCommand } from '@aws-sdk/client-ssm';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, ScanCommand } from '@aws-sdk/lib-dynamodb';
@@ -28,6 +29,8 @@ const plan = planStartup({
   ...Object.fromEntries([['beforeVersion', 'STARTUP_BEFORE_VERSION'], ['beforeZip', 'STARTUP_BEFORE_SOURCE_ZIP'],
     ['afterVersion', 'STARTUP_AFTER_VERSION'], ['afterZip', 'STARTUP_AFTER_SOURCE_ZIP'],
     ['diagnosticVersion', 'STARTUP_DIAGNOSTIC_VERSION'], ['diagnosticZip', 'STARTUP_DIAGNOSTIC_SOURCE_ZIP'],
+    ['randomizedVersion', 'STARTUP_RANDOMIZED_VERSION'], ['randomizedZip', 'STARTUP_RANDOMIZED_SOURCE_ZIP'],
+    ['randomizedSamples', 'STARTUP_RANDOMIZED_SAMPLES'],
     ['pairs', 'STARTUP_PAIRS']].flatMap(([key, name]) => process.env[name!] === undefined ? [] : [[key, process.env[name!]]])),
 });
 if (plan.mode === 'fixture' && required('STARTUP_INFERENCE_DENIED') !== 'true') throw new Error('Install an inference deny policy on the disposable worker role first');
@@ -85,8 +88,14 @@ const imageProvenance = await Promise.all(plan.images.map(async selected => {
   const manifest: unknown = JSON.parse(zipEntry('startup-responses-proxy-manifest.json').toString('utf8'));
   validateStartupManifest(manifest, plan.mode);
   if (sha256(zipEntry('startup-responses-proxy.mjs')) !== manifest.proxySha256) throw new Error('Proxy content hash differs from its manifest');
+  let overlapManifest: unknown;
+  if (plan.mode === 'fixture' && selected.side === 'randomized') {
+    overlapManifest = JSON.parse(zipEntry('startup-overlap-manifest.json').toString('utf8'));
+    validateStartupOverlapManifest(overlapManifest, zipEntry('runtime-server.mjs'));
+  }
   return { side: selected.side, imageArn: image.imageArn, imageVersion: image.imageVersion, codeArtifact: image.codeArtifact, resources: image.resources,
-    baseImageArn: image.baseImageArn, baseImageVersion: image.baseImageVersion, sourceSha256, manifest };
+    baseImageArn: image.baseImageArn, baseImageVersion: image.baseImageVersion, sourceSha256, manifest,
+    ...(overlapManifest ? { overlapManifest } : {}) };
 }));
 if (imageProvenance.some(image => JSON.stringify(image.resources) !== JSON.stringify(imageProvenance[0]!.resources)
   || image.baseImageArn !== imageProvenance[0]!.baseImageArn
@@ -112,6 +121,30 @@ async function attachExecution(sample: Record<string, unknown>, sessionId: strin
   sample.executionRoleArn = vm.executionRoleArn;
   sample.runCreatedAt = runs[0]!.createdAt;
   if (vm.imageArn !== imageArn || vm.imageVersion !== selectedVersion || vm.executionRoleArn !== executionRoleArn) throw new Error('Observed worker image or role differs from the selected deployment');
+  if (plan.images[0]?.side === 'randomized') {
+    const side = startupComparisonSide(runs[0]!.runId);
+    sample.side = side;
+    sample.selector = { version: 'run-id-final-hex-parity.v1', source: 'observed-run-id', side };
+    sample.hostLogSelection = await waitForHostSelection(runs[0]!.runId, side, sample.startedAt as string);
+  }
+}
+
+async function waitForHostSelection(runId: string, expectedSide: 'before' | 'after', startedAt: string) {
+  const deadline = performance.now() + 45_000;
+  const startTime = String(Math.max(0, Date.parse(startedAt) - 5_000));
+  const logGroup = `/rat-things-${deployment}/microvms`;
+  while (performance.now() < deadline) {
+    const filter = `"startup comparison selected" "${runId}"`;
+    const result = JSON.parse(execFileSync('aws', ['logs', 'filter-log-events', '--region', region, '--log-group-name', logGroup,
+      '--filter-pattern', filter, '--start-time', startTime, '--limit', '10', '--output', 'json'],
+    { encoding: 'utf8', timeout: 15_000, maxBuffer: 256 * 1024, env: { ...process.env, AWS_MAX_ATTEMPTS: '1' } }));
+    const events = (Array.isArray(result.events) ? result.events : []).flatMap((event: unknown) =>
+      typeof event === 'object' && event !== null ? [event as { message?: string; logStreamName?: string; timestamp?: number }] : []);
+    const match = startupSelectionFromLogEvents(events, runId, expectedSide);
+    if (match) return { logGroup, ...match.logGroupEvent, ...match.marker };
+    await delay(1_000);
+  }
+  throw new Error('Startup comparison selection host log was not observed');
 }
 const client = createAgentsClient({ baseURL, region }).withOptions({ maxRetries: 0, timeout: 30_000 });
 const started = performance.now();
@@ -209,6 +242,12 @@ try {
       } finally { sample.finishedAt = new Date().toISOString(); await save(); }
     }
     console.log(JSON.stringify(sample));
+  }
+  if (plan.images[0]?.side === 'randomized') {
+    const before = artifact.samples.filter(sample => sample.side === 'before').length;
+    const after = artifact.samples.filter(sample => sample.side === 'after').length;
+    artifact.randomizedAssignmentCounts = { before, after, requiredMinimumPerSide: 5 };
+    if (before < 5 || after < 5) throw new Error('Randomized comparison requires at least five observed samples per side');
   }
   artifact.status = 'passed';
 } catch (error) {
