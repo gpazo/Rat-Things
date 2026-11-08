@@ -9,7 +9,7 @@ import { agentsWebFunctionBaseURL } from './agents-http-config.js';
 
 /** A streaming transport keeps large requests and responses out of event payloads. */
 export function createAgentsHttpServer(options: {
-  baseURL?: string; webFunctionRegion?: string; issuerURL: string; discovery?: object;
+  baseURL?: string; webFunctionRegion?: string; issuerURL?: string; discovery?: object;
   authenticate(authorization: string | null, audience: string): Promise<ApiPrincipal>;
   route(request: Request, principal: ApiPrincipal, requestId: string): Promise<Response>;
   error(error: unknown, requestId: string): Response;
@@ -31,7 +31,7 @@ export function createAgentsHttpServer(options: {
         : staticBaseURL!;
       if (incoming.method === 'GET' && incoming.url === '/health') { await send(outgoing, Response.json({ status: 'ok' })); return; }
       if (incoming.method === 'GET' && incoming.url === '/.well-known/agents-api') {
-        const discovery = { ...(options.discovery ?? { issuer_url: options.issuerURL }), base_url: baseURL };
+        const discovery = { ...(options.discovery ?? (options.issuerURL ? { issuer_url: options.issuerURL } : {})), base_url: baseURL };
         await send(outgoing, Response.json(discovery, { headers: { 'cache-control': 'no-store' } })); return;
       }
       const owner = await options.authenticate(incoming.headers.authorization ?? null, baseURL);

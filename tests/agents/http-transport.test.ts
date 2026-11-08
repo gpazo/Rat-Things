@@ -151,6 +151,83 @@ describe('Lambda Web Function HTTP binding', () => {
       await vi.waitFor(() => expect([...aborted].sort()).toEqual(['alice', 'bob']));
     } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
   });
+
+  it('admits one large upload while keeping normal API and SSE traffic available, then releases capacity after failure and cancellation', async () => {
+    const failedUploadEntered = deferred();
+    const failUpload = deferred();
+    const cancelledUploadEntered = deferred();
+    const cancelledUploadAborted = deferred();
+    let uploads = 0;
+    const server = createAgentsHttpServer({ webFunctionRegion: 'us-west-2',
+      authenticate: async () => ({ ownerId: 'alice', scopes: [], authentication: 'token', expiresAt: 0, actor: { id: 'alice', kind: 'operator' } }),
+      route: async request => {
+        if (request.headers.get('content-length') && Number(request.headers.get('content-length')) > 1024 * 1024) {
+          uploads++;
+          if (uploads === 1) {
+            await request.text();
+            failedUploadEntered.resolve();
+            await failUpload.promise;
+            throw new Error('fixture upload failure');
+          }
+          if (uploads === 3) {
+            cancelledUploadEntered.resolve();
+            request.signal.addEventListener('abort', () => cancelledUploadAborted.resolve(), { once: true });
+            try { await request.text(); } catch { /* cancellation is the expected fixture path */ }
+            return Response.json({ accepted: true });
+          }
+          await request.text();
+          return Response.json({ accepted: true });
+        }
+        if (request.url.endsWith('/events')) return new Response(new ReadableStream<Uint8Array>({
+          start(controller) { controller.enqueue(new TextEncoder().encode('data: ready\n\n')); },
+        }), { headers: { 'content-type': 'text/event-stream' } });
+        return Response.json({ accepted: true });
+      }, error: agentsErrorResponse,
+    });
+    server.listen(0, '127.0.0.1'); await once(server, 'listening');
+    let cancelledRequest: ReturnType<typeof httpRequest> | undefined;
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('Missing HTTP address');
+      const origin = `http://127.0.0.1:${address.port}`;
+      const largeBody = 'x'.repeat(2 * 1024 * 1024);
+      const firstUpload = httpResponse(`${origin}/v1/agents/files`, { method: 'POST', headers: { host, 'content-length': String(Buffer.byteLength(largeBody)) }, body: largeBody });
+      await failedUploadEntered.promise;
+
+      const busyUpload = await httpResponse(`${origin}/v1/agents/files`, { method: 'POST', headers: { host, 'content-length': String(Buffer.byteLength(largeBody)) }, body: largeBody });
+      expect(busyUpload.statusCode).toBe(429);
+      await responseText(busyUpload);
+
+      const normal = await httpResponse(`${origin}/v1/agents`, { headers: { host } });
+      expect(normal.statusCode).toBe(200);
+      expect(JSON.parse(await responseText(normal))).toEqual({ accepted: true });
+      const events = await httpResponse(`${origin}/v1/agents/sessions/s/events`, { headers: { host } });
+      expect(events.statusCode).toBe(200);
+      expect((await events[Symbol.asyncIterator]().next()).value?.toString()).toContain('data: ready');
+      events.destroy();
+
+      failUpload.resolve();
+      const failed = await firstUpload;
+      expect(failed.statusCode).toBe(500);
+      await responseText(failed);
+
+      const afterFailure = await httpResponse(`${origin}/v1/agents/files`, { method: 'POST', headers: { host, 'content-length': String(Buffer.byteLength(largeBody)) }, body: largeBody });
+      expect(afterFailure.statusCode).toBe(200);
+      await responseText(afterFailure);
+
+      cancelledRequest = httpRequest(`${origin}/v1/agents/files`, { method: 'POST', headers: { host, 'content-length': String(Buffer.byteLength(largeBody)) } });
+      cancelledRequest.on('error', () => undefined);
+      cancelledRequest.write(largeBody.slice(0, 8_192));
+      await cancelledUploadEntered.promise;
+      cancelledRequest.destroy();
+      await cancelledUploadAborted.promise;
+
+      const afterCancel = await httpResponse(`${origin}/v1/agents/files`, { method: 'POST', headers: { host, 'content-length': String(Buffer.byteLength(largeBody)) }, body: largeBody });
+      expect(afterCancel.statusCode).toBe(200);
+      await responseText(afterCancel);
+      expect(uploads).toBe(4);
+    } finally { cancelledRequest?.destroy(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
+  });
 });
 
 function httpResponse(url: string, options: { method?: string; headers: Record<string, string>; body?: string }): Promise<IncomingMessage> {
@@ -166,4 +243,10 @@ async function responseText(response: IncomingMessage): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of response) chunks.push(Buffer.from(chunk));
   return Buffer.concat(chunks).toString('utf8');
+}
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>(resolvePromise => { resolve = resolvePromise; });
+  return { promise, resolve };
 }
