@@ -27,6 +27,8 @@ if (versions.before === versions.after || Object.values(versions).some(value => 
 const model = required('AWS_E2E_CODEX_MODEL_ID');
 if (model !== 'openai.gpt-5.6-luna') throw new Error('This bounded comparison permits only the verified Luna model');
 const output = required('STARTUP_OUTPUT');
+const pairs = Number(process.env.STARTUP_PAIRS ?? 5);
+if (!Number.isInteger(pairs) || pairs < 1 || pairs > 5) throw new Error('STARTUP_PAIRS must be between 1 and 5');
 const account = required('AWS_E2E_CALLER_ACCOUNT');
 if (JSON.parse(execFileSync('aws', ['sts', 'get-caller-identity', '--region', region, '--output', 'json'], { encoding: 'utf8', timeout: 30_000 })).Account !== account) throw new Error('Wrong AWS account');
 const ssm = new SSMClient({ region, maxAttempts: 1 });
@@ -53,9 +55,9 @@ const loop = monitorEventLoopDelay({ resolution: 10 });
 loop.enable();
 const artifact: Record<string, unknown> & { samples: Array<Record<string, unknown>> } = {
   status: 'running', startedAt: new Date().toISOString(), region, deployment, versions, model, baseURL, imageProvenance,
-  boundary: 'create request start to first manager-observed nonempty assistant text; 500ms polling plus request time',
+  boundary: 'create request start to first manager-observed nonempty assistant text; Items and Turns endpoints polled concurrently with 500ms between iterations',
   classification: 'fresh Session and fresh MicroVM; underlying AWS snapshot cache residency is uncontrolled',
-  limits: { requests: 10, sessionDeadlineMs: 180_000, totalDeadlineMs: 30 * 60_000, observedOutputBytes: 256, estimatedInferenceStopThresholdUsd: 0.05,
+  limits: { requests: pairs * 2, sessionDeadlineMs: 180_000, totalDeadlineMs: 30 * 60_000, observedOutputBytes: 256, estimatedInferenceStopThresholdUsd: 0.05,
     providerMaxOutputTokens: 128_000, requestedOutput: 'one word', note: 'The estimate stops subsequent calls; output observation cannot prevent a single call from exceeding it' }, samples: [],
 };
 const save = async () => { await writeFile(`${output}.tmp`, JSON.stringify(artifact, null, 2), { mode: 0o600 }); await rename(`${output}.tmp`, output); };
@@ -75,7 +77,7 @@ try {
     instructions: 'Reply with exactly OK. Do not repeat or quote any input. Keep the entire response to one word.' });
   agentId = agent.id;
   artifact.agentId = agentId;
-  for (let pair = 1; pair <= 5; pair++) {
+  for (let pair = 1; pair <= pairs; pair++) {
     const order = pair % 2 ? ['before', 'after'] as const : ['after', 'before'] as const;
     for (const side of order) {
       if (stop.signal.aborted || performance.now() - started > 30 * 60_000 || usage().conservativeEstimateUsd >= 0.05) throw new Error('Comparison budget reached');
@@ -94,7 +96,13 @@ try {
         await save();
         let finished = false;
         while (!stop.signal.aborted && performance.now() - start < 180_000) {
-          const activity = await client.get<SessionActivity>(`/rat/sessions/${sessionId}/activity`, { timeout: Math.min(30_000, 180_000 - (performance.now() - start)) });
+          const options = { timeout: Math.min(30_000, 180_000 - (performance.now() - start)) };
+          const [items, turns] = await Promise.all([
+            client.beta.agents.sessions.items.list(sessionId, { limit: 100, order: 'asc' }, options),
+            client.beta.agents.sessions.turns.list(sessionId, { limit: 100, order: 'asc' }, options),
+          ]);
+          if (items.has_more || turns.has_more) throw new Error('Unexpected paginated history');
+          const activity = { items: items.data, turns: turns.data };
           sample.turn = activity.turns[0];
           if (performance.now() - start >= 180_000) throw new Error('Startup deadline exceeded');
           const text = activity.items.flatMap(item => item.type === 'message' && item.role === 'assistant'

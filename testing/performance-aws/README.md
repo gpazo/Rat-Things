@@ -186,7 +186,7 @@ hashes and the deployed source revisions.
 ## Compare fresh Session startup
 
 `startup.ts` compares two versions of one deployed MicroVM image through the same
-operator Web Function. It creates five fresh Sessions per version, alternating
+operator Web Function. It defaults to five fresh Sessions per version, alternating
 the order within each pair. Every Session gets the same one-word request and a
 new worker. It records acceptance, first observed assistant text, completion,
 correctness, token usage, and the image version returned by AWS for that worker.
@@ -211,9 +211,11 @@ initial requests, no follow-ups or client retries, a three-minute observation
 deadline per Session, and thirty minutes total. It stops on the first failure,
 missing usage, unexpected answer, or estimated inference cost of $0.05.
 The 256-byte observed-output guard is not a provider generation-token cap.
+Set `STARTUP_PAIRS` to an integer from one through five to reduce the sample count
+within a smaller budget. Report the actual counts and treat small samples as preliminary.
 
-First output is observed through activity snapshots polled every 500 ms plus
-request time. It is not the provider's first-token timestamp. Save worker logs
+First output is observed through the standard Items and Turns endpoints, queried
+concurrently with 500 ms between iterations. It is not the provider's first-token timestamp. Save worker logs
 to separate storage mount and Codex initialization from the remaining delay.
 The controller deletes its Sessions and Agent; destroy the disposable stack
 after exporting evidence. Infrastructure costs require separate accounting.
