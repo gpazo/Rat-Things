@@ -1,10 +1,11 @@
-import { writeFile, rename } from 'node:fs/promises';
+import { writeFile, rename, mkdtemp, rm } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { execFileSync } from 'node:child_process';
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { hasUnconditionalInferenceDeny, planStartup, sourceArtifactLocation, startupLimits, validateStartupManifest } from './startup-planning.js';
 import { SSMClient, GetParameterCommand, PutParameterCommand } from '@aws-sdk/client-ssm';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
@@ -56,7 +57,6 @@ if (plan.mode === 'fixture') {
 const ssm = new SSMClient({ region, maxAttempts: 1 });
 const db = DynamoDBDocumentClient.from(new DynamoDBClient({ region, maxAttempts: 1 }));
 const microvms = new LambdaMicrovmsClient({ region, maxAttempts: 1 });
-const s3 = new S3Client({ region, maxAttempts: 1 });
 const sha256 = (value: Uint8Array) => createHash('sha256').update(value).digest('hex');
 const parameter = `/rat-things-${deployment}/microvm/image-version`;
 const original = (await ssm.send(new GetParameterCommand({ Name: parameter }))).Parameter?.Value;
@@ -68,17 +68,19 @@ const imageProvenance = await Promise.all(plan.images.map(async selected => {
   if (image.status !== 'ACTIVE' || image.state !== 'SUCCESSFUL') throw new Error('Image versions must have successful active builds');
   const localHash = createHash('sha256');
   for await (const bytes of createReadStream(selected.sourceZip)) localHash.update(bytes);
-  const remote = await s3.send(new GetObjectCommand(sourceArtifactLocation(image.codeArtifact?.uri, deployment)), { abortSignal: AbortSignal.timeout(30_000) });
-  if (!remote.Body) throw new Error('Image source object is empty');
+  const location = sourceArtifactLocation(image.codeArtifact?.uri, deployment);
   const sourceSha256 = localHash.digest('hex');
-  const remoteHash = createHash('sha256');
-  const reader = remote.Body.transformToWebStream().getReader();
-  for (;;) {
-    const chunk = await reader.read();
-    if (chunk.done) break;
-    remoteHash.update(chunk.value);
+  const temporary = await mkdtemp(join(tmpdir(), 'rat-startup-source-'));
+  try {
+    const downloaded = join(temporary, 'source.zip');
+    execFileSync('aws', ['s3', 'cp', `s3://${location.Bucket}/${location.Key}`, downloaded, '--region', region, '--only-show-errors'],
+      { timeout: 300_000, maxBuffer: 1_048_576, env: { ...process.env, AWS_MAX_ATTEMPTS: '1' } });
+    const remoteHash = createHash('sha256');
+    for await (const bytes of createReadStream(downloaded)) remoteHash.update(bytes);
+    if (remoteHash.digest('hex') !== sourceSha256) throw new Error('Deployed image source differs from the local verified ZIP');
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
   }
-  if (remoteHash.digest('hex') !== sourceSha256) throw new Error('Deployed image source differs from the local verified ZIP');
   const zipEntry = (name: string) => execFileSync('unzip', ['-p', selected.sourceZip, name], { timeout: 10_000, maxBuffer: 1_048_576 });
   const manifest: unknown = JSON.parse(zipEntry('startup-responses-proxy-manifest.json').toString('utf8'));
   validateStartupManifest(manifest, plan.mode);
@@ -228,6 +230,6 @@ try {
     artifact.usage = usage();
     artifact.controller = { elapsedMs: performance.now() - started, cpu: process.cpuUsage(cpu), eventLoopDelayP95Ms: loop.percentile(95) / 1e6 };
     await save();
-    ssm.destroy(); db.destroy(); microvms.destroy(); s3.destroy();
+    ssm.destroy(); db.destroy(); microvms.destroy();
   }
 }
