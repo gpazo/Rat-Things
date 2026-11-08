@@ -104,6 +104,15 @@ it('requires mount, runner-start, missing-Run, and runner-exit evidence for one 
     .toThrow('Missing expected runner failure');
 });
 
+it('accepts the later storage timer and rejects an inverted mount duration', () => {
+  const expected = { runId, microvmId, mode: 'storage' as const, region: config.region, expectProfile: false };
+  const logs = baseLogs('storage');
+  logs[0] = event(1_000, { message: 'S3 Files Session state mounted', durationMs: 17 });
+  expect(analyzeProbeLogs(logs, expected).runnerStarted.storageMountDurationMs).toBe(18);
+  logs[0] = event(1_000, { message: 'S3 Files Session state mounted', durationMs: 19 });
+  expect(() => analyzeProbeLogs(logs, expected)).toThrow('exceeds the enclosing runner storage duration');
+});
+
 it('validates an expected fixed profile marker and retains only its allowlisted fields', () => {
   const profile = {
     schema: 'rat-things.storage-mount-profile.v1', outcome: 'success', durationMs: 120, exitCode: 0,

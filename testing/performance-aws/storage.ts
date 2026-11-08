@@ -352,7 +352,7 @@ export function analyzeProbeLogs(events: readonly { timestamp: number; message: 
   if (expected.mode === 'control' && (storageMountDurationMs !== 0 || storagePreparationDurationMs !== 0)) {
     throw new Error('No-storage control reported storage work.');
   }
-  if (mount && mountDurationMs !== storageMountDurationMs) throw new Error('Mount and runner duration fields do not agree.');
+  if (mountDurationMs !== null && mountDurationMs > storageMountDurationMs) throw new Error('Mount duration exceeds the enclosing runner storage duration.');
 
   const failures = objects.filter(({ value }) => value.message === 'agent worker failed');
   const missingRun = failures.find(({ value }) => isRecord(value.error) && value.error.message === `run ${expected.runId} does not exist`);
