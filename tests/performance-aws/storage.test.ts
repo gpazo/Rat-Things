@@ -68,7 +68,8 @@ it('reserves 60 seconds for cleanup after a 120-second work window', () => {
   const window = planProbeWindow(1_000, 500_000);
   expect(window).toEqual({ workDeadline: 121_000, cleanupDeadline: 181_000 });
   expect(planReconciliationDeadline(window, 30_000)).toBe(40_000);
-  expect(planReconciliationDeadline(window, 120_000)).toBe(window.workDeadline);
+  expect(planReconciliationDeadline(window, window.workDeadline)).toBe(131_000);
+  expect(planReconciliationDeadline(window, 180_000)).toBe(window.cleanupDeadline);
   expect(() => planProbeWindow(1_000, 180_999)).toThrow('At least 180 seconds');
 });
 

@@ -259,7 +259,7 @@ export function planProbeWindow(sampleStarted: number, totalDeadline: number): P
 }
 
 export function planReconciliationDeadline(window: ProbeWindow, now: number): number {
-  return Math.min(window.workDeadline, now + 10_000);
+  return Math.min(window.cleanupDeadline, now + 10_000);
 }
 
 export function runHookPayload(config: StorageProbeConfig, input: {
