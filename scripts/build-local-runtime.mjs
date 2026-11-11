@@ -19,6 +19,7 @@ try {
   const platform = arch === 'x64' ? 'linux/amd64' : 'linux/arm64';
   const artifact = await validateCodexRuntimeArtifact(process.env.CODEX_RUNTIME_ARTIFACT ?? resolve(`.runtime/codex/linux-${arch}`), { expectedTarget: target.nativeTarget });
   await copyFile('runtime/local/Dockerfile', join(context, 'Dockerfile'));
+  await copyFile('microvm/install-browser.mjs', join(context, 'install-browser.mjs'));
   await copyFile('runtime/native/package-inventory.py', join(context, 'package-inventory.py'));
   await cp('runtime/codex/licenses', join(context, 'codex-runtime/licenses'), { recursive: true });
   const entries = [...artifact.files.map(file => ({ source: file.source, target: `codex-runtime/${file.path}` })),

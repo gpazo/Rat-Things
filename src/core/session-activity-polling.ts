@@ -1,11 +1,11 @@
 import type { SessionActivity } from './session-activity.js';
 
-interface Poll { users: number; at: number; pending?: Promise<SessionActivity> | undefined; value?: SessionActivity | undefined; bytes: number }
+interface Poll<T> { users: number; at: number; pending?: Promise<T> | undefined; value?: T | undefined; bytes: number }
 /** Share projection reads within one service process; authorization stays with each subscriber. */
-export class SessionActivityPolling {
-  private readonly polls = new Map<string, Poll>();
+export class SessionActivityPolling<T = SessionActivity> {
+  private readonly polls = new Map<string, Poll<T>>();
   private bytes = 0;
-  public subscribe(key: string, intervalMs: number, load: () => Promise<SessionActivity>) {
+  public subscribe(key: string, intervalMs: number, load: () => Promise<T>) {
     let poll = this.polls.get(key);
     if (!poll && this.polls.size < 64) { poll = { users: 0, at: 0, bytes: 0 }; this.polls.set(key, poll); }
     if (poll) poll.users++;

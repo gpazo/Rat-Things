@@ -46,6 +46,11 @@ export function piModel(pin: Extract<RuntimePin, { kind: 'pi' }>, model: string)
 }
 
 export function validateRuntimeAgent(pin: RuntimePin, agent: AgentSession['agent'], environment?: Pick<EnvironmentParam, 'type'>): void {
+  if (agent.tools.some(tool => tool.type === 'function' && tool.name === 'rat_things_browser')) {
+    if (pin.kind === 'pi' && !piModel(pin, agent.model).input.includes('image')) invalid('The shared browser requires a model that accepts images.', 'agent.model');
+    if (environment && environment.type !== 'openai_hosted') invalid('The shared browser requires a managed environment.', 'environment');
+    if (agent.tools.some(tool => tool.type === 'mcp' && tool.server_label === 'rat_shared_browser')) invalid('rat_shared_browser is reserved for the shared browser.', 'agent.tools');
+  }
   if (pin.kind === 'codex') return;
   const model = piModel(pin, agent.model);
   if (environment?.type === 'self_hosted') invalid('Pi does not support self-hosted environments', 'environment.type');

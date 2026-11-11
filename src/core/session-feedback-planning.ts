@@ -12,6 +12,9 @@ export interface SessionFeedback {
   digest: string;
   events: FeedbackEvent[];
   actor: SessionActor;
+  participant?: import('./session-collaboration-planning.js').Participant | undefined;
+  reply?: import('./session-collaboration-planning.js').MessageReply | undefined;
+  workspace?: import('./session-workspace-planning.js').WorkspaceFeedback | undefined;
   acceptedAtMs: number;
   messages: SessionMessage[];
   turnId: string;
@@ -56,7 +59,7 @@ export function planFeedbackBatch(state: SessionState, observation: SessionObser
   for (const input of pending) receipts[input.id] = {
     digest: input.value.digest, commands: !failed && input.id === leader.id ? commands : [], dispatched: failed,
     ...(failed ? { failure: { code: 'session_failed', message: 'The Session failed before this input could be delivered.' } } : {}),
-    actor: input.value.actor, provenance: { kind: 'authenticated' }, sequence: ++sequence,
+    actor: input.value.actor, participant: input.value.participant, reply: input.value.reply, workspace: input.value.workspace, provenance: { kind: 'authenticated' }, sequence: ++sequence,
     acceptedAt: input.value.acceptedAtMs / 1_000, batchLeader: leader.id,
     messageIds: input.value.messages.map(message => message.id), turnIds: [...new Set(commands.map(command => command.turnId))],
   };

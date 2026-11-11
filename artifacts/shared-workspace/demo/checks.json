@@ -1,0 +1,96 @@
+{
+  "status": "passed",
+  "verified_at": "2026-11-09T19:37:42.316736+00:00",
+  "repository": {
+    "command": "npm run check",
+    "exit_code": 0,
+    "passed": 3070,
+    "skipped": 83,
+    "packaging": "passed",
+    "terraform": "all three validations passed",
+    "environment": {
+      "node": "24.9.0",
+      "TMPDIR": "/private/tmp"
+    },
+    "log": ".codex/pstack-runs/shared-workspace-share-demo/check-final.log"
+  },
+  "initial_check": {
+    "status": "failed",
+    "failures": 35,
+    "files": [
+      "tests/scripts/aws-quickstart-teardown.test.ts",
+      "tests/scripts/linux-kvm-prepare.test.ts"
+    ],
+    "resolution": "Reran with canonical TMPDIR=/private/tmp; both suites and the full check passed without test or product-code changes.",
+    "log": ".codex/pstack-runs/shared-workspace-share-demo/check.log"
+  },
+  "native": {
+    "status": "prior passing result reused",
+    "reason": "This edit changed the video compositor, edit manifest and accompanying documentation; native product/capture code is unchanged.",
+    "verified_at": "2026-11-09T17:19:17.361453+00:00",
+    "result": {
+      "command": "npm run console:check",
+      "format": "passed",
+      "clippy": "passed",
+      "unit_passed": 53,
+      "integration_passed": 25,
+      "ignored_opt_in": 5
+    }
+  },
+  "recorded_journey": {
+    "status": "prior passing real local capture reused",
+    "result": {
+      "command": "RAT_SHARED_WORKSPACE_DEMO=true cargo test --test shared_workspace_demo -- --ignored",
+      "passed": 1,
+      "paid_inference_calls": 0,
+      "cleanup": "passed"
+    }
+  },
+  "video": {
+    "status": "passed",
+    "duration_seconds": 75,
+    "frames": 900,
+    "width": 1920,
+    "height": 1080,
+    "codec": "h264",
+    "bytes": 1304067,
+    "sha256": "63ef9742e1cb7667c701df79d57cb22f27f9938de989650db555c82a486534f7",
+    "full_decode": "passed",
+    "source_image_hashes_verified": 104,
+    "decoded_review_times": [
+      0,
+      3.5,
+      10.0,
+      16.5,
+      22.0,
+      25.5,
+      26.5,
+      28.5,
+      32.0,
+      39.0,
+      47.0,
+      49,
+      53.5,
+      63.0,
+      72.5,
+      74.9
+    ],
+    "paid_inference_calls_for_edit": 0,
+    "reviewed": "Shot previews and decoded encoded frames inspected; two subagents cleared the final edit. Full continuous human playback is not claimed.",
+    "caption_coverage": "11 scenes through 75 seconds",
+    "readme_links": "passed"
+  },
+  "resources": {
+    "new_cloud_deployments": 0,
+    "active_docker_containers_after_edit": 0
+  },
+  "cost": {
+    "new_external_paid_inference_calls": 0,
+    "new_external_paid_inference_tokens": 0,
+    "new_external_paid_inference_cost_usd": 0,
+    "new_cloud_infrastructure_cost_usd": 0,
+    "delegated_review_model": "gpt-6-luna via Codex subagents",
+    "delegated_review_tokens_and_cost": "not exposed; unknown",
+    "total_cost": "unknown; no claim that Codex review usage is free"
+  }
+}

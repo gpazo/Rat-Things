@@ -1,0 +1,447 @@
+{
+  "source": "Actual ConsoleApp renders driven through native controls",
+  "source_manifest_sha256": "2e1c088608e06e4434cb062d1256aa08859c9cad00f9c6b687cb5ffebba526b2",
+  "fps": 12,
+  "duration_seconds": 75.0,
+  "frames": 900,
+  "model": "Deterministic local Responses fixture; no paid inference",
+  "identity": "Three fixture identities on authenticated loopback connections; not OIDC login validation",
+  "editing": "Crops, cuts and holds only. No UI text replaced. Resolve/reopen omitted; final excerpt crops the first of the fixture's repeated replies.",
+  "timing": "Presentation timing is edited, not a latency measurement",
+  "timeline": [
+    {
+      "id": "premise",
+      "seconds": 7,
+      "layout": "opening",
+      "frames": [
+        41,
+        41
+      ],
+      "crop": [
+        270,
+        285,
+        737,
+        485
+      ],
+      "title": "Three teammates. One Session. One agent.",
+      "subtitle": "The task: plan a better bug-report product.",
+      "start_seconds": 0,
+      "end_seconds": 7.0,
+      "used_frames": [
+        41
+      ]
+    },
+    {
+      "id": "typing",
+      "seconds": 6,
+      "layout": "rows",
+      "frames": [
+        12,
+        20
+      ],
+      "hold_seconds": 2,
+      "crop": [
+        366,
+        655,
+        1147,
+        730
+      ],
+      "title": "Join the conversation at any time.",
+      "subtitle": "Maya drafts a message. Eli and Sam see that she\u2019s typing.",
+      "start_seconds": 7.0,
+      "end_seconds": 13.0,
+      "used_frames": [
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20
+      ]
+    },
+    {
+      "id": "live-browser",
+      "seconds": 7,
+      "layout": "single",
+      "person": 1,
+      "frames": [
+        41,
+        49
+      ],
+      "hold_seconds": 2,
+      "crop": [
+        252,
+        128,
+        750,
+        550
+      ],
+      "title": "One live browser, shared by the team.",
+      "subtitle": "Eli clicks \u201cReview together\u201d on the concept page.",
+      "start_seconds": 13.0,
+      "end_seconds": 20.0,
+      "used_frames": [
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49
+      ]
+    },
+    {
+      "id": "browser-sync",
+      "seconds": 4,
+      "layout": "rows",
+      "frames": [
+        49,
+        49
+      ],
+      "crop": [
+        274,
+        310,
+        734,
+        368
+      ],
+      "title": "The same live page, in three clients.",
+      "subtitle": "These are three different clients viewing the same live browser.",
+      "start_seconds": 20.0,
+      "end_seconds": 24.0,
+      "used_frames": [
+        49
+      ]
+    },
+    {
+      "id": "capture",
+      "seconds": 5,
+      "layout": "single",
+      "person": 0,
+      "frames": [
+        50,
+        55
+      ],
+      "crop": [
+        248,
+        204,
+        1264,
+        565
+      ],
+      "title": "Capture the page before adding feedback.",
+      "subtitle": "Annotations stay with this version, even if the live browser moves on.",
+      "hold_seconds": 3,
+      "start_seconds": 24.0,
+      "end_seconds": 29.0,
+      "used_frames": [
+        50,
+        51,
+        52,
+        53,
+        54,
+        55
+      ]
+    },
+    {
+      "id": "maya-pin",
+      "seconds": 6,
+      "layout": "single",
+      "person": 0,
+      "frames": [
+        56,
+        67
+      ],
+      "hold_seconds": 2,
+      "crop": [
+        248,
+        204,
+        1264,
+        565
+      ],
+      "title": "Maya pins a design concern.",
+      "subtitle": "\u201cLead with shared evidence, not blame.\u201d",
+      "start_seconds": 29.0,
+      "end_seconds": 35.0,
+      "used_frames": [
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67
+      ]
+    },
+    {
+      "id": "eli-reply",
+      "seconds": 8,
+      "layout": "single",
+      "person": 1,
+      "frames": [
+        68,
+        85
+      ],
+      "hold_seconds": 2,
+      "crop": [
+        248,
+        204,
+        1264,
+        589
+      ],
+      "title": "Eli replies to Maya\u2019s note.",
+      "subtitle": "First release: capture runtime versions and the failing command.",
+      "start_seconds": 35.0,
+      "end_seconds": 43.0,
+      "used_frames": [
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75,
+        76,
+        77,
+        78,
+        79,
+        80,
+        81,
+        82,
+        83,
+        84,
+        85
+      ]
+    },
+    {
+      "id": "sam-region",
+      "seconds": 8,
+      "layout": "single",
+      "person": 2,
+      "frames": [
+        86,
+        111
+      ],
+      "hold_seconds": 2,
+      "crop": [
+        248,
+        204,
+        1264,
+        665
+      ],
+      "title": "Sam marks a region and raises an edge case.",
+      "subtitle": "For the product under review: what should happen offline?",
+      "start_seconds": 43.0,
+      "end_seconds": 51.0,
+      "used_frames": [
+        86,
+        87,
+        88,
+        89,
+        90,
+        91,
+        92,
+        93,
+        94,
+        95,
+        96,
+        97,
+        98,
+        99,
+        100,
+        101,
+        102,
+        103,
+        104,
+        105,
+        106,
+        107,
+        108,
+        109,
+        110,
+        111
+      ]
+    },
+    {
+      "id": "feedback-sync",
+      "seconds": 5,
+      "layout": "rows",
+      "frames": [
+        122,
+        122
+      ],
+      "crop": [
+        768,
+        340,
+        1248,
+        428
+      ],
+      "title": "One discussion, visible to everyone.",
+      "subtitle": "The same note and reply appear in each client, with names and colors intact.",
+      "start_seconds": 51.0,
+      "end_seconds": 56.0,
+      "used_frames": [
+        122
+      ]
+    },
+    {
+      "id": "agent-response",
+      "seconds": 14,
+      "layout": "agent",
+      "frames": [
+        144,
+        144
+      ],
+      "crop": [
+        366,
+        116,
+        1147,
+        195
+      ],
+      "title": "The same agent receives the image and feedback.",
+      "subtitle": "The team\u2019s comments become context for the continuing conversation.",
+      "start_seconds": 56.0,
+      "end_seconds": 70.0,
+      "used_frames": [
+        144
+      ]
+    },
+    {
+      "id": "takeaway",
+      "seconds": 5,
+      "layout": "single",
+      "person": 0,
+      "frames": [
+        122,
+        122
+      ],
+      "crop": [
+        248,
+        204,
+        1264,
+        640
+      ],
+      "title": "\u201cWorks on our machines.\u201d",
+      "subtitle": "One shared Session. Everyone can contribute. The agent keeps the context.",
+      "start_seconds": 70.0,
+      "end_seconds": 75.0,
+      "used_frames": [
+        122
+      ]
+    }
+  ],
+  "source_images": {
+    "00012-0.png": "4941f616b621813927a45a45ee58b920e6d86b53d8f70123f163219fe324eb5e",
+    "00012-1.png": "f3160b75df2f9ed220447d8cb93ab5d022b047a946b92975de4453b4a3fec7f0",
+    "00012-2.png": "f3160b75df2f9ed220447d8cb93ab5d022b047a946b92975de4453b4a3fec7f0",
+    "00013-0.png": "6007f790279db8558bd80f64dde25a91c0c84c81107ca307736afc6ddc0386e0",
+    "00013-1.png": "f3160b75df2f9ed220447d8cb93ab5d022b047a946b92975de4453b4a3fec7f0",
+    "00013-2.png": "f3160b75df2f9ed220447d8cb93ab5d022b047a946b92975de4453b4a3fec7f0",
+    "00014-0.png": "67083cf1d3e21ccbf2c0724f3ec175c8cd962c164ca86ba6d03cd8a071c498b7",
+    "00014-1.png": "f3160b75df2f9ed220447d8cb93ab5d022b047a946b92975de4453b4a3fec7f0",
+    "00014-2.png": "f3160b75df2f9ed220447d8cb93ab5d022b047a946b92975de4453b4a3fec7f0",
+    "00015-0.png": "1bec9d61a15b8fe5b9cbc92988c4c155ac497957ef756651e642bf6305258e80",
+    "00015-1.png": "f3160b75df2f9ed220447d8cb93ab5d022b047a946b92975de4453b4a3fec7f0",
+    "00015-2.png": "f3160b75df2f9ed220447d8cb93ab5d022b047a946b92975de4453b4a3fec7f0",
+    "00016-0.png": "86ad61340ce9b2852b5339233ab322a33c80d8504e49ccb7b60c36cbf00d1639",
+    "00016-1.png": "f3160b75df2f9ed220447d8cb93ab5d022b047a946b92975de4453b4a3fec7f0",
+    "00016-2.png": "f3160b75df2f9ed220447d8cb93ab5d022b047a946b92975de4453b4a3fec7f0",
+    "00017-0.png": "44247badf5c45c9d745b24ccc295bd6db80ccf1d5542d0758262735c2cca3b56",
+    "00017-1.png": "f3160b75df2f9ed220447d8cb93ab5d022b047a946b92975de4453b4a3fec7f0",
+    "00017-2.png": "f3160b75df2f9ed220447d8cb93ab5d022b047a946b92975de4453b4a3fec7f0",
+    "00018-0.png": "62079df4210161b19c0fb49ef6cb269800eb7368b984ff064aedf9781bcb3b79",
+    "00018-1.png": "f3160b75df2f9ed220447d8cb93ab5d022b047a946b92975de4453b4a3fec7f0",
+    "00018-2.png": "f3160b75df2f9ed220447d8cb93ab5d022b047a946b92975de4453b4a3fec7f0",
+    "00019-0.png": "44247badf5c45c9d745b24ccc295bd6db80ccf1d5542d0758262735c2cca3b56",
+    "00019-1.png": "f3160b75df2f9ed220447d8cb93ab5d022b047a946b92975de4453b4a3fec7f0",
+    "00019-2.png": "f3160b75df2f9ed220447d8cb93ab5d022b047a946b92975de4453b4a3fec7f0",
+    "00020-0.png": "62079df4210161b19c0fb49ef6cb269800eb7368b984ff064aedf9781bcb3b79",
+    "00020-1.png": "f3160b75df2f9ed220447d8cb93ab5d022b047a946b92975de4453b4a3fec7f0",
+    "00020-2.png": "f3160b75df2f9ed220447d8cb93ab5d022b047a946b92975de4453b4a3fec7f0",
+    "00041-1.png": "4e32f94d11e9a22ad211cf07de50603050e02511ebe160a8f055772b292ee403",
+    "00042-1.png": "cffb4aaad8a4a48b0217b5fb22d69662866267f68bdd642cf93da5e03b6db8b1",
+    "00043-1.png": "4e32f94d11e9a22ad211cf07de50603050e02511ebe160a8f055772b292ee403",
+    "00044-1.png": "cffb4aaad8a4a48b0217b5fb22d69662866267f68bdd642cf93da5e03b6db8b1",
+    "00045-1.png": "4e32f94d11e9a22ad211cf07de50603050e02511ebe160a8f055772b292ee403",
+    "00046-1.png": "e6cbbe44435cf58753993dcc98facf9c2669523d5e28369fac4498c54dd9bf3a",
+    "00047-1.png": "86ade0c4ee54c0b331fd1477e572682007da31fccad89cfa9d1e3b3417f0384e",
+    "00048-1.png": "cca1dfc78bc91d4b0041a89d2e36171761b98f01e081fb626681dee18ccc968d",
+    "00049-0.png": "6c2cc4c760a052ea2b8354f34ab4a83da6cefd8bd64be27e27a5e7826d16a242",
+    "00049-1.png": "86ade0c4ee54c0b331fd1477e572682007da31fccad89cfa9d1e3b3417f0384e",
+    "00049-2.png": "6c2cc4c760a052ea2b8354f34ab4a83da6cefd8bd64be27e27a5e7826d16a242",
+    "00050-0.png": "a136c237e8b39b8e34454a42f1c3068857a20f273a19df8c59593d701dba41b6",
+    "00051-0.png": "6c2cc4c760a052ea2b8354f34ab4a83da6cefd8bd64be27e27a5e7826d16a242",
+    "00052-0.png": "a734548c9f74133931a7cea96c4e164e488b0452416319922c221fbed2415741",
+    "00053-0.png": "9e0bf7a361d0e78f1947da1eb68cf89292182ef9503a048c08436c4af0aa3cc6",
+    "00054-0.png": "18197352b70e4b27ef2e44f559c32194d2a8dee8702ec2da6a560c59ca62a702",
+    "00055-0.png": "e78b06e9074ea00ca5e63e77f920be6325fa88ce01469e1ef3a6924842754a85",
+    "00056-0.png": "f31b0c4198a60a4b0573950cfde38e3ea2efca8fc22ea36cbe74917cce100e25",
+    "00057-0.png": "cb39349e2596a6123f7714382a1ce10033863e8c4a88b994a71f2d0ae09b7d7b",
+    "00058-0.png": "f4108a5ba6068005e85219f821543ac170035eab40aee2685dd5dc6923e7e302",
+    "00059-0.png": "f097c1ac05b9f4b24b8268b92286e116647cc6a659528307b6c57bac65826f5a",
+    "00060-0.png": "70e49f0cae4db9d88911e943f59885fe9c68415140169649fd790da1c6782cd7",
+    "00061-0.png": "f703f9d90266fdbb1b6073a1d31e0151f02ba9be35f012a0a73cb2ed54059a36",
+    "00062-0.png": "45e50b6b48fb655517f3d2bd113041eb2433e13f56ac53d34da56c5297c4acdf",
+    "00063-0.png": "7536a05726df88c3e93dfc06eae5c129494a96d58e165483bc002db4721481e6",
+    "00064-0.png": "5c0a1b1b8544a401d6052c1e70c18ca710682085c8eeec7eef983b320a5eb0d5",
+    "00065-0.png": "289204ca783e8c918eefc4ea76a98fb14c5f143998c394d0ab033a4050c125bc",
+    "00066-0.png": "0fe5372d83c20814f33863162191a89d26cbe76500fdf7cd50f69c19dc313a82",
+    "00067-0.png": "0fe5372d83c20814f33863162191a89d26cbe76500fdf7cd50f69c19dc313a82",
+    "00068-1.png": "7b4957b5bde06d1ac6c59357c93a68740e68b1070bc5b897d6b7786252b1029a",
+    "00069-1.png": "552eb60536435f6a33691315edc28bf76e54103838e89388de4258b6bb61f034",
+    "00070-1.png": "954d4faf2335f07b313c945de22f691242cbe0e4a1c1ead811b6e99b0130589d",
+    "00071-1.png": "fa5c156c26764b69dd898f097a5874923e51c7fa6fe7b3723abc3c0a231f4844",
+    "00072-1.png": "02893ad0a0c6ff8704d5072a9020ac1887af0a9b75316afdcb597debc3b981d4",
+    "00073-1.png": "2a9d4ac90ae4041ebe8fb634450669d48b557ff9a96c23c3ccc0430e21ad509f",
+    "00074-1.png": "db7faac0290b9b1c178fcce6e7a301d7fa2046b7bcf2d144931386e34d227139",
+    "00075-1.png": "334a3d5a3aadab1b87240be32cf0e0b0a0a474e92f71b953ec170a6d3ce88795",
+    "00076-1.png": "7d1e3e5047d9e595592d502f84cbbf76a601a51989672394d1745b669dccc1a2",
+    "00077-1.png": "c775ebd042c006570b563212631715fc0e0822bf10839a5725cb188da039aa8f",
+    "00078-1.png": "773bf7e0bd91cce76bb8a35424533fee926648b1d8ad4766c88a08861b042d63",
+    "00079-1.png": "18ef386e10b86b8e01c8ba4899b1381ce3a7237d22a9119dcbf18adc24e3bbb5",
+    "00080-1.png": "e3c0d3dad0b3eb49bfca5cb5cba249afbea8868199b74e59d77300cbf04c2e03",
+    "00081-1.png": "a91cb0280fc0b7f07a7d7b9fa505d1489175d15b0a8dc81aafdffb3599725a07",
+    "00082-1.png": "f0e424979a5cead0dc5f307725324f7fce191e7fbe6b79e5fd0e254fdf08d4f2",
+    "00083-1.png": "d166f50ac94f61420e01678d142844fbf1e39d083934ff1a3d926e38c73b9adc",
+    "00084-1.png": "d166f50ac94f61420e01678d142844fbf1e39d083934ff1a3d926e38c73b9adc",
+    "00085-1.png": "d166f50ac94f61420e01678d142844fbf1e39d083934ff1a3d926e38c73b9adc",
+    "00086-2.png": "d3fecd6afa63ac378c8aa35efbd0ad659dd57ef636436b1995901ff427e064c0",
+    "00087-2.png": "2a502639dad91b57293c6ba028914c3cbbd253d96a56f08744be579d082adeeb",
+    "00088-2.png": "628a5055fff28197fabc619772bf8333648ff12d6a65e199ca93e066769456f3",
+    "00089-2.png": "431c40b057440ec44e50ef276d4788e6915893b9924c2d5bdf30f73981631941",
+    "00090-2.png": "a26c53a790f01e610ddea96d94aee4d47bc83a09d59e969215418e4686bea7e3",
+    "00091-2.png": "ad97754744323007ef515dd2789a5a6f4079f0a7afb5aa2d0a49426a5308f381",
+    "00092-2.png": "4ee26fb1e8e7276fe6e549b7d6d69ba69e1e09a23b61fb79087119536fc7b6f0",
+    "00093-2.png": "e226059eca65753016020e90a5e341a1024cc4a8bb8270dfd76b593510ada41f",
+    "00094-2.png": "aad4c62a6e2c9f96c1fe2cbfa27d0bcde74e74539ca80b4edf27936b367f8a9f",
+    "00095-2.png": "78399f1d4c9f7be7eac6fa77c0c9e11e45f918606e835d51a4fba1e66e78da35",
+    "00096-2.png": "2b6297975b1f45a5200d8892587f7a1a45dd4e9b58fc478122b2c1459b01da2b",
+    "00097-2.png": "17ab0c5ee56bbba12f1d8cdc632f51c2f352f14b654b22de0ac93cdb066f1490",
+    "00098-2.png": "7a1c0fbe03dabd10951ccb6548c263e808ee1547b2fa5f2d58ad34f69c2760bf",
+    "00099-2.png": "356831d21283bf1140e2056239d4e43468b719e5f0fc478e0df124bef68a33ab",
+    "00100-2.png": "a52befc7a32737328044b1924043c61fa2c35bb43fdb99aca49a915fdf4c8849",
+    "00101-2.png": "30cbc73cff667f00bcee621314b1f9f7c9a93af672b60a0d32ffddd412a6f9fc",
+    "00102-2.png": "8f975a61eb1f156774d06afbb71e422bc903fb85092876a2ba828534cd298d93",
+    "00103-2.png": "436bd4f46c49c618216fdd5674d1cb13750240504a4766aaddf28ea49c238524",
+    "00104-2.png": "ab15d427044f2b24ac3c5b195d982f77e311b6b49cfe87c2ffd7ea89184864a8",
+    "00105-2.png": "3e268f33990b1e25bec83323c58810c5060b060a281a32b6bddb07426522ffd6",
+    "00106-2.png": "a0e13800d9586d447169948184fa0f7910ea0e4eb32c197c60f91c95aba78720",
+    "00107-2.png": "4e0d6c479f765289a28d23bad94985cb43ed331a9efdf4d856e86cba7f1fb2bc",
+    "00108-2.png": "77de1679f1fb2e572062ce781bf439d561024024b96dc552d45a24078f7cc1fe",
+    "00109-2.png": "bb682d016ad2073dda04d4c8b443b9cd50b5f124c90c16ba35b2de0b6e6aed3e",
+    "00110-2.png": "bb682d016ad2073dda04d4c8b443b9cd50b5f124c90c16ba35b2de0b6e6aed3e",
+    "00111-2.png": "bb682d016ad2073dda04d4c8b443b9cd50b5f124c90c16ba35b2de0b6e6aed3e",
+    "00122-0.png": "76c7128269980c8a8718e6dccfb79a9c652981e048d93a0916c1b3bd7248068e",
+    "00122-1.png": "8b50e54a66b5a55efff666342767f569a250df042d83a20365d85d2f7d25f2ee",
+    "00122-2.png": "76c7128269980c8a8718e6dccfb79a9c652981e048d93a0916c1b3bd7248068e",
+    "00144-2.png": "cf14ed5cff30bc7e6175ab7341acf6f99c5e82b5daac736d23f7ebe08924e7f6"
+  }
+}

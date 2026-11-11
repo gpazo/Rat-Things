@@ -9,6 +9,7 @@ import { canonicalJson } from '../domain/json.js';
 import { parseAgentsContract } from '../domain/agents-api-validation.js';
 import { parseSessionModelSettings } from '../domain/session-execution.js';
 import { WorkspaceAdmission } from './workspace-handoff.js';
+import { browserCommand, SharedBrowserActionError } from '../domain/shared-browser.js';
 
 const CHANNEL = 'rat-things-agent-control';
 
@@ -20,6 +21,7 @@ interface PendingServerRequest {
 
 export interface RunnerControlBridge {
   hooks: AgentDriverControl;
+  setBrowser(browser: (command: import('../domain/shared-browser.js').BrowserCommand) => Promise<import('../domain/shared-browser.js').BrowserFrame>): void;
   setEnvironmentFiles(files: (operation: unknown) => Promise<unknown>): void;
   prepareStorage(): Promise<void>;
   close(): void;
@@ -30,6 +32,7 @@ export function createRunnerControlBridge(runId: string, admission = new Workspa
   const pending = new Map<string, PendingServerRequest>();
   const operations = new Map<string, { digest: string; promise: Promise<unknown> }>();
   let controller: CodexTurnController | undefined;
+  let browser: ((command: import('../domain/shared-browser.js').BrowserCommand) => Promise<import('../domain/shared-browser.js').BrowserFrame>) | undefined;
   let environmentFiles: ((operation: unknown) => Promise<unknown>) | undefined;
   let closed = false;
   let storageReady: { resolve(): void; reject(error: Error): void } | undefined;
@@ -46,6 +49,7 @@ export function createRunnerControlBridge(runId: string, admission = new Workspa
       ...(result !== undefined ? { result } : {}),
       ...(error ? { error: error instanceof Error ? error.message : String(error) } : {}),
       ...(error instanceof SessionSteerRejectedError ? { code: 'session_steer_rejected' } : {}),
+      ...(error instanceof SharedBrowserActionError ? { code: error.code } : {}),
     });
   };
 
@@ -86,6 +90,10 @@ export function createRunnerControlBridge(runId: string, admission = new Workspa
             case 'environment_files':
               if (!environmentFiles) throw new Error('Environment files are not ready');
               result = environmentFiles(value.operation);
+              break;
+            case 'shared_browser':
+              if (!browser) throw new Error('Shared browser is not ready');
+              result = browser(browserCommand(value.command));
               break;
             case 'session_start': {
               if (!controller?.startSessionTurn) throw new Error('The session harness is not ready');
@@ -183,6 +191,7 @@ export function createRunnerControlBridge(runId: string, admission = new Workspa
   };
   return {
     hooks,
+    setBrowser: operation => { browser = operation; },
     setEnvironmentFiles: (files) => { environmentFiles = files; },
     prepareStorage: () => new Promise<void>((resolve, reject) => {
       if (closed || storageReady) { reject(new Error('Storage preparation is unavailable')); return; }

@@ -207,7 +207,7 @@ fn saves_and_restores_two_real_turns() {
         .expect("created Session must be visible in the real API");
     session.id = Some(resource["id"].as_str().unwrap().to_owned());
     wait_for_turns(&mut app, &session, 1, timeout);
-    contains(&mut app, "Turn completed");
+    contains(&mut app, "Ready for the next step");
     contains(&mut app, &marker);
     fill(
         &mut app,
@@ -216,7 +216,7 @@ fn saves_and_restores_two_real_turns() {
     );
     click(&mut app, "Send");
     wait_for_turns(&mut app, &session, 2, timeout);
-    contains(&mut app, "Turn completed");
+    contains(&mut app, "Ready for the next step");
     drop(app);
     let mut app = make_app();
     click(&mut app, &marker);

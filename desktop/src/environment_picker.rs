@@ -37,7 +37,7 @@ impl EnvironmentPicker {
         };
         let label = ui
             .horizontal(|ui| {
-                let label = ui.label(RichText::new("Environment").strong());
+                let label = theme::field_label(ui, "Environment");
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
                         .add_enabled(
@@ -111,7 +111,7 @@ impl EnvironmentPicker {
                 .on_hover_text(error);
         } else if self.templates.is_some() && templates.is_empty() {
             ui.label(
-                RichText::new("No templates yet. Create one in Templates.")
+                RichText::new("Create reusable environments in Templates.")
                     .small()
                     .color(theme::MUTED),
             );
@@ -122,7 +122,7 @@ impl EnvironmentPicker {
         {
             ui.colored_label(
                 theme::ERROR,
-                "This template is not in the available list. Refresh or choose another.",
+                "Template unavailable. Refresh or choose another.",
             );
         }
         let Some(choice) = choice else { return false };

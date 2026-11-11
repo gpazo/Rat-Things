@@ -28,6 +28,7 @@ eye, and radiator fins. Do not draw rat ears, whiskers or a long, curling, naked
 
 - **Neutral first.** Surfaces, lines and text are grays. Color is the exception and must mean
   something.
+- **Participant identity.** Shared Sessions assign each contributor a stable color for authorship, reply context and typing. Names remain visible; color is never the only identifier. These semantic colors do not style navigation or statuses.
 - **One accent.** Indigo marks focus, links, selection and "working" state. It is never a
   background wash, a gradient or a section theme.
 - **Light primary.** The primary action is a light fill with dark text, not a colored button.
@@ -39,18 +40,19 @@ eye, and radiator fins. Do not draw rat ears, whiskers or a long, curling, naked
 
 Plain and specific. Say what the system does in the reader's terms, then stop.
 
-Welcome people with small, approachable tasks. The character is a helpful robotic companion;
-warmth comes from language, generous empty-state spacing and useful suggestions.
-"A little help, right at home" belongs in a welcome screen. Status messages still
-say precisely what happened. Avoid jokes in errors, invented infrastructure names,
-or playfulness that hides where work runs and what it costs.
+Welcome people with small, approachable tasks. Warmth comes from useful suggestions
+and direct language. Give each sentence a job: identify the task, explain a choice
+or consequence, or help someone recover. Remove captions that repeat headings,
+controls or instructions already on screen. Status messages say precisely what
+happened. Avoid jokes in errors, invented infrastructure names, or playfulness
+that hides where work runs and what it costs.
 
 Lead onboarding with **This computer**. Present AWS as room to grow, with the same
 Sessions and familiar controls. Explain current boundaries beside the choice;
 never make a workspace switch sound like a completed migration.
 
-- Headings make a short claim: "The machine can stop. The work continues."
-- Kickers name the topic, not a slogan: "How work survives", "Authority is decided before launch".
+- Interface headings name the task or object: "New session", "Workspaces", "Instructions".
+- Supporting text explains a choice, consequence or recovery step; it does not restate the heading.
 - Buttons say exactly what happens: "Deploy your agent cloud", "Trace a Session", "New session".
 - Product nouns are capitalized as defined terms: Agent, Session, Turn, Item, Vault.
 
@@ -73,6 +75,13 @@ never make a workspace switch sound like a completed migration.
 | `--rt-faint` | `#62666d` | Disabled text and fine print only (3.1:1, below 4.5:1) |
 | `--rt-accent` | `#828fff` | Focus rings, links, selection stroke, "working" status (6.2:1) |
 | `--rt-primary-fill` | `#e5e5e6` | Primary button fill (`--rt-primary-text` `#181819` on top, 14.1:1) |
+
+Participant colors (`--rt-participant-1` through `--rt-participant-8`) start with
+`#d9adf5`, `#8fc9ff`, `#f3c77b`, `#f2a9c2`, `#b8ce91`, `#c4b9ff`, `#efa78b`, `#9acddd`.
+The Session assigns further unique bright colors when needed, without reusing or moving existing
+assignments. The agent keeps primary text white. These colors denote identity, never role or
+permission. At larger group sizes, similar colors are inevitable: names and reply quotes remain
+the reliable way to identify authors.
 
 Status colors are muted and appear only on status indicators, never as decoration:
 success `#a1bfa2`, warning `#dfbf84`, error `#ec9f9b`.
@@ -102,6 +111,7 @@ example, Linear's mark in a Linear issue mock. Keep those inside the mock.
 | Web body | 16px / 1.6 | 400 | Running text |
 | Web kicker | 13.6px / 1.4 | 500 | Label above a heading, in `--rt-muted` |
 | Desktop heading | 19px | 600 | egui `TextStyle::Heading` |
+| Desktop page introduction | 22px | 600 | Creation and connection dialog titles |
 | Desktop body / button | 13px | 400 / 500 | egui `Body` and `Button` |
 | Desktop small | 11px | 400 | Sidebar section labels, hints |
 | Desktop mono | 12px | 400 | Commands, identifiers |
@@ -115,6 +125,30 @@ example, Linear's mark in a Linear issue mock. Keep those inside the mock.
 - Desktop spacing: 6px button padding (vertical), 8px item gap, 12px button padding (horizontal),
   16px card padding, 22px window margin. Web pages keep at least a 16px side gutter on phones.
 - Shadows only on floating layers (menus, windows, raised media), always neutral black.
+
+## Native console composition
+
+Use one reading column for conversations, forms and resource details, up to 780px
+wide. The shared artifact workspace can expand to keep the work and discussion
+beside each other. Sidebar rows stay compact, with single-line titles; Workspace
+navigation pairs a consistent outline icon with its text label. Icons never
+replace the accessible name.
+
+Lead each creation or connection screen with a short title and explanation. Put
+the task before runtime settings. Model and environment controls sit beside each
+other when they fit and stack at narrower widths. Keep submit/cancel outside the
+scrolling form body. Dialogs use 24px inner padding and a bounded scrolling body;
+the title and footer must remain visible after resizing.
+
+Group related configuration with aligned neutral surfaces. Give the most useful
+content emphasis: instructions on an Agent, packages and network access on a
+Template, credential metadata in a Vault. Keep raw JSON under an explicit
+disclosure. Use neutral text and a small semantic dot for status badges, rather
+than coloring whole panels. Errors remain specific and retain the user's draft.
+
+Use `page_intro`, `section`, `field_label` and navigation primitives in the native
+theme to keep this hierarchy consistent. Empty states offer a concrete next
+action; they do not simulate activity or online participants.
 
 ## Logo
 

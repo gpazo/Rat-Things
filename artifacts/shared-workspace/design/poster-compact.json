@@ -1,0 +1,32 @@
+{
+  "status": "issues",
+  "mode": "still",
+  "stages": [
+    {
+      "key": "stage-1",
+      "label": "ss-fit rw",
+      "coverage": {
+        "status": "complete",
+        "frames": 1,
+        "durationMs": 0,
+        "maxGapMs": 0,
+        "reasons": [],
+        "framingSamples": 1,
+        "layout": {
+          "controls": 7,
+          "paddedContainers": 10,
+          "compositionCrops": 0
+        }
+      },
+      "findings": [
+        "tight control: button \"Work\" sits 3.9px under aside.rw-discussion \"On this capture ResolveA\"; a button keeps 8px or more from the field, line or card edge above it (still)",
+        "clipped: near aligned: span.ss-swap__in \"This capture is attached\" and span \"Feedback goes to the tea\" start 5.5px apart in aside.rw-discussion; lines in a card share one left edge, or one is indented on purpose by a column (an avatar's width and gap), never by a few pixels (still)",
+        "small text: span \"MayaDesigner\" renders at 9.3px on a phone; the floor is about 10px, so lay compact out at the column's width and set its type for it, not shrunk from the wide design (still)"
+      ],
+      "manual": []
+    }
+  ],
+  "errors": [],
+  "manualReviewRequired": false,
+  "exitCode": 0
+}

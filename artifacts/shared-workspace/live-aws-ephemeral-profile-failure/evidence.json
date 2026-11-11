@@ -1,0 +1,40 @@
+{
+  "proof": "workspace-5195592a-d0a4-4893-906c-13b00c861739",
+  "model": "openai.gpt-5.6-luna",
+  "started_at": "2026-11-09T15:37:00.175Z",
+  "client_kind": "Independent authenticated HTTP/SSE clients (not native UI windows)",
+  "checks": [
+    "OIDC roles and fixed browser execution grant configured",
+    "Shared Session accepted"
+  ],
+  "timings_ms": {
+    "session_submit": 774
+  },
+  "limitations": [
+    "Single scenario; not a load benchmark",
+    "Cost estimate excludes infrastructure billing"
+  ],
+  "pricing": {
+    "source": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-56-luna.html",
+    "input_per_million_usd": 0.22,
+    "output_per_million_usd": 1.32,
+    "cache_read_per_million_usd": 0.022
+  },
+  "space_id": "space_fc378659a53049549e3736ab26337bd2",
+  "session_id": "sess_21596040e10e4e9abaef0b8a97ce8242",
+  "status": "failed",
+  "error": "Timed out waiting for live proof condition",
+  "assistant_text": "",
+  "browser_tool_text": [],
+  "turns": [],
+  "usage": {
+    "input": 0,
+    "output": 0
+  },
+  "estimated_inference_usd": 0,
+  "estimate_note": "Conservative uncached short-context token estimate; infrastructure excluded, not an AWS invoice.",
+  "threads": [],
+  "item_summary": [],
+  "cleanup_errors": [],
+  "finished_at": "2026-11-09T15:39:17.301Z"
+}

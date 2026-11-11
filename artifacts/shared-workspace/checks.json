@@ -1,0 +1,31 @@
+{
+  "status": "passed",
+  "completed_at": "2026-11-09T16:42:00.186154+00:00",
+  "command": "npm run check",
+  "node": "24.9.0",
+  "tests": {
+    "files_passed": 337,
+    "files_skipped": 34,
+    "passed": 3070,
+    "skipped": 83
+  },
+  "included": [
+    "architecture boundaries",
+    "generated Agents API contracts, routes and worker",
+    "TypeScript",
+    "MicroVM syntax",
+    "unit and integration tests including real headless Chromium",
+    "Lambda packaging and bundle smoke",
+    "site build",
+    "Terraform format and validate for infra, LocalStack and AWS e2e"
+  ],
+  "additional": [
+    "Local Linux shared browser proof with fixture inference",
+    "Local runtime isolation/restart/snapshot smoke with fixture inference"
+  ],
+  "check_log_sha256": "446384bd58469b7d1b231c6dafcd41636209db35112bbeb3fad75db2d199f84f",
+  "limitations": [
+    "Opt-in AWS suites are not part of this npm run check; the separate live multiplayer proof is recorded under live-aws.",
+    "Native console checks are prior results; no three-window native UI live test."
+  ]
+}

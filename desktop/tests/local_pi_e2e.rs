@@ -435,7 +435,7 @@ fn saved_pi_agent_runs_managed_tools_and_restores_in_rust_console() {
     ));
     assert_eq!(pin["runtime"], "pi");
     let first_turns = completed(&mut app, &created, 1, timeout);
-    contains(&mut app, "Turn completed");
+    contains(&mut app, "Ready for the next step");
     contains(&mut app, &first);
     let first_items = items(&created);
     assert!(
@@ -493,7 +493,7 @@ fn saved_pi_agent_runs_managed_tools_and_restores_in_rust_console() {
     fill(&mut app, "Search sessions", &marker);
     click(&mut app, &marker);
     contains(&mut app, &first);
-    contains(&mut app, "Turn completed");
+    contains(&mut app, "Ready for the next step");
     capture(&mut app, &evidence, "restored-history.png");
     fill(
         &mut app,
@@ -504,7 +504,7 @@ fn saved_pi_agent_runs_managed_tools_and_restores_in_rust_console() {
     );
     click(&mut app, "Send");
     let turns = completed(&mut app, &created, 2, timeout);
-    contains(&mut app, "Turn completed");
+    contains(&mut app, "Ready for the next step");
     contains(&mut app, &second);
     let final_items = items(&created);
     let final_commands = commands(&final_items);

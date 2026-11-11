@@ -7,6 +7,8 @@ import type { SessionMcpRuntime } from './session-mcp.js';
 import { hostedCodexArguments, hostedProcessEnvironment } from './hosted-environment-planning.js';
 import type { SessionEnvironmentCredentialsRuntime } from './session-environment-credentials.js';
 import { nativeServiceTier } from '../domain/session-model-validation.js';
+import { SHARED_BROWSER_TOOL_NAME, sharedBrowserGranted } from '../domain/shared-browser.js';
+import sharedBrowserSource from './shared-browser-worker-source.json' with { type: 'json' };
 
 /** Translate public agent settings once, without changing the requested model or widening authority. */
 export function planSessionLaunch(base: CodexLaunchPlan, launch: SessionLaunch, environmentToken?: string, mcp?: Pick<SessionMcpRuntime, 'servers' | 'environment'>, credentials?: Pick<SessionEnvironmentCredentialsRuntime, 'processEnvironment' | 'shellEnvironment'>): Partial<CodexAppServerRequest> {
@@ -15,7 +17,16 @@ export function planSessionLaunch(base: CodexLaunchPlan, launch: SessionLaunch, 
   const { RAT_THINGS_ARTIFACT_DIR: _legacyArtifactDirectory, ...environment } = base.environment;
   const search = agent.tools.find((tool) => tool.type === 'web_search');
   if (search && base.webSearch !== search.mode) throw new Error('Session web search exceeds the admitted execution policy');
-  const functions = agent.tools.filter((tool) => tool.type === 'function');
+  const functions = agent.tools.filter((tool) => tool.type === 'function').filter(tool => tool.name !== SHARED_BROWSER_TOOL_NAME);
+  const browser = sharedBrowserGranted(agent.tools);
+  if (browser && launch.environment.type === 'none') throw new Error('The shared browser requires a managed environment');
+  const browserCommand = ['node', '--input-type=module', '-e', sharedBrowserSource];
+  const browserServer = browser ? { rat_shared_browser: {
+    command: browserCommand[0], args: browserCommand.slice(1), cwd: '/workspace',
+    environment_id: launch.environment.type === 'self_hosted' ? 'remote' : 'local', required: true,
+    enabled_tools: ['browser'], default_tools_approval_mode: 'approve',
+    env: { RAT_BROWSER_ROLE: 'mcp' },
+  } } : {};
   if (launch.environment.type === 'self_hosted' && !environmentToken) throw new Error('The self-hosted environment credential is missing');
   return {
     sessionTurnId: launch.turnId,
@@ -59,7 +70,7 @@ export function planSessionLaunch(base: CodexLaunchPlan, launch: SessionLaunch, 
     ],
     sessionConfig: {
       model_verbosity: agent.text.verbosity,
-      mcp_servers: mcp?.servers ?? {},
+      mcp_servers: { ...mcp?.servers, ...browserServer },
       'features.multi_agent': agent.multi_agent.enabled,
       // The current collaboration family supplies interruption and follow-up work.
       'features.multi_agent_v2': { enabled: agent.multi_agent.enabled, max_concurrent_threads_per_session: maxSubagents + 1 },

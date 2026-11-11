@@ -7,6 +7,9 @@ export interface SessionInputReceipt {
   id: string;
   actor: SessionActor;
   provenance?: import('./session-attribution.js').SessionInputProvenance;
+  participant?: import('./session-collaboration-planning.js').Participant | undefined;
+  reply?: import('./session-collaboration-planning.js').MessageReply | undefined;
+  workspace?: import('./session-workspace-planning.js').WorkspaceFeedback | undefined;
   sequence: number;
   status: 'accepted' | 'dispatched' | 'failed';
   accepted_at: number;
@@ -30,7 +33,7 @@ export function activityRevision(id: string, cursor: string): number {
 }
 export function sessionInputs(state: SessionState): SessionInputReceipt[] {
   return [...state.archivedInputs ?? [], ...Object.entries(state.receipts).flatMap(([id, receipt]) => receipt.actor ? [{
-    id, actor: receipt.actor, provenance: receipt.provenance ?? { kind: 'unknown' as const }, sequence: receipt.sequence ?? 0,
+    id, actor: receipt.actor, participant: receipt.participant, reply: receipt.reply, workspace: receipt.workspace, provenance: receipt.provenance ?? { kind: 'unknown' as const }, sequence: receipt.sequence ?? 0,
     status: receipt.failure ? 'failed' as const : receipt.dispatched ? 'dispatched' as const : 'accepted' as const,
     accepted_at: receipt.acceptedAt ?? state.session.created_at,
     turn_ids: receipt.turnIds ?? [...new Set(receipt.commands.map(command => command.turnId))],

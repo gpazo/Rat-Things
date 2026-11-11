@@ -68,7 +68,7 @@ export async function prepareWorkspace(
   await git('base_ref', ['-C', absolute, 'update-ref', 'refs/agent-runtime/base', 'HEAD'], root, gitEnvironment(), identity);
 }
 
-/** Resets first-use durable workspaces without removing the artifact bind mount. */
+/** Resets first-use durable workspaces without removing ephemeral bind mounts. */
 export async function resetPersistentWorkspace(workspace: string, clearArtifacts = false): Promise<void> {
   await mkdir(workspace, { recursive: true, mode: 0o700 });
   for (const entry of await readdir(workspace)) {
@@ -83,7 +83,7 @@ export async function resetPersistentWorkspace(workspace: string, clearArtifacts
       continue;
     }
     for (const child of await readdir(control)) {
-      if (child !== 'artifacts') {
+      if (child !== 'artifacts' && child !== 'browser') {
         await rm(resolve(control, child), { recursive: true, force: true });
       } else if (clearArtifacts) {
         const artifacts = resolve(control, child);

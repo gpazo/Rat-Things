@@ -4,7 +4,7 @@ import type {
 } from '../domain/agents-api.js';
 import type { ArtifactReference, ExecutionBackend } from '../domain/contracts.js';
 
-export type SessionMessage = AgentSessionInputMessageParam & { id: string; afterItemId?: string | null; acceptedOrdinal?: number; actor?: import('./session-caller.js').SessionActor; provenance?: import('./session-attribution.js').SessionInputProvenance };
+export type SessionMessage = AgentSessionInputMessageParam & { id: string; afterItemId?: string | null; acceptedOrdinal?: number; participant?: import('./session-collaboration-planning.js').Participant | undefined; reply?: import('./session-collaboration-planning.js').MessageReply | undefined; workspace?: import('./session-workspace-planning.js').WorkspaceFeedback | undefined; actor?: import('./session-caller.js').SessionActor; provenance?: import('./session-attribution.js').SessionInputProvenance };
 export interface SavedSessionArtifact { artifact: SessionArtifact; content: ArtifactReference }
 export interface SessionSubagentSnapshot { subagent: Subagent; turns: Turn[]; items: AgentSessionItem[]; artifacts?: SavedSessionArtifact[]; requiredActions?: AgentSession['required_actions']; traceTurns?: import('./session-trace-planning.js').TraceTurn[] }
 
@@ -36,7 +36,7 @@ export interface SessionState {
   session: AgentSession;
   placement?: ExecutionBackend;
   turns: SessionTurnBinding[];
-  receipts: Record<string, { digest: string; commands: SessionCommand[]; dispatched: boolean; batchLeader?: string; messageIds?: string[]; turnIds?: string[]; actor?: import('./session-caller.js').SessionActor; provenance?: import('./session-attribution.js').SessionInputProvenance; sequence?: number; acceptedAt?: number; failure?: { code: string; message: string } }>;
+  receipts: Record<string, { digest: string; commands: SessionCommand[]; dispatched: boolean; batchLeader?: string; messageIds?: string[]; turnIds?: string[]; participant?: import('./session-collaboration-planning.js').Participant | undefined; reply?: import('./session-collaboration-planning.js').MessageReply | undefined; workspace?: import('./session-workspace-planning.js').WorkspaceFeedback | undefined; actor?: import('./session-caller.js').SessionActor; provenance?: import('./session-attribution.js').SessionInputProvenance; sequence?: number; acceptedAt?: number; failure?: { code: string; message: string } }>;
   deletedArtifacts: string[];
   subagents?: SessionSubagentSnapshot[];
 }
@@ -54,6 +54,7 @@ export interface SessionTurnObservation {
 
 /** All execution and environment effects live behind this port. */
 export interface SessionExecution {
+  browser?(ownerId: string, session: AgentSession, command: import('../domain/shared-browser.js').BrowserCommand): Promise<import('../domain/shared-browser.js').BrowserFrame>;
   reconcile?(ownerId: string, session: AgentSession): Promise<void>;
   prepareFork?(ownerId: string, sessionId: string, source: AgentSession, network: Extract<Environment, { type: 'openai_hosted' }>['network'], vaultIds: string[], placement: ExecutionBackend): Promise<{ environment: Environment; fork: Omit<import('../domain/session-fork.js').SessionFork, 'history' | 'createdAt'> }>;
   releaseFork?(ownerId: string, fork: import('../domain/session-fork.js').SessionFork): Promise<void>;

@@ -1,8 +1,8 @@
 import type { SpaceAccessService, SpaceAuthority } from '../identity/space-access.js';
 import type { WorkloadAdmissionService } from '../identity/workload-admission.js';
 import type { GuardedAgentsStore } from '../identity/guarded-agents-store.js';
-import { requireUnexpired } from '../identity/principal.js';
-import { routeRatRequest } from './rat-router.js';
+import { principalActor, requireUnexpired } from '../identity/principal.js';
+import { routeRatRequest, workspaceRoute } from './rat-router.js';
 import { requireRoutePermission, requireInferencePermission, routeActions, type ApiPrincipal } from '../domain/api-permissions.js';
 import type { AgentService } from '../core/agent-service.js';
 import type { SessionService } from '../core/session-service.js';
@@ -70,7 +70,7 @@ export async function routeAgentsRequest(request: Request, principal: ApiPrincip
     requireRoutePermission(scoped, request.method, parts);
     const dispatch = () => parts[1] === 'rat' ? routeRatRequest(request, scoped, parts, services, authority, requestId)
       : dispatchAgentsRequest(request, scoped, services, requestId, streaming, authority);
-    const explicitAcceptance = request.method === 'POST' && (parts[1] === 'rat' && parts[2] === 'shares' || parts[1] === 'agents' && parts[2] === 'sessions' && (parts.length === 3 || parts.length === 5 && ['events', 'fork'].includes(parts[4] ?? '')));
+    const explicitAcceptance = request.method === 'POST' && (parts[1] === 'rat' && (parts[2] === 'shares' || parts[2] === 'sessions' && parts[4] === 'messages') || parts[1] === 'agents' && parts[2] === 'sessions' && (parts.length === 3 || parts.length === 5 && ['events', 'fork'].includes(parts[4] ?? '')));
     if (parts[1] === 'agents' && parts[2] === 'sessions' && parts[3] === 'import' && request.method === 'POST') throw new AgentsApiError(403, 'Use Share to admit a Session to a space.', 'insufficient_permissions');
     const readOnly = request.method === 'GET';
     if (!readOnly && !explicitAcceptance && parts[1] !== 'rat') await services.access.accept(authority, actions, parts.join('/'));
@@ -90,6 +90,23 @@ async function dispatchAgentsRequest(request: Request, principal: ApiPrincipal, 
     const parts = pathParts(url.pathname);
     requireRoutePermission(principal, request.method, parts);
     if (parts[0] !== 'v1') throw new AgentsApiError(404, 'Route not found.', 'resource_not_found');
+    if (principal.authentication !== 'oidc' && parts[1] === 'rat' && parts[2] === 'sessions' && parts[3] && parts[4] === 'workspace' && services.sessions) {
+      requireRoutePermission(principal, request.method, ['v1', 'agents', 'sessions', parts[3], 'events']);
+      if (request.method === 'POST') requireInferencePermission(principal, { input: 'message' }, 'create');
+      return await workspaceRoute(request, ownerId, parts[3], parts.slice(5), services.sessions, { actor: principalActor(principal), ...(principal.expiresAt !== undefined ? { expiresAt: principal.expiresAt } : {}) }, requestId);
+    }
+    // Local single-player uses the same reply representation and authenticated input path.
+    if (principal.authentication !== 'oidc' && parts[1] === 'rat' && parts[2] === 'sessions' && parts[3] && parts.length === 5 && services.sessions) {
+      requireRoutePermission(principal, request.method, ['v1', 'agents', 'sessions', parts[3], 'events']);
+      const caller = { actor: principalActor(principal), ...(principal.expiresAt !== undefined ? { expiresAt: principal.expiresAt } : {}) };
+      if (request.method === 'POST' && parts[4] === 'messages') {
+        requireInferencePermission(principal, { input: 'message' }, 'create');
+        await services.sessions.message(ownerId, parts[3], await requestBody(request), caller, request.headers.get('idempotency-key') ?? undefined);
+        return new Response(null, { status: 204 });
+      }
+      if (request.method === 'GET' && parts[4] === 'activity') return json(200, await services.sessions.activity(ownerId, parts[3], caller), requestId);
+    }
+
     const audit = await routeAgentsAudit(request, ownerId, parts, services);
     if (audit !== undefined) return json(200, audit, requestId);
     if (parts[1] === 'models' || parts[1] === 'agents' && parts[2] === 'models') {

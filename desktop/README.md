@@ -56,8 +56,8 @@ session. Search includes older pages. Command/Ctrl+N opens a new session in the 
 pane. A new-session draft is retained when you visit another session during the same
 app run. Common actions use forms: describe a task and model for a Session, save an Agent's instructions,
 configure environment packages and network access, or add a private credential.
-Choose Codex or Pi Durable in the Runtime picker before choosing a model. Codex
-is the default. Pi Durable lists subscription models locally and approved Bedrock models on AWS. A saved
+Choose Codex or Pi in the Runtime picker before choosing a model. Codex
+is the default. Pi lists subscription models locally and approved Bedrock models on AWS. A saved
 Agent supplies its runtime to a new Session; an existing Session keeps its pinned
 runtime. See [runtime capabilities](../docs/agent-runtimes.md).
 The Model picker loads the selected runtime's authenticated deployment catalog when the form opens.
@@ -80,9 +80,18 @@ switching back to the form. The API derives ownership from your authenticated id
 Choose an Agent to start a Session with its saved configuration. Resource IDs and
 deletion are available in the Actions menu.
 
+Agent pages keep instructions prominent, with the saved model and tools alongside
+them. Template pages show packages, network access and allowed domains; Vaults
+show credential metadata and rotation controls. **Resource JSON** opens the full
+saved record. On narrow windows, the new-Session form stacks model and environment
+settings. Its Create and Cancel controls stay outside the scrolling form body.
+
 Sessions show durable messages, tool activity, required function results and saved
 artifacts. Send another message to continue or steer work. Cancel turn interrupts
 active work. Function results can be successful or failed, and empty output is valid.
+The progress line above the composer reflects the saved Turn status. **Activity**
+opens recent saved observations, while **Details** keeps runtime and model information.
+Author badges identify contributions; quoted replies link back to the original message.
 Generated files stay behind the session header's Files count. Open it to inspect
 or save a file; Escape or clicking outside returns to the conversation. New files
 update the count without opening the list or shifting the transcript.
@@ -96,8 +105,10 @@ section or selected row leaves its view intact. Reopen a Session to retrieve its
 Browser automation uses explicitly declared Agent tools. The
 [Playwright MCP example](../examples/browser/README.md) connects an isolated
 browser in the execution environment; completed tool activity appears in the
-conversation and retained screenshots appear in Files. The desktop does not
-provide live browser viewing or takeover.
+conversation and retained screenshots appear in Files. To navigate a browser
+together, enable **Shared live browser** and open **Shared workspace** in the
+Session. That browser is shared by the agent and authorized collaborators; the
+MCP example's separate browser is not connected to this shared view.
 
 The sidebar uses compact single-line rows. Long names truncate visually and remain
 available on hover. Status and model details stay in the conversation header and
@@ -120,7 +131,7 @@ in a desktop state file. Artifact downloads use a native save dialog.
 
 ## Work with your team
 
-Open the workspace menu and expand **Team spaces**. Enter your team's API URL,
+Open the workspace menu and find **Your team**. Enter your team's API URL,
 choose **Find team sign-in**, and sign in through your browser. Choose your account's
 spaces, then **Open team space**. **Reconnect** renews a saved connection with the
 same verified identity. **Sign out** removes its locally saved credentials and cancels
@@ -147,8 +158,13 @@ stop a failed handoff only before the local service has released execution.
 After release, the service rejects local continuation and retries the hosted handoff.
 Closing the progress window does not cancel Share.
 
-Shared history identifies participants by their authenticated attribution. Live
-activity resumes from an observation cursor after reconnects without submitting new
+Shared history identifies participants by their authenticated attribution and a
+stable Session color. Typing indicators show who is composing without sharing draft
+text. Use **Reply** on a participant or agent message to quote it in the main thread;
+click a sent quote to return to its original. The **×** button cancels the reply and keeps your draft.
+Reply references and author attribution are saved with the feedback the agent receives.
+
+Live activity resumes from an observation cursor after reconnects without submitting new
 work. An uncertain message submission retains its request key for a safe retry.
 See [shared Sessions](../docs/collaboration.md) for the space and execution model.
 
@@ -177,3 +193,16 @@ The Rust library owns native controls, presentation state and background request
 The executable owns the helper process and window lifecycle. The backend's domain
 and core services remain in TypeScript. See [native console verification](../testing/native-console/README.md)
 for local rendered tests and optional AWS validation.
+
+### Shared artifact workspace
+
+Open **Shared workspace** from a Session to review its saved images and text files,
+add pinned or region feedback, and follow discussions in participant colors.
+Feedback is also sent to the agent with the original artifact context. Viewers
+can follow along; collaborators can comment and resolve or reopen discussions.
+
+Enable **Shared live browser** when creating an Agent or an inline Session to use
+one browser with the group. It runs in the Rat Things Linux worker with the
+Session's fixed network policy. Captured page annotations stay on the version
+being reviewed while the live browser continues. See
+[collaboration](../docs/collaboration.md#one-live-browser) for capabilities and limits.

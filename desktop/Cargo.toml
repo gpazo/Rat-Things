@@ -27,6 +27,8 @@ zeroize = "1"
 getrandom = "0.4"
 pulldown-cmark = "0.13"
 pulldown-cmark-to-cmark = "21"
+image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "webp"] }
+base64 = "0.22"
 
 [dev-dependencies]
 egui_kittest = { version = "=0.37.0", features = ["eframe", "wgpu"] }

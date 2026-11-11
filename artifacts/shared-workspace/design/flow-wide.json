@@ -1,0 +1,57 @@
+{
+  "status": "inconclusive",
+  "mode": "motion",
+  "stages": [
+    {
+      "key": "stage-1",
+      "label": "ss-fit rw",
+      "coverage": {
+        "status": "inconclusive",
+        "frames": 890,
+        "durationMs": 15390.69999999553,
+        "medianMs": 16.69999999552965,
+        "maxGapMs": 57.399999998509884,
+        "skippedGaps": 48,
+        "cameraFrames": 0,
+        "reasons": [
+          "48 sampling gap(s) exceeded 27ms; motion during those gaps was not judged"
+        ],
+        "framingSamples": 30,
+        "layout": {
+          "controls": 10,
+          "paddedContainers": 14,
+          "compositionCrops": 0
+        }
+      },
+      "findings": [
+        "near-tangent: section.rw-work and div.rw-composer-area are only 1px apart (30 frames from 0.0s)",
+        "clipped: near aligned: span.ss-swap__in \"Conversation\" and span.ss-row__title \"Agent\" start 11.0px apart in aside.rw-discussion; lines in a card share one left edge, or one is indented on purpose by a column (an avatar's width and gap), never by a few pixels (0.0s, 0.5s)",
+        "clipped: near aligned: span.ss-swap__in \"Message the team and age\" and span.ss-swap__in \"Agent ready · same Sessi\" start 13.0px apart in div.rw-composer-area; lines in a card share one left edge, or one is indented on purpose by a column (an avatar's width and gap), never by a few pixels (0.0s, 0.5s)",
+        "clipped: near aligned: span.ss-swap__in \"1 · On this capture\" and span.ss-row__title \"Agent\" start 11.0px apart in aside.rw-discussion; lines in a card share one left edge, or one is indented on purpose by a column (an avatar's width and gap), never by a few pixels (18 frames from 1.5s)",
+        "clipped: near aligned: span.ss-swap__in \"Feedback on this capture\" and span.ss-swap__in \"Agent ready · same Sessi\" start 13.0px apart in div.rw-composer-area; lines in a card share one left edge, or one is indented on purpose by a column (an avatar's width and gap), never by a few pixels (1.5s, 2.0s)",
+        "clipped: near aligned: span.ss-swap__in \"Pinned feedback\" and span.ss-swap__in \"Agent ready · same Sessi\" start 13.0px apart in div.rw-composer-area; lines in a card share one left edge, or one is indented on purpose by a column (an avatar's width and gap), never by a few pixels (9 frames from 3.0s)",
+        "half-pixel glyph: a 12px svg.lucide centered in the 303x15 span.rw-reply-ref sits on a half pixel, so it draws there while article.rw-message moves and hops sideways when it settles; size it 12px in an even box (even inside even) (15 frames from 7.5s)",
+        "clipped: near aligned: span.ss-swap__in \"Pinned feedback\" and span.ss-swap__in \"Feedback included · read\" start 13.0px apart in div.rw-composer-area; lines in a card share one left edge, or one is indented on purpose by a column (an avatar's width and gap), never by a few pixels (10 frames from 10.0s)",
+        "jump: ss-swap \"Message the team a\" width -2.6px in one frame at 3.64s [pin]",
+        "vanishes with no exit: span.ss-swap__in \"Live browser\" goes from full opacity to gone in one frame; fade it out (or move it out of view) before it is removed",
+        "vanishes with no exit: span.ss-swap__in \"One browser, shared \" goes from full opacity to gone in one frame; fade it out (or move it out of view) before it is removed",
+        "vanishes with no exit: span.ss-swap__in \"Concept preview\" goes from full opacity to gone in one frame; fade it out (or move it out of view) before it is removed",
+        "vanishes with no exit: span.ss-swap__in \"Browser actions are \" goes from full opacity to gone in one frame; fade it out (or move it out of view) before it is removed",
+        "vanishes with no exit: span.ss-swap__in \"Conversation\" goes from full opacity to gone in one frame; fade it out (or move it out of view) before it is removed",
+        "vanishes with no exit: span.ss-swap__in \"Review the page toge\" goes from full opacity to gone in one frame; fade it out (or move it out of view) before it is removed",
+        "vanishes with no exit: span.ss-swap__in \"Message the team and\" goes from full opacity to gone in one frame; fade it out (or move it out of view) before it is removed",
+        "vanishes with no exit: span.ss-swap__in \"Feedback on this cap\" goes from full opacity to gone in one frame; fade it out (or move it out of view) before it is removed",
+        "vanishes with no exit: span.ss-swap__in \"Eli is typing…\" goes from full opacity to gone in one frame; fade it out (or move it out of view) before it is removed",
+        "vanishes with no exit: span.ss-swap__in \"Sam is typing…\" goes from full opacity to gone in one frame; fade it out (or move it out of view) before it is removed",
+        "vanishes with no exit: span.ss-swap__in \"Agent ready · same S\" goes from full opacity to gone in one frame; fade it out (or move it out of view) before it is removed",
+        "vanishes with no exit: span.ss-swap__in \"Agent is considering\" goes from full opacity to gone in one frame; fade it out (or move it out of view) before it is removed"
+      ],
+      "manual": [
+        "same-box content change: textarea changes text or drawing at 4.47s [pin]; inspect the transition in motion (geometry alone cannot judge it)"
+      ]
+    }
+  ],
+  "errors": [],
+  "manualReviewRequired": true,
+  "exitCode": 2
+}

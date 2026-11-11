@@ -1,0 +1,136 @@
+{
+  "proof": "workspace-cc34ad07-cb70-42a1-bdd3-a0837671476e",
+  "model": "openai.gpt-5.6-luna",
+  "started_at": "2026-11-09T14:47:14.557Z",
+  "client_kind": "Independent authenticated HTTP/SSE clients (not native UI windows)",
+  "checks": [
+    "OIDC roles and fixed browser execution grant configured"
+  ],
+  "timings_ms": {
+    "session_submit": 823,
+    "first_assistant": 55138,
+    "first_turn_complete": 93092
+  },
+  "limitations": [
+    "Single scenario; not a load benchmark",
+    "Cost estimate excludes infrastructure billing"
+  ],
+  "pricing": {
+    "source": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-56-luna.html",
+    "input_per_million_usd": 0.22,
+    "output_per_million_usd": 1.32,
+    "cache_read_per_million_usd": 0.022
+  },
+  "space_id": "space_cf5afa1bbfb74fef984e7a6e2373f772",
+  "session_id": "sess_a5a242e0ad0a4a2a94111f3cf6f7c6a6",
+  "status": "failed",
+  "error": "Agent must report the actual page title",
+  "turns": [
+    {
+      "id": "turn_0541390c74c641b285b71f4e2d9a9dfc",
+      "status": "completed",
+      "error": null,
+      "usage": {
+        "input_tokens": 29440,
+        "input_tokens_details": {
+          "cached_tokens": 23211
+        },
+        "output_tokens": 606,
+        "output_tokens_details": {
+          "reasoning_tokens": 245
+        },
+        "total_tokens": 30046
+      }
+    }
+  ],
+  "usage": {
+    "input": 29440,
+    "output": 606
+  },
+  "estimated_inference_usd": 0.00727672,
+  "estimate_note": "Conservative uncached short-context token estimate; infrastructure excluded, not an AWS invoice.",
+  "threads": [],
+  "item_summary": [
+    {
+      "type": "message",
+      "id": "msg_50c99f99cfa2439f9a8e57773d918dfc"
+    },
+    {
+      "type": "reasoning",
+      "id": "rs_133f727cd079558d81db4684b48f4fb8"
+    },
+    {
+      "type": "message",
+      "id": "msg_c4c21139b228580394bd6896bb7124d9"
+    },
+    {
+      "type": "command_execution",
+      "id": "call_73926784bb72533fb6c773322f45eb0c"
+    },
+    {
+      "type": "reasoning",
+      "id": "rs_027334e5075650358f377e0ce58c0bee"
+    },
+    {
+      "type": "mcp_call",
+      "id": "call_57c53ef7d3fb576f8ea319e074e99555",
+      "name": "browser",
+      "server_label": "rat_shared_browser",
+      "status": "failed",
+      "error": null
+    },
+    {
+      "type": "reasoning",
+      "id": "rs_8e46e759c9265d7487b61286e242312f"
+    },
+    {
+      "type": "mcp_call",
+      "id": "call_c33c930f785d5011aad7fa62dd89b083",
+      "name": "browser",
+      "server_label": "rat_shared_browser",
+      "status": "failed",
+      "error": null
+    },
+    {
+      "type": "reasoning",
+      "id": "rs_87c52214b6d65039b7897689b07b40bc"
+    },
+    {
+      "type": "message",
+      "id": "msg_b342984d67a85e1a95fa6a6702224fb5"
+    }
+  ],
+  "cleanup_errors": [],
+  "finished_at": "2026-11-09T14:49:00.723Z",
+  "browser_tool_failures": [
+    {
+      "name": "browser",
+      "status": "failed",
+      "output": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Browser request timed out: Target.createTarget"
+          }
+        ],
+        "structuredContent": null,
+        "_meta": null
+      }
+    },
+    {
+      "name": "browser",
+      "status": "failed",
+      "output": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Browser request timed out: Runtime.evaluate"
+          }
+        ],
+        "structuredContent": null,
+        "_meta": null
+      }
+    }
+  ],
+  "diagnosis": "Linux serverless Chromium did not initialize its first page; required single-process launch configuration was missing. Retest after adding flags and a pre-inference startup probe."
+}

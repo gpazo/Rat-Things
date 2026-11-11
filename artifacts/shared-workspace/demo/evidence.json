@@ -1,0 +1,23 @@
+{
+  "actors": [
+    "demo-person-0",
+    "demo-person-2",
+    "demo-person-1"
+  ],
+  "annotation_threads": 2,
+  "captured_image_delivered_to_codex": true,
+  "comments": 5,
+  "fixture_inference": true,
+  "fixture_requests": 7,
+  "frames": 145,
+  "limitations": [
+    "Headless native component rendering, not OS window management",
+    "Scripted model responses; no paid inference",
+    "Recording playback timing is edited for readability"
+  ],
+  "linux_worker": true,
+  "native_clients": 3,
+  "oidc": "Fixture identities, not a login-provider test",
+  "status": "passed",
+  "wall_duration_ms": 127801
+}

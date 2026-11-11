@@ -1,3 +1,5 @@
+import { SharedBrowserActionError } from '../domain/shared-browser.js';
+import { AgentsApiError } from '../domain/agents-api-validation.js';
 import { SessionSteerRejectedError } from '../domain/session-errors.js';
 import {
   CreateMicrovmAuthTokenCommand,
@@ -224,6 +226,14 @@ export class MicrovmExecutionInspector implements ExecutionInspector {
 }
 
 export class MicrovmAgentInteractionController implements AgentInteractionController {
+  public async browser(target: AgentInteractionTarget, command: import('../domain/shared-browser.js').BrowserCommand): Promise<import('../domain/shared-browser.js').BrowserFrame> {
+    try {
+      return await this.request(target, `/agent-runtime/v1/runs/${encodeURIComponent(target.runId)}/shared-browser`, 'POST', { ...command }) as import('../domain/shared-browser.js').BrowserFrame;
+    } catch (error) {
+      if (error instanceof AgentInteractionUnavailableError) throw new AgentsApiError(503, 'The Session browser is starting or unavailable. Refresh shortly.', 'browser_unavailable');
+      throw error;
+    }
+  }
   public constructor(private readonly client: LambdaMicrovmsClient,
     private readonly ec2Request?: (target: AgentInteractionTarget, request: ExecutionCommandRequest) => Promise<unknown>) {}
 
@@ -333,6 +343,7 @@ export class MicrovmAgentInteractionController implements AgentInteractionContro
     const text = await response.text();
     const value = text ? parseJson(text) : {};
     if (!response.ok) {
+      if (response.status === 409 && isRecord(value) && value.code === 'shared_browser_action_rejected') throw new SharedBrowserActionError(typeof value.message === 'string' ? value.message : 'Refresh the browser before interacting.');
       if (response.status === 409 && isRecord(value) && value.code === 'session_steer_rejected') throw new SessionSteerRejectedError();
       const message = isRecord(value) && typeof value.message === 'string'
         ? value.message

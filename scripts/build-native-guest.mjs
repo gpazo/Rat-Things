@@ -92,6 +92,7 @@ async function nativeGuest(options) {
   try {
     for (const [source, target] of [
       ['runtime/local/Dockerfile', 'Dockerfile'], ['runtime/native/guest.py', 'guest.py'], ['runtime/native/init.sh', 'init.sh'],
+      ['microvm/install-browser.mjs', 'install-browser.mjs'],
       ['runtime/native/archive-root.py', 'archive-root.py'], ['runtime/native/package-inventory.py', 'package-inventory.py'],
       ['runtime/native/install-kernel-modules.py', 'install-kernel-modules.py'], ['runtime/native/kernel-inputs.json', 'kernel-inputs.json'],
     ]) await writeFile(join(context, target), await readInput(join(root, source), source));

@@ -1,0 +1,60 @@
+.sc{
+ .sc-window{position:absolute;left:16px;top:16px;width:928px;height:700px;border:1px solid var(--rt-border-strong)}
+ .sc-work-button{font-size:12px;padding:6px 8px;background:var(--rt-surface);border:1px solid var(--rt-border-strong)}
+ .sc-context{display:flex;justify-content:space-between;gap:12px;font-size:11px;color:var(--rt-muted);padding:14px 24px;border-bottom:1px solid var(--rt-border)}
+ .sc-context span span{padding:0 8px}
+ .sc-body{height:500px;display:flex;flex-direction:column;padding:8px 24px 0}
+ .sc-history{flex:1;min-height:0;overflow:auto;padding-top:4px}
+ .sc-message{margin-bottom:4px}
+ .sc-message .ss-row__title{font-size:13px}
+ .sc-role{color:var(--rt-muted);font-size:11px;font-weight:400;margin-left:8px}
+ .sc-message-body{max-width:650px;margin-top:-10px;padding:0 8px 6px 42px;font-size:13px;line-height:1.5;color:var(--rt-text-secondary);overflow-wrap:anywhere}
+ .sc-reply{font-size:11px;color:var(--rt-muted);padding:4px 6px;opacity:.65}
+ .sc-message:hover .sc-reply,.sc-reply:focus-visible{opacity:1}
+ .sc-quote{width:fit-content;max-width:100%;box-sizing:border-box;padding:8px 12px;background:var(--rt-card);border-left:2px solid var(--rt-participant-2);border-radius:0 6px 6px 0;font-size:11px;margin-bottom:10px}
+ .sc-quote>span{color:var(--rt-participant-2)}
+ .sc-quote p{margin:4px 0 0;line-height:1.45}
+ .sc-input-area{flex:none;padding-top:12px}
+ .sc-progress{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 12px;font-size:12px;color:var(--rt-muted)}
+ .sc-progress-label{flex:1;min-width:0;display:flex;align-items:center;gap:8px}
+ .sc-progress-label[data-working]{color:var(--rt-accent)}
+ .sc-status-dot{width:6px;height:6px;border-radius:50%;background:var(--rt-accent);margin:4px}
+ .sc-activity{font-size:11px;color:var(--rt-muted);padding:4px 6px}
+ .sc-activity-list{padding:8px;background:var(--rt-card);border-radius:6px;margin-bottom:12px}
+ .sc-composer{border:1px solid var(--rt-border-strong);background:var(--rt-surface);border-radius:8px;padding:12px}
+ .sc-composer textarea{box-sizing:border-box;width:100%;height:40px;resize:none;background:transparent;border:0;padding:0;color:var(--rt-text);font:13px/1.5 Inter,sans-serif}
+ .sc-composer-actions{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:11px;color:var(--rt-muted);margin-top:8px}
+ .sc-composer-actions span span{padding:0 4px}
+ .sc-send{width:30px;height:30px;background:var(--rt-primary-fill);color:var(--rt-primary-text)}
+ .sc-send:not(:disabled):hover{background:var(--rt-text)}
+ .sc-reply-context{padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--rt-border-strong);font-size:11px}
+ .sc-reply-context>div{display:flex;align-items:center;justify-content:space-between;color:var(--rt-participant-2)}
+ .sc-reply-context button{padding:2px;width:24px;height:24px}
+ .sc-reply-context p{margin:2px 0 0;color:var(--rt-text-secondary);line-height:1.5}
+ .sc-viewer{padding:16px 0;font-size:13px;color:var(--rt-muted)}
+ .sc-work-popover{right:16px;top:44px;width:340px;padding:16px;background:var(--rt-surface);z-index:10}
+ .sc-pop-title{font-size:13px;line-height:1.5;padding:0 12px 12px}
+ .sc-work-popover a{display:flex;align-items:center;gap:8px;color:var(--rt-accent);font-size:12px;padding:12px}
+}
+.sc .ss-stage[data-layout=compact]{
+ .sc-phone{position:absolute;left:16px;top:16px}
+ .sc-mobile-title{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 16px;height:40px;font-size:14px;font-weight:500}
+ .sc-context{padding:12px 16px;font-size:13px}
+ .sc-context>span:last-child{display:none}
+ .sc-work-button{font-size:13px}
+ .sc-body{height:598px;padding:0 16px}
+ .sc-message{margin-bottom:4px}
+ .sc-message .ss-row{--ss-row-title:14px;--ss-row-line:18px;--ss-row-line-2:18px}
+ .sc-message .ss-row__title{font-size:14px}
+ .sc-role,.sc-reply,.sc-quote,.sc-footnote,.sc-progress,.sc-activity,.sc-composer-actions,.sc-reply-context{font-size:13px}
+ .sc-message-body{font-size:14px;line-height:1.5;margin-top:-8px}
+ .sc-history{padding-top:8px}
+ .sc-composer textarea{font-size:14px}
+ .sc-work-popover{top:48px;width:340px;right:16px}
+ .sc-work-popover .ss-row{--ss-row-title:14px;--ss-row-subtitle:13px;--ss-row-line:18px;--ss-row-line-2:18px}
+}
+
+.sc .sc-progress-icon{display:grid;width:14px;height:14px;place-items:center;flex:none}
+.sc .sc-progress-icon>*{grid-area:1/1;opacity:0;transition:opacity .3s}
+.sc .sc-progress-icon>[data-active]{opacity:1}
+.sc .sc-status-dot{margin:0}

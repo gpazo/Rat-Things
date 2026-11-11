@@ -537,7 +537,7 @@ fn record_walkthrough() {
     until(&mut app, "session started", |app| {
         app.query_by_label("Cancel").is_none()
     });
-    contains(&mut app, "Turn in progress");
+    contains(&mut app, "Agent is working");
     r.hold(&mut app, 1.5);
 
     r.mark("steer");

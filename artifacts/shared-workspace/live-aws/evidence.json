@@ -1,0 +1,439 @@
+{
+  "proof": "workspace-d0febd37-0c03-40d0-a9e1-2fb38ac0d1fd",
+  "model": "openai.gpt-5.6-luna",
+  "started_at": "2026-11-09T15:55:56.044Z",
+  "client_kind": "Independent authenticated HTTP/SSE clients (not native UI windows)",
+  "checks": [
+    "OIDC roles and fixed browser execution grant configured",
+    "Shared Session accepted",
+    "Browser initialized in an idle Session with zero model Turns",
+    "Real agent created the page and used the browser",
+    "All three identities see the same live page after the Turn ends",
+    "Engineer navigation is visible to Designer and QA",
+    "Point, reply and region annotations propagate to three live streams with unique identity colors and idempotency",
+    "Collaborators can resolve and reopen the same durable feedback thread"
+  ],
+  "timings_ms": {
+    "session_submit": 785,
+    "browser_ready_without_inference": 35710,
+    "initial_prompt_submit": 257,
+    "first_assistant": 45508,
+    "first_assistant_after_prompt": 9797,
+    "first_turn_complete": 55615,
+    "accept_design": 94,
+    "accept_qa": 262,
+    "accept_engineering": 623,
+    "feedback_visible_to_everyone": 2337,
+    "accept_resolve": 345,
+    "accept_reopen": 248
+  },
+  "limitations": [
+    "Single scenario; not a load benchmark",
+    "Cost estimate excludes infrastructure billing"
+  ],
+  "pricing": {
+    "source": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-56-luna.html",
+    "input_per_million_usd": 0.22,
+    "output_per_million_usd": 1.32,
+    "cache_read_per_million_usd": 0.022
+  },
+  "space_id": "space_928ee18dbc5249819546f5976269bd48",
+  "session_id": "sess_b8217350c447409e8fc63f48d7fde062",
+  "preflight_http_statuses": [
+    503
+  ],
+  "visual_code": "TEAM-3F1B",
+  "capture": {
+    "id": "frame_5e5eb79b168e68159ec8e0f99029cd5476062ac1d391af2488956b14d52a952b",
+    "epoch": "7ec16353-c45c-445f-9efc-820e37e4318d",
+    "revision": 5,
+    "frame_id": "5e5eb79b168e68159ec8e0f99029cd5476062ac1d391af2488956b14d52a952b",
+    "image_sha256": "cde319a64beffeaa130997974ce7df75afe799b37480e5a87cbe6efd65cd56b3"
+  },
+  "status": "failed",
+  "error": "Timed out waiting for live proof condition",
+  "assistant_text": "I’ll create the exact page, then verify it in the shared browser using the required snapshot-derived values.\nREADY — Works on our machines\nDESIGN-workspace-d0febd37-0c03-40d0-a9e1-2fb38ac0d1fd acknowledged. Visual code: TEAM-3F1B.\nQA-workspace-d0febd37-0c03-40d0-a9e1-2fb38ac0d1fd acknowledged. Engineer-workspace-d0febd37-0c03-40d0-a9e1-2fb38ac0d1fd acknowledged.\nResolved for now acknowledged. Reopened for further team discussion acknowledged.",
+  "browser_tool_text": [
+    {
+      "name": "browser",
+      "status": "completed",
+      "output": "{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"epoch\\\":\\\"7ec16353-c45c-445f-9efc-820e37e4318d\\\",\\\"revision\\\":0,\\\"width\\\":1280,\\\"height\\\":800,\\\"frame_id\\\":\\\"c50733f71c0e19ce552226c64dde71002afac7a8f02ebc50fa51f2fd7823ac08\\\",\\\"url\\\":\\\"about:blank\\\",\\\"title\\\":\\\"\\\",\\\"text\\\":\\\"\\\"}\"},{\"type\":\"image\",\"data\":\"/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAsICAoIBwsKCQoNDAsNERwSEQ8PESIZGhQcKSQrKigkJyctMkA3LTA9MCcnOEw5PUNFSElIKzZPVU5GVEBHSEX/2wBDAQwNDREPESESEiFFLicuRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUX/wAARCAMgBQADASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEBAAAAAAAAAAAAAAAAAAAAAP/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AK4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    {
+      "name": "browser",
+      "status": "completed",
+      "output": "{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"epoch\\\":\\\"7ec16353-c45c-445f-9efc-820e37e4318d\\\",\\\"revision\\\":2,\\\"width\\\":1280,\\\"height\\\":800,\\\"frame_id\\\":\\\"f2fdf8ef21af574c07163536316e92d0bb526a5c51b28be3902f1411055d262e\\\",\\\"url\\\":\\\"https://rat-artifacts.invalid/index.html\\\",\\\"title\\\":\\\"\\\",\\\"text\\\":\\\"\\\"}\"},{\"type\":\"image\",\"data\":\"/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAsICAoIBwsKCQoNDAsNERwSEQ8PESIZGhQcKSQrKigkJyctMkA3LTA9MCcnOEw5PUNFSElIKzZPVU5GVEBHSEX/2wBDAQwNDREPESESEiFFLicuRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUX/wAARCAMgBQADASIAAhEBAxEB/8QAHAABAAMBAQEBAQAAAAAAAAAAAAQFBgMHAggB/8QAVhAAAQQCAAMDCAUHCQUECAcBAAECAwQFEQYSIRMxQQcUFVFVYZPRIjJxgaE1NlRzkbGyFiNCUnJ0lLPTMzdiwfA0Q3WSFyQmRFNjwvEIJUeChKLhtP/EABQBAQAAAAAAAAAAAAAAAAAAAAD/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwD1wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    {
+      "name": "browser",
+      "status": "completed",
+      "output": "{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"epoch\\\":\\\"7ec16353-c45c-445f-9efc-820e37e4318d\\\",\\\"revision\\\":2,\\\"width\\\":1280,\\\"height\\\":800,\\\"frame_id\\\":\\\"f2fdf8ef21af574c07163536316e92d0bb526a5c51b28be3902f1411055d262e\\\",\\\"url\\\":\\\"https://rat-artifacts.invalid/index.html\\\",\\\"title\\\":\\\"Works on our machines\\\",\\\"text\\\":\\\"Works on our machines\\\\n\\\\nworkspace-d0febd37-0c03-40d0-a9e1-2fb38ac0d1fd\\\\n\\\\nOne shared direction. Design, engineering and QA contribute together.\\\\n\\\\nReview direction\\\\n\\\\nReady for feedback\\\"}\"},{\"type\":\"image\",\"data\":\"/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAsICAoIBwsKCQoNDAsNERwSEQ8PESIZGhQcKSQrKigkJyctMkA3LTA9MCcnOEw5PUNFSElIKzZPVU5GVEBHSEX/2wBDAQwNDREPESESEiFFLicuRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUX/wAARCAMgBQADASIAAhEBAxEB/8QAHAABAAMBAQEBAQAAAAAAAAAAAAQFBgMHAggB/8QAVhAAAQQCAAMDCAUHCQUECAcBAAECAwQFEQYSIRMxQQcUFVFVYZPRIjJxgaE1NlRzkbGyFiNCUnJ0lLPTMzdiwfA0Q3WSFyQmRFNjwvEIJUeChKLhtP/EABQBAQAAAAAAAAAAAAAAAAAAAAD/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwD1wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    }
+  ],
+  "turns": [
+    {
+      "id": "turn_33969667380f454c9972c622984313b9",
+      "status": "completed",
+      "error": null,
+      "usage": {
+        "input_tokens": 51559,
+        "input_tokens_details": {
+          "cached_tokens": 41156
+        },
+        "output_tokens": 964,
+        "output_tokens_details": {
+          "reasoning_tokens": 240
+        },
+        "total_tokens": 52523
+      }
+    },
+    {
+      "id": "turn_5910bd5461a94d879ab3ac2004017028",
+      "status": "completed",
+      "error": null,
+      "usage": {
+        "input_tokens": 11691,
+        "input_tokens_details": {
+          "cached_tokens": 10389
+        },
+        "output_tokens": 64,
+        "output_tokens_details": {
+          "reasoning_tokens": 16
+        },
+        "total_tokens": 11755
+      }
+    },
+    {
+      "id": "turn_042ff36332ff4e4a994110a93d38ec1b",
+      "status": "completed",
+      "error": null,
+      "usage": {
+        "input_tokens": 14317,
+        "input_tokens_details": {
+          "cached_tokens": 11689
+        },
+        "output_tokens": 82,
+        "output_tokens_details": {
+          "reasoning_tokens": 14
+        },
+        "total_tokens": 14399
+      }
+    },
+    {
+      "id": "turn_829f8523916442be8fffa20895748b67",
+      "status": "completed",
+      "error": null,
+      "usage": {
+        "input_tokens": 16870,
+        "input_tokens_details": {
+          "cached_tokens": 14315
+        },
+        "output_tokens": 97,
+        "output_tokens_details": {
+          "reasoning_tokens": 78
+        },
+        "total_tokens": 16967
+      }
+    }
+  ],
+  "usage": {
+    "input": 94437,
+    "output": 1207
+  },
+  "estimated_inference_usd": 0.02236938,
+  "estimate_note": "Conservative uncached short-context token estimate; infrastructure excluded, not an AWS invoice.",
+  "threads": [
+    {
+      "id": "annotation_64e11365f695b38458d92e013c820c00663717ff40326eccc1e7114b487fd454",
+      "target": {
+        "kind": "browser",
+        "id": "frame_5e5eb79b168e68159ec8e0f99029cd5476062ac1d391af2488956b14d52a952b",
+        "version": "7ec16353-c45c-445f-9efc-820e37e4318d:5",
+        "title": "Works on our machines",
+        "url": "https://rat-artifacts.invalid/index.html",
+        "anchor": {
+          "type": "point",
+          "x": 0.3,
+          "y": 0.2
+        },
+        "image": "[image retained in screenshot artifact]"
+      },
+      "resolved": false,
+      "comments": [
+        {
+          "id": "64e11365f695b38458d92e013c820c00663717ff40326eccc1e7114b487fd454",
+          "message_id": "msg_276c9ccd2b6142afb6c1db5a89dd39d7",
+          "actor": {
+            "id": "actor_0f841a4656df9bba7f2161928b12139064558b3966d32d043f229c1c0eeefbc7",
+            "kind": "human",
+            "issuer": "https://cognito-idp.us-west-2.amazonaws.com/us-west-2_sfFBSewwj",
+            "subject": "584123a0-10b1-70c4-7bb7-807ba331568a",
+            "label": "Designer"
+          },
+          "participant": {
+            "key": "[\"authenticated\",\"human\",\"actor_0f841a4656df9bba7f2161928b12139064558b3966d32d043f229c1c0eeefbc7\"]",
+            "actor": {
+              "id": "actor_0f841a4656df9bba7f2161928b12139064558b3966d32d043f229c1c0eeefbc7",
+              "kind": "human",
+              "issuer": "https://cognito-idp.us-west-2.amazonaws.com/us-west-2_sfFBSewwj",
+              "subject": "584123a0-10b1-70c4-7bb7-807ba331568a",
+              "label": "Designer"
+            },
+            "color": "#d9adf5"
+          },
+          "provenance": {
+            "kind": "authenticated"
+          },
+          "created_at": 1794239826.454,
+          "text": "DESIGN-workspace-d0febd37-0c03-40d0-a9e1-2fb38ac0d1fd: Make the shared direction clear. Read and repeat the visual code shown inside the input field in the attached capture. Acknowledge this feedback marker briefly; no tools.",
+          "action": "comment"
+        },
+        {
+          "id": "00c94dc0ab4e48387053a706d59e4c94f2cf581b0a4df2063dd2787c608c99d2",
+          "message_id": "msg_62b5011933f64d4d967750b484377dd8",
+          "actor": {
+            "id": "actor_69a23b721f6e4d1a72a79f5df53edd6e33cac7e9b9090bacab0717f28d23301c",
+            "kind": "human",
+            "issuer": "https://cognito-idp.us-west-2.amazonaws.com/us-west-2_sfFBSewwj",
+            "subject": "98014380-6051-7014-1648-51b327f7ea8c",
+            "label": "Engineer"
+          },
+          "participant": {
+            "key": "[\"authenticated\",\"human\",\"actor_69a23b721f6e4d1a72a79f5df53edd6e33cac7e9b9090bacab0717f28d23301c\"]",
+            "actor": {
+              "id": "actor_69a23b721f6e4d1a72a79f5df53edd6e33cac7e9b9090bacab0717f28d23301c",
+              "kind": "human",
+              "issuer": "https://cognito-idp.us-west-2.amazonaws.com/us-west-2_sfFBSewwj",
+              "subject": "98014380-6051-7014-1648-51b327f7ea8c",
+              "label": "Engineer"
+            },
+            "color": "#f3c77b"
+          },
+          "provenance": {
+            "kind": "authenticated"
+          },
+          "created_at": 1794239827.034,
+          "text": "ENGINEER-workspace-d0febd37-0c03-40d0-a9e1-2fb38ac0d1fd: Keep the first release small. Acknowledge this feedback marker briefly; no tools.",
+          "action": "comment"
+        },
+        {
+          "id": "11fb7d47469a774950daa43c98745acbca13e31f9be68d2771621f6c912c972e",
+          "message_id": "msg_0919dbe063a14b938e0517f407d3486f",
+          "actor": {
+            "id": "actor_69a23b721f6e4d1a72a79f5df53edd6e33cac7e9b9090bacab0717f28d23301c",
+            "kind": "human",
+            "issuer": "https://cognito-idp.us-west-2.amazonaws.com/us-west-2_sfFBSewwj",
+            "subject": "98014380-6051-7014-1648-51b327f7ea8c",
+            "label": "Engineer"
+          },
+          "participant": {
+            "key": "[\"authenticated\",\"human\",\"actor_69a23b721f6e4d1a72a79f5df53edd6e33cac7e9b9090bacab0717f28d23301c\"]",
+            "actor": {
+              "id": "actor_69a23b721f6e4d1a72a79f5df53edd6e33cac7e9b9090bacab0717f28d23301c",
+              "kind": "human",
+              "issuer": "https://cognito-idp.us-west-2.amazonaws.com/us-west-2_sfFBSewwj",
+              "subject": "98014380-6051-7014-1648-51b327f7ea8c",
+              "label": "Engineer"
+            },
+            "color": "#f3c77b"
+          },
+          "provenance": {
+            "kind": "authenticated"
+          },
+          "created_at": 1794239828.781,
+          "text": "Resolved for now; acknowledge briefly without tools.",
+          "action": "resolve"
+        },
+        {
+          "id": "2ef1676e476cba132cd9ff3599dd997368f110159db22f9a23d79aaffdc41c97",
+          "message_id": "msg_fef6fad750cb4c63bfd8e7eddb806543",
+          "actor": {
+            "id": "actor_0f841a4656df9bba7f2161928b12139064558b3966d32d043f229c1c0eeefbc7",
+            "kind": "human",
+            "issuer": "https://cognito-idp.us-west-2.amazonaws.com/us-west-2_sfFBSewwj",
+            "subject": "584123a0-10b1-70c4-7bb7-807ba331568a",
+            "label": "Designer"
+          },
+          "participant": {
+            "key": "[\"authenticated\",\"human\",\"actor_0f841a4656df9bba7f2161928b12139064558b3966d32d043f229c1c0eeefbc7\"]",
+            "actor": {
+              "id": "actor_0f841a4656df9bba7f2161928b12139064558b3966d32d043f229c1c0eeefbc7",
+              "kind": "human",
+              "issuer": "https://cognito-idp.us-west-2.amazonaws.com/us-west-2_sfFBSewwj",
+              "subject": "584123a0-10b1-70c4-7bb7-807ba331568a",
+              "label": "Designer"
+            },
+            "color": "#d9adf5"
+          },
+          "provenance": {
+            "kind": "authenticated"
+          },
+          "created_at": 1794239829.146,
+          "text": "Reopened for further team discussion; acknowledge briefly without tools.",
+          "action": "reopen"
+        }
+      ]
+    },
+    {
+      "id": "annotation_7a66482cd0e73bef23993c8040acafee80843f0e97e53973bb21c013856ff67b",
+      "target": {
+        "kind": "browser",
+        "id": "frame_5e5eb79b168e68159ec8e0f99029cd5476062ac1d391af2488956b14d52a952b",
+        "version": "7ec16353-c45c-445f-9efc-820e37e4318d:5",
+        "title": "Works on our machines",
+        "url": "https://rat-artifacts.invalid/index.html",
+        "anchor": {
+          "type": "region",
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.6,
+          "height": 0.3
+        },
+        "image": "[image retained in screenshot artifact]"
+      },
+      "resolved": false,
+      "comments": [
+        {
+          "id": "7a66482cd0e73bef23993c8040acafee80843f0e97e53973bb21c013856ff67b",
+          "message_id": "msg_7a2be191df0949598f54a278b271abc1",
+          "actor": {
+            "id": "actor_fa328f49b0e4259a6d25637a76e60379f5875f7f1b80d679517d22a29c4f4acb",
+            "kind": "human",
+            "issuer": "https://cognito-idp.us-west-2.amazonaws.com/us-west-2_sfFBSewwj",
+            "subject": "d8f163c0-e0a1-70ac-5d89-b3c82f83299f",
+            "label": "QA"
+          },
+          "participant": {
+            "key": "[\"authenticated\",\"human\",\"actor_fa328f49b0e4259a6d25637a76e60379f5875f7f1b80d679517d22a29c4f4acb\"]",
+            "actor": {
+              "id": "actor_fa328f49b0e4259a6d25637a76e60379f5875f7f1b80d679517d22a29c4f4acb",
+              "kind": "human",
+              "issuer": "https://cognito-idp.us-west-2.amazonaws.com/us-west-2_sfFBSewwj",
+              "subject": "d8f163c0-e0a1-70ac-5d89-b3c82f83299f",
+              "label": "QA"
+            },
+            "color": "#8fc9ff"
+          },
+          "provenance": {
+            "kind": "authenticated"
+          },
+          "created_at": 1794239827.014,
+          "text": "QA-workspace-d0febd37-0c03-40d0-a9e1-2fb38ac0d1fd: Include everyone who has access. Acknowledge this feedback marker briefly; no tools.",
+          "action": "comment"
+        }
+      ]
+    }
+  ],
+  "item_summary": [
+    {
+      "type": "message",
+      "id": "msg_453ca367415344239a4bd0a9ae04dc25"
+    },
+    {
+      "type": "reasoning",
+      "id": "rs_05abdb50262d5adf86e9e50c3778c6f6"
+    },
+    {
+      "type": "message",
+      "id": "msg_94c849f7de5b5a09876f5216bba28ec5"
+    },
+    {
+      "type": "command_execution",
+      "id": "call_c6034ca359195c12a984974ae62253f3"
+    },
+    {
+      "type": "reasoning",
+      "id": "rs_78c02706f06c5243adb84cda96320721"
+    },
+    {
+      "type": "command_execution",
+      "id": "call_a9ae02c571c05d9394736a69489a9767"
+    },
+    {
+      "type": "reasoning",
+      "id": "rs_ea33079005ea50edbc3530354b2d53e2"
+    },
+    {
+      "type": "reasoning",
+      "id": "rs_5d7868d04c805166a87316aa7a5648fc"
+    },
+    {
+      "type": "mcp_call",
+      "id": "call_76b6e4974e44578098079768a67642f1",
+      "name": "browser",
+      "server_label": "rat_shared_browser",
+      "status": "completed",
+      "error": null
+    },
+    {
+      "type": "mcp_call",
+      "id": "call_3daf8ba0d75c54b0aa992f67a0cacf90",
+      "name": "browser",
+      "server_label": "rat_shared_browser",
+      "status": "completed",
+      "error": null
+    },
+    {
+      "type": "reasoning",
+      "id": "rs_025f652a382d5e348f1ee29774317c31"
+    },
+    {
+      "type": "mcp_call",
+      "id": "call_247a167d10f3504a9fb68921ab9c0ca9",
+      "name": "browser",
+      "server_label": "rat_shared_browser",
+      "status": "completed",
+      "error": null
+    },
+    {
+      "type": "message",
+      "id": "msg_0b2978a6e0285bf59c49d1c20b02e6ca"
+    },
+    {
+      "type": "message",
+      "id": "msg_276c9ccd2b6142afb6c1db5a89dd39d7"
+    },
+    {
+      "type": "reasoning",
+      "id": "rs_269797e1f8615cdeaea6a946644de683"
+    },
+    {
+      "type": "message",
+      "id": "msg_b58f247f26d75a888becbd3abaed4cef"
+    },
+    {
+      "type": "message",
+      "id": "msg_7a2be191df0949598f54a278b271abc1"
+    },
+    {
+      "type": "message",
+      "id": "msg_62b5011933f64d4d967750b484377dd8"
+    },
+    {
+      "type": "reasoning",
+      "id": "rs_41d1f25c731456e08bcd77c3625f18f0"
+    },
+    {
+      "type": "message",
+      "id": "msg_344009dad336538e860ff3040fd1bed0"
+    },
+    {
+      "type": "message",
+      "id": "msg_0919dbe063a14b938e0517f407d3486f"
+    },
+    {
+      "type": "message",
+      "id": "msg_fef6fad750cb4c63bfd8e7eddb806543"
+    },
+    {
+      "type": "reasoning",
+      "id": "rs_47138add7fcc54db9e6951dd22237221"
+    },
+    {
+      "type": "message",
+      "id": "msg_df9751f701a458e1a43fc31331575399"
+    }
+  ],
+  "cleanup_errors": [],
+  "finished_at": "2026-11-09T16:05:22.450Z"
+}

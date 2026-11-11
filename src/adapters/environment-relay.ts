@@ -29,6 +29,7 @@ export function createEnvironmentRelay(options: {
   now?: () => number;
   healthEnvironmentId?: string;
   files?: (identity: EnvironmentIdentity, key: string, operation: EnvironmentFileOperation, signal: AbortSignal) => Promise<unknown>;
+  browser?: (command: unknown) => Promise<unknown>;
 }) {
   const now = options.now ?? Date.now;
   const registrations = new Map<string, Registration>();
@@ -59,14 +60,18 @@ export function createEnvironmentRelay(options: {
       const ready = !options.healthEnvironmentId || await (healthProbe ??= probeExecutor(registrations.get(options.healthEnvironmentId)?.executor).finally(() => { healthProbe = undefined; }));
       reply(response, ready ? 200 : 503, { status: ready ? 'ok' : 'unavailable' }); return;
     }
-    const route = /^\/cloud\/environment\/(env_[a-zA-Z0-9]+)\/(register|connect|validate|files)$/.exec(url.pathname);
+    const route = /^\/cloud\/environment\/(env_[a-zA-Z0-9]+)\/(register|connect|validate|files|browser)$/.exec(url.pathname);
     if (!route || request.method !== 'POST') throw new AgentsApiError(404, 'Route not found.');
     const environmentId = route[1]!;
     const operation = route[2]!;
-    const role = operation === 'connect' || operation === 'files' ? 'harness' : 'executor';
+    const role = ['connect', 'files', 'browser'].includes(operation) ? 'harness' : 'executor';
     const token = request.headers.authorization?.replace(/^Bearer /, '') ?? '';
     const identity = await options.environments.authenticate(token, environmentId, role);
     const body = await readBody(request, operation === 'files' ? 6 * 1024 * 1024 : 16_384);
+    if (operation === 'browser') {
+      if (!options.browser) throw new AgentsApiError(403, 'The shared browser was not admitted.');
+      reply(response, 200, await options.browser(body)); return;
+    }
     if (operation === 'files') {
       if (!options.files || fileOperations >= 2) throw new AgentsApiError(503, 'Environment file service is busy.');
       const input = fileOperation(body);

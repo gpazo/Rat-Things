@@ -1,0 +1,33 @@
+{
+  "status": "passed",
+  "verified_at": "2026-11-09T17:19:17.361453+00:00",
+  "repository": {
+    "command": "npm run check",
+    "passed": 3070,
+    "skipped": 83,
+    "packaging": "passed",
+    "terraform": "all three validations passed"
+  },
+  "native": {
+    "command": "npm run console:check",
+    "format": "passed",
+    "clippy": "passed",
+    "unit_passed": 53,
+    "integration_passed": 25,
+    "ignored_opt_in": 5
+  },
+  "recorded_journey": {
+    "command": "RAT_SHARED_WORKSPACE_DEMO=true cargo test --test shared_workspace_demo -- --ignored",
+    "passed": 1,
+    "paid_inference_calls": 0,
+    "cleanup": "passed"
+  },
+  "video": {
+    "duration_seconds": 90.25,
+    "width": 1920,
+    "height": 1080,
+    "codec": "h264",
+    "sha256": "6aa5e6d233bce20b40c49a3cb646caee0c268c64bef2db15f0d217db6637afdd",
+    "reviewed": "Poster and decoded middle/end video frames visually inspected."
+  }
+}

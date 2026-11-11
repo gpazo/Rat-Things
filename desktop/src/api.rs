@@ -21,6 +21,18 @@ const JSON_LIMIT: u64 = 16 * 1024 * 1024;
 const PAGE_LIMIT: usize = 1_000;
 
 pub(crate) enum Task {
+    ArtifactPreview {
+        path: String,
+    },
+    Browser {
+        path: String,
+        body: Option<Value>,
+        key: Option<String>,
+    },
+    Typing {
+        id: String,
+        body: Value,
+    },
     TeamAuthority {
         space_id: String,
     },
@@ -91,6 +103,14 @@ pub(crate) enum Task {
 }
 
 pub(crate) enum Data {
+    ArtifactPreview {
+        image: Option<egui::ColorImage>,
+        text: Option<String>,
+    },
+    Browser {
+        value: Value,
+        image: egui::ColorImage,
+    },
     Local(Value),
     LocalRejected {
         status: reqwest::StatusCode,
@@ -103,6 +123,7 @@ pub(crate) enum Data {
     Resource(Resource),
     Snapshot(SessionSnapshot),
     ActivityIdle,
+    TypingFrame(Value),
     ActivityFrame(SessionSnapshot),
     Authority {
         role: String,
@@ -131,6 +152,7 @@ pub(crate) struct Worker {
     activity_jobs: SyncSender<Job>,
     activity_cancel: Option<Arc<AtomicBool>>,
     authority_jobs: SyncSender<Job>,
+    artifact_jobs: SyncSender<Job>,
     pub completions: Receiver<Completion>,
     pub activity_completions: Receiver<Completion>,
     next_id: u64,
@@ -143,6 +165,7 @@ impl Worker {
         let (runtime_jobs, runtime_incoming) = mpsc::sync_channel::<Job>(2);
         let (activity_jobs, activity_incoming) = mpsc::sync_channel::<Job>(2);
         let (authority_jobs, authority_incoming) = mpsc::sync_channel::<Job>(1);
+        let (artifact_jobs, artifact_incoming) = mpsc::sync_channel::<Job>(2);
         let (completed, completions) = mpsc::channel();
         let (activity_completed, activity_completions) = mpsc::sync_channel(32);
         let incoming = Arc::new(Mutex::new(incoming));
@@ -155,6 +178,7 @@ impl Worker {
             runtime_incoming,
             activity_incoming,
             authority_incoming,
+            Arc::new(Mutex::new(artifact_incoming)),
         ]
         .into_iter()
         .enumerate()
@@ -210,6 +234,7 @@ impl Worker {
             activity_jobs,
             activity_cancel: None,
             authority_jobs,
+            artifact_jobs,
             completions,
             activity_completions,
             next_id: 0,
@@ -221,7 +246,9 @@ impl Worker {
         let id = self.next_id;
         let mut task = task;
         let is_activity = matches!(&task, Task::Activity { .. });
-        let jobs = if matches!(&task, Task::TeamAuthority { .. }) {
+        let jobs = if matches!(&task, Task::ArtifactPreview { .. } | Task::Browser { .. }) {
+            &self.artifact_jobs
+        } else if matches!(&task, Task::TeamAuthority { .. }) {
             &self.authority_jobs
         } else if matches!(&task, Task::Activity { .. }) {
             self.cancel_activity();
@@ -572,6 +599,82 @@ impl Api {
                     .map_err(|_| "Invalid team permissions")?;
                 Ok(Data::Authority { role, permissions })
             }
+            Task::Typing { id, body } => self
+                .request(
+                    &format!("/api/v1/rat/sessions/{}/typing", path_segment(&id)),
+                    Method::POST,
+                    Some(Zeroizing::new(body.to_string())),
+                    None,
+                    false,
+                    Instant::now() + Duration::from_secs(3),
+                )
+                .map(Data::Mutation),
+            Task::ArtifactPreview { path } => {
+                let response = self
+                    .client
+                    .get(self.url(&path)?)
+                    .bearer_auth(self.token.as_str())
+                    .send()
+                    .map_err(request_error)?;
+                if matches!(response.status().as_u16(), 401 | 403) {
+                    return Err("[access_revoked] Artifact access is no longer available.".into());
+                }
+                if !response.status().is_success() {
+                    return Err(format!("Artifact preview failed ({})", response.status()));
+                }
+                let mut bytes = Vec::new();
+                response
+                    .take(8 * 1024 * 1024 + 1)
+                    .read_to_end(&mut bytes)
+                    .map_err(|_| "Could not read artifact preview")?;
+                if bytes.len() > 8 * 1024 * 1024 {
+                    return Err(
+                        "Preview supports artifacts up to 8 MiB. Save this file to open it.".into(),
+                    );
+                }
+                if let Ok(image) = preview_image(&bytes) {
+                    Ok(Data::ArtifactPreview {
+                        image: Some(image),
+                        text: None,
+                    })
+                } else {
+                    let text = String::from_utf8(bytes)
+                        .map_err(|_| "This file has no inline preview. Save it to open it.")?;
+                    if text.len() > 1024 * 1024 {
+                        return Err("Text preview supports files up to 1 MiB.".into());
+                    }
+                    Ok(Data::ArtifactPreview {
+                        image: None,
+                        text: Some(text),
+                    })
+                }
+            }
+            Task::Browser { path, body, key } => {
+                use base64::Engine;
+                let method = if body.is_some() {
+                    Method::POST
+                } else {
+                    Method::GET
+                };
+                let value = self.request(
+                    &path,
+                    method,
+                    body.map(|body| Zeroizing::new(body.to_string())),
+                    key.as_deref(),
+                    false,
+                    deadline,
+                )?;
+                let frame = value.get("frame").unwrap_or(&value);
+                let encoded = frame["image"].as_str().ok_or("Invalid browser frame")?;
+                if encoded.len() > 4 * 1024 * 1024 {
+                    return Err("Browser frame is too large".into());
+                }
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(encoded)
+                    .map_err(|_| "Invalid browser frame")?;
+                let image = preview_image(&bytes)?;
+                Ok(Data::Browser { value, image })
+            }
             Task::Team { path, method, body } => self.local_request(
                 &path,
                 method,
@@ -678,17 +781,17 @@ impl Api {
                 .map(Data::Credentials),
             Task::Snapshot { id } => {
                 let path = Collection::Sessions.resource_path(&id);
-                Ok(Data::Snapshot(SessionSnapshot {
-                    cursor: None,
-                    role: None,
-                    permissions: None,
-                    actor_labels: Default::default(),
-                    runtime: self.get(&format!("{path}/runtime"), deadline),
-                    session: self.get(&path, deadline)?,
-                    items: self.pages(&format!("{path}/items"), "asc", false, deadline)?,
-                    turns: self.pages(&format!("{path}/turns"), "desc", false, deadline)?,
-                    artifacts: self.pages(&format!("{path}/artifacts"), "asc", false, deadline)?,
-                }))
+                let value = self.request(
+                    &format!("/api/v1/rat/sessions/{}/activity", path_segment(&id)),
+                    Method::GET,
+                    None,
+                    None,
+                    false,
+                    deadline,
+                )?;
+                let mut snapshot = SessionSnapshot::from_activity(value)?;
+                snapshot.runtime = self.get(&format!("{path}/runtime"), deadline);
+                Ok(Data::Snapshot(snapshot))
             }
             Task::Mutation {
                 path,
@@ -813,6 +916,24 @@ impl Api {
                     data.clear();
                     continue;
                 }
+                if event.get("type").and_then(Value::as_str) == Some("rat.session.typing") {
+                    if let Some(role) = event["role"].as_str() {
+                        let permissions: Vec<String> =
+                            serde_json::from_value(event["permissions"].clone())
+                                .map_err(|_| "Invalid space permissions")?;
+                        if role != current_role || permissions != current_permissions {
+                            return Ok(Data::Authority {
+                                role: role.into(),
+                                permissions,
+                            });
+                        }
+                    }
+                    if !emit(Ok(Data::TypingFrame(event))) {
+                        return Ok(Data::ActivityIdle);
+                    }
+                    data.clear();
+                    continue;
+                }
                 if event.get("type").and_then(Value::as_str) == Some("rat.session.activity") {
                     let snapshot = SessionSnapshot::from_activity(event["activity"].clone())?;
                     if !emit(Ok(Data::ActivityFrame(snapshot))) {
@@ -900,6 +1021,25 @@ fn request_error(error: reqwest::Error) -> String {
     } else {
         "The request could not be completed. Your draft is preserved.".into()
     }
+}
+
+fn preview_image(bytes: &[u8]) -> Result<egui::ColorImage, String> {
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|_| "Unknown image format")?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(8192);
+    limits.max_image_height = Some(8192);
+    limits.max_alloc = Some(64 * 1024 * 1024);
+    reader.limits(limits);
+    let image = reader
+        .decode()
+        .map_err(|_| "Image could not be decoded within preview limits")?
+        .to_rgba8();
+    Ok(egui::ColorImage::from_rgba_unmultiplied(
+        [image.width() as usize, image.height() as usize],
+        image.as_raw(),
+    ))
 }
 
 pub(crate) fn safe_filename(path: &str) -> String {
@@ -1146,6 +1286,7 @@ mod tests {
         let (authority_jobs, _authority_incoming) = mpsc::sync_channel(1);
         let (_completed, completions) = mpsc::channel();
         let mut worker = Worker {
+            artifact_jobs: std::sync::mpsc::sync_channel(1).0,
             jobs,
             runtime_jobs,
             activity_jobs,
@@ -1175,6 +1316,7 @@ mod tests {
         let (_completed, completions) = mpsc::channel();
         let (_activity_completed, activity_completions) = mpsc::channel();
         let mut worker = Worker {
+            artifact_jobs: std::sync::mpsc::sync_channel(1).0,
             jobs,
             runtime_jobs,
             activity_jobs,
@@ -1272,27 +1414,14 @@ mod tests {
 
     #[test]
     fn session_runtime_readback_ignores_editable_metadata() {
-        let page = json!({"data":[],"has_more":false});
         let (api, worker) = fixture(vec![
+            (
+                "/api/v1/rat/sessions/session_1/activity",
+                json!({"cursor":"cursor","session":{"id":"session_1","metadata":{"rat_things_runtime":"codex"}},"items":[],"turns":[],"inputs":[]}),
+            ),
             (
                 "/api/v1/agents/sessions/session_1/runtime",
                 json!({"runtime":"pi","version":"1.3.0","model":"pi-model","catalog_digest":"digest"}),
-            ),
-            (
-                "/api/v1/agents/sessions/session_1",
-                json!({"id":"session_1","metadata":{"rat_things_runtime":"codex"}}),
-            ),
-            (
-                "/api/v1/agents/sessions/session_1/items?limit=100&order=asc",
-                page.clone(),
-            ),
-            (
-                "/api/v1/agents/sessions/session_1/turns?limit=100&order=desc",
-                page.clone(),
-            ),
-            (
-                "/api/v1/agents/sessions/session_1/artifacts?limit=100&order=asc",
-                page,
             ),
         ]);
         let Ok(Data::Snapshot(snapshot)) = api.execute(Task::Snapshot {

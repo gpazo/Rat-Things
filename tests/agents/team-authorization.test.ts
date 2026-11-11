@@ -194,3 +194,40 @@ describe('team router', () => {
     expect(spoof.status).toBe(403);
   });
 });
+
+describe('multiplayer messages and typing', () => {
+  it('enforces roles and owner scope through real collaboration services, including replies', async () => {
+    const { SessionEventStore } = await import('../../src/core/session-event-store.js');
+    const { SessionService } = await import('../../src/core/session-service.js');
+    const { integrationFixture } = await import('./integration-fixtures.js');
+    const s = await setup();
+    const fixture = await integrationFixture();
+    const store = new SessionEventStore(s.guardedStore);
+    const sessions = new SessionService({ store, agents: s.agents, execution: fixture.execution, streamIntervalMs: 5 });
+    const session = await sessions.create(s.authority.ownerId, { agent: { model: 'test' }, environment: { type: 'none' }, input: 'Product direction' }, undefined, undefined, undefined, s.authority);
+    await s.access.bind(s.authority, { issuer, subject: 'bob', role: 'collaborator', label: 'Engineer' });
+    await s.access.bind(s.authority, { issuer, subject: 'viewer', role: 'viewer' });
+    const services = { ...s, sessions, activity: { snapshot: sessions.activity.bind(sessions), follow: sessions.activityEvents.bind(sessions) } };
+    const post = (endpoint: string, body: unknown, subject = 'bob') => routeAgentsRequest(new Request(`https://api.test/v1/rat/sessions/${session.id}/${endpoint}`, {
+      method: 'POST', headers: { 'x-rat-space': s.space.id, 'idempotency-key': `${endpoint}-${subject}` }, body: JSON.stringify(body),
+    }), principal(subject), services);
+    const typing = { client_id: 'window', sequence: 1, typing: true };
+    expect((await post('typing', typing)).status).toBe(204);
+    expect((await post('typing', typing, 'viewer')).status).toBe(403);
+    for (const endpoint of ['workspace/feedback', 'workspace/browser', 'workspace/browser/capture']) expect((await post(endpoint, {}, 'viewer')).status).toBe(403);
+    expect((await post('workspace/feedback', { text: 'forged', target: { kind: 'artifact', id: 'outside', anchor: { type: 'item' } } })).status).toBe(404);
+    expect((await post('messages', { text: 'No', reply_to: 'outside' })).status).toBe(400);
+    const snapshot = await sessions.activity(s.authority.ownerId, session.id);
+    const target = snapshot.inputs[0]!.message_ids[0]!;
+    expect((await post('messages', { text: 'Engineering feedback', reply_to: target })).status).toBe(204);
+    expect((await post('messages', { text: 'Engineering feedback', reply_to: target })).status).toBe(204);
+    expect((await post('messages', { text: 'Not allowed' }, 'viewer')).status).toBe(403);
+    const activity = await sessions.activity(s.authority.ownerId, session.id);
+    expect(activity.inputs).toHaveLength(2);
+    expect(activity.inputs[1]).toMatchObject({ actor: { label: 'Engineer' }, reply: { text: 'Product direction' } });
+    await s.access.revoke(s.authority, principal('bob').actor!.id);
+    expect((await post('typing', { ...typing, sequence: 2 })).status).toBe(403);
+    expect((await post('messages', { text: 'Revoked' })).status).toBe(403);
+    expect(fixture.execution.start).not.toHaveBeenCalled();
+  });
+});

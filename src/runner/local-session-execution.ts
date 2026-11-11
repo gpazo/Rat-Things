@@ -14,9 +14,16 @@ import type { CodexAppServerRequest } from './codex-app-server.js';
 import type { LocalManagedEnvironment } from './local-managed-environment.js';
 import { developmentLocalCodexHost, localCodexArguments, localCodexClient, localCodexEnvironment, type LocalCodexHostProvider } from './local-codex.js';
 import { LocalRuntimeLifecycle } from '../adapters/local-runtime-lifecycle.js';
+import { sharedBrowserGranted } from '../domain/shared-browser.js';
 
 /** The host owns subscription inference; managed commands run in an isolated Linux worker. */
 export class LocalSessionExecution implements SessionExecution {
+  public async browser(owner: string, session: AgentSession, command: import('../domain/shared-browser.js').BrowserCommand) {
+    await requireLocalExecution(this.options.store, owner, session.id);
+    if (!this.options.managed) throw new AgentsApiError(503, 'The Rat Things worker is unavailable.', 'browser_unavailable');
+    return this.options.managed.browser(owner, session, command);
+  }
+
   private readonly runtimes = new Map<string, Promise<SessionRuntime>>();
   private readonly snapshots = new Map<string, SessionRuntimeState>();
   private readonly cancellations = new Map<string, { turnId: string; runtime: SessionRuntime }>();
@@ -257,7 +264,7 @@ export class LocalSessionExecution implements SessionExecution {
     const request = { ...base, ...launch, sandbox: 'read-only' as const, persistent: true };
     const runtime = new SessionRuntime({ sessionId: session.id, agentId: session.agent.id,
       client: localCodexClient,
-      request: this.options.request?.(request) ?? request, idleTimeoutMs: 30_000, ...(previous ? { previous } : {}),
+      request: this.options.request?.(request) ?? request, ...(sharedBrowserGranted(session.agent.tools) ? { lifetime: 'host-managed' as const } : { idleTimeoutMs: 30_000 }), ...(previous ? { previous } : {}),
       changed: snapshot => {
         if (!this.cancellations.has(session.id)) void this.saveSnapshot(owner, session, snapshot).catch(() => runtime.close());
       },

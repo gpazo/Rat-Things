@@ -30,6 +30,16 @@ export async function routeRatRequest(request: Request, principal: ApiPrincipal,
     if (method === 'GET') return json(200, await services.admission.assignment(authority, id), requestId);
     if (method === 'POST' || method === 'PUT') return json(200, await services.admission.assign(authority, id, await requestBody(request)), requestId);
   }
+  if (collection === 'sessions' && id && parts.length === 5 && method === 'POST' && services.sessions) {
+    if (child === 'typing') {
+      await services.sessions.collaboration.typing(authority.ownerId, id, await requestBody(request), authority);
+      return new Response(null, { status: 204 });
+    }
+    if (child === 'messages') {
+      await services.sessions.message(authority.ownerId, id, await requestBody(request), authority, request.headers.get('idempotency-key') ?? undefined);
+      return new Response(null, { status: 204 });
+    }
+  }
   if (collection === 'sessions' && id && child === 'activity' && services.activity) {
     if (parts.length === 5 && method === 'GET') return json(200, { ...await services.activity.snapshot(authority.ownerId, id, authority) as object, role: authority.role, permissions: authority.permissions }, requestId);
     if (parts.length === 6 && childId === 'events' && method === 'GET') {
@@ -37,11 +47,30 @@ export async function routeRatRequest(request: Request, principal: ApiPrincipal,
       return activityStream(signal => services.activity!.follow(authority.ownerId, id, signal, { ...(cursor ? { after: cursor } : {}) }), request.signal, requestId, () => access.authorize(principal, authority.spaceId, ['read']));
     }
   }
+  if (collection === 'sessions' && id && child === 'workspace' && services.sessions) {
+    return workspaceRoute(request, authority.ownerId, id, parts.slice(5), services.sessions, authority, requestId);
+  }
   if (collection === 'shares' && services.shares) {
     if (parts.length === 3 && method === 'POST') return json(201, await services.shares.stage(authority.ownerId, await requestBody(request), authority), requestId);
     if (parts.length === 4 && id && method === 'GET') return json(200, await services.shares.retrieve(authority.ownerId, id), requestId);
     if (parts.length === 4 && id && method === 'DELETE') return json(200, await services.shares.abort(authority.ownerId, id, await requestBody(request), authority), requestId);
     if (parts.length === 5 && id && child === 'activate' && method === 'POST') return json(200, await services.shares.activate(authority.ownerId, id, await requestBody(request), authority), requestId);
+  }
+  throw new AgentsApiError(404, 'Route not found.', 'resource_not_found');
+}
+
+export async function workspaceRoute(request: Request, owner: string, id: string, parts: string[], sessions: import('../core/session-service.js').SessionService, caller: import('../core/session-caller.js').SessionCaller, requestId?: string): Promise<Response> {
+  if (parts.length === 1 && parts[0] === 'browser' && request.method === 'GET') return json(200, await sessions.browserFrame(owner, id, caller), requestId);
+  if (parts.length === 3 && parts[0] === 'threads' && parts[1] && parts[2] === 'image' && request.method === 'GET') {
+    const image = await sessions.workspaceThreadImage(owner, id, parts[1], caller);
+    return new Response(image.bytes, { status: 200, headers: { 'content-type': image.contentType, 'cache-control': 'private, no-store' } });
+  }
+  if (request.method === 'POST') {
+    const body = await requestBody(request);
+    const key = request.headers.get('idempotency-key') ?? undefined;
+    if (parts.length === 1 && parts[0] === 'feedback') { await sessions.workspaceFeedback(owner, id, body, caller, key); return new Response(null, { status: 204 }); }
+    if (parts.length === 1 && parts[0] === 'browser') return json(200, await sessions.browserAction(owner, id, body, caller, key), requestId);
+    if (parts.length === 2 && parts[0] === 'browser' && parts[1] === 'capture') return json(200, await sessions.captureBrowser(owner, id, body, caller), requestId);
   }
   throw new AgentsApiError(404, 'Route not found.', 'resource_not_found');
 }

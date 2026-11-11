@@ -21,6 +21,7 @@ RUN dnf install -y \
       amazon-efs-utils \
       bpftool \
       ca-certificates \
+      curl-minimal \
       findutils \
       git \
       nodejs22 \
@@ -43,6 +44,8 @@ RUN dnf install -y \
       /workspace
 
 FROM worker-dependencies AS worker
+COPY install-browser.mjs /opt/agent-runtime/install-browser.mjs
+RUN node /opt/agent-runtime/install-browser.mjs && rm /opt/agent-runtime/install-browser.mjs
 COPY codex-runtime /opt/codex-runtime
 RUN /opt/codex-runtime/bin/codex --version \
     && ln -s /opt/codex-runtime/bin/codex /usr/local/bin/codex

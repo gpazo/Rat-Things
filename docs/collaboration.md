@@ -55,6 +55,39 @@ Turn is active, and the agent sees each participant's contribution. Viewer contr
 remain read-only. Reconnecting loads saved activity and resumes from a durable
 cursor; reconnecting does not submit the task again.
 
+The composer keeps the current Turn state visible: queued, working, waiting,
+completed, failed or cancelled. **Activity** opens recent saved tool and execution
+updates; the full history stays in the conversation. These are saved observations,
+not a percentage-complete estimate. **Details** contains the runtime, model and
+raw Turn status. Use **Shared workspace** beside the Session title to review work,
+and **← Conversation** to return to the full conversation.
+
+Each contributor has a color within the Session. The same identity keeps that color
+across clients and reconnects; new contributors receive unused colors. Names stay
+visible beside messages and author badges, so people with similar names or colors
+can still be identified. Message bodies use neutral text for reading; reply context
+retains the original author’s color. Colors describe authorship, not roles or authority. Imported author
+claims remain labelled as imported and are distinct from verified team identities.
+
+While someone edits the composer, other participants see “Maya is typing…” or the
+two participants' names. With three or more, the desktop shows “Several people are
+typing…”; hover to see the names. Only the typing signal is shared, never unfinished
+text. It clears when typing stops, the composer loses focus, or the message is sent.
+An interrupted connection can leave the indicator visible for up to six seconds.
+Typing does not pause the agent, change feedback batching, or start a Turn.
+
+Use **Reply** beside a message to respond to that point. The composer shows a preview
+of the selected message; the **×** button removes the reference without discarding
+your draft. Sent replies appear in the main conversation with the original author
+and a quoted preview. Click the preview to return to the original message. Replying
+works for participant and agent messages, including feedback awaiting dispatch.
+It also works in a local single-player Session.
+
+The agent receives the reply reference, original author and a bounded quote alongside
+your contribution. Saved input receipts retain that relationship as part of the
+Session's feedback history. A reply is ordinary input under your current role; it
+does not create a separate subthread or expand the agent's capabilities.
+
 Contributions are saved and made visible before the agent receives them. When
 messages arrive together, the service collects them until 300 ms of quiet, with
 at most one second of intentional waiting from the oldest pending contribution.
@@ -243,7 +276,13 @@ Rat Things extensions live under `/v1/rat`:
 | `GET /v1/rat/me` | Verified caller identity |
 | `GET /v1/rat/spaces` | Accessible spaces |
 | `GET /v1/rat/sessions/{id}/activity` | Coherent Session, Turn, Item and attributed-input snapshot with cursor |
-| `GET /v1/rat/sessions/{id}/activity/events` | Latest saved activity over SSE |
+| `GET /v1/rat/sessions/{id}/activity/events` | Saved activity and ephemeral typing over SSE |
+| `POST /v1/rat/sessions/{id}/messages` | Attributed text with an optional reply target |
+| `POST /v1/rat/sessions/{id}/typing` | Refresh or clear the caller’s typing signal |
+| `POST /v1/rat/sessions/{id}/workspace/feedback` | Comment on, resolve or reopen an artifact annotation |
+| `GET /v1/rat/sessions/{id}/workspace/browser` | View the shared browser’s current frame |
+| `POST /v1/rat/sessions/{id}/workspace/browser` | Navigate or interact with the shared browser |
+| `POST /v1/rat/sessions/{id}/workspace/browser/capture` | Preserve an exact displayed frame for annotation |
 | `POST /v1/rat/shares` | Stage a nonrunnable transfer |
 | `POST /v1/rat/shares/{id}/activate` | Activate a staged transfer after source release |
 
@@ -286,3 +325,173 @@ Things deployment. It does not change the engineering preview's broader
 [multi-tenant limitations](status-and-roadmap.md#known-gaps). Audit history remains
 under the space's owner scope after Agent or Session deletion; access still
 requires the appropriate current role.
+
+### Replies and typing for client authors
+
+Post `{"text":"Test a clean setup too.","reply_to":"msg_original"}` to the messages
+endpoint, with an `Idempotency-Key` retained across retries. Omit `reply_to` for a
+normal message. The server verifies that the target is a message in this Session
+and resolves its author and quote; clients cannot supply or override either.
+The accepted receipt's `reply` includes `message_id`, `role`, optional actor and
+provenance, a quote limited to 2,000 characters, and `truncated`. Render the quote as
+text. Preserve the message ID to navigate to the full original. Changed reply
+targets require a new idempotency key, just like changed message text.
+
+Activity receipts include `participant: {key, actor, color}`. Render the assigned
+hex color alongside the author name; do not assign colors independently in each
+client. Imported identities have separate keys. The base Agents API Item shapes
+remain unchanged.
+
+For team typing, post `{"client_id":"unique-window-id","sequence":1,"typing":true}`.
+Use a fresh client ID for each app/window lifetime, increase `sequence` for every
+update, and refresh at most once every two seconds while the person is editing.
+Send `typing:false` on send, blur or navigation. Expiry is six seconds; older
+sequence numbers cannot revive a stopped indicator. Multiple windows belonging to
+one person appear as one typist. Both write endpoints require collaborator access;
+viewers receive typing indicators but cannot publish them.
+
+The activity SSE connection sends lightweight `rat.session.typing` events with
+`typing: [{participant, expires_at}]` and `server_time`. Replace the previous typing
+list, exclude the viewing user's verified identity, and expire entries locally
+using the difference between `expires_at` and `server_time`. These events have no
+durable cursor: keep the last activity cursor for reconnects. Typing is not replayed,
+included in model input, or retained as feedback history. The service keeps a
+short-lived sequence record to reject delayed updates. No draft text is accepted.
+
+## Review artifacts together
+
+Open **Shared workspace** in a Session. The live browser opens when available;
+otherwise choose a saved artifact. In a wide window, the work stays beside a
+discussion pane. Use **Conversation** for the Session's messages and **Feedback**
+for annotations on the selected work. Both reach the same agent. In a narrower
+window, **Work** and **Discussion** give each view room to read and interact.
+Switching views preserves unsent messages and annotation drafts; it does not send them.
+
+Images can carry
+point or region annotations: choose **Add comment**, click a location or drag a
+rectangle, and send feedback. You can also comment on the whole file. Each
+annotation has a discussion, author names and the same participant colors as the
+conversation. **Resolve** closes a discussion; **Show resolved** lets you find it
+and **Reopen** brings it back.
+
+Feedback appears in the shared conversation and is delivered to the agent with
+its author, artifact version and selected context. Image and browser feedback
+includes the referenced image. A newer output never moves an existing annotation
+onto different content. Files saved under `/workspace/outputs` become immutable
+artifacts when the agent's Turn ends. The desktop previews PNG, JPEG, WebP and
+UTF-8 text; save other formats to open them with another application. Preview size
+is bounded; a file can still receive whole-file feedback without a preview.
+
+This uses the Session's existing roles. Viewers can follow artifacts and feedback;
+collaborators can annotate, reply, resolve and reopen. Imported author names remain
+reported source identities, rather than identities verified by the current space.
+
+## One live browser
+
+Select **Shared live browser** when creating an Agent or a new inline Session.
+Use a Rat Things Linux worker and an image-capable model. The same browser is
+available to Codex and Pi. This is a fixed capability: an existing Session without
+the grant needs to be replaced by a new Session to gain browser access.
+Team-space execution roles currently admit Codex Sessions; Pi browser use is
+available outside that team admission path.
+
+Rat Things runs its own Chromium process in the isolated worker, locally or in
+your AWS account. No external browser hosting service is involved. The worker
+owns the browser's lifecycle; the desktop and agent tools are clients of that
+browser. The public Agents API calls this environment `openai_hosted`; in Rat
+Things it means the worker provisioned by your deployment, not execution in an
+OpenAI-hosted browser.
+
+The worker initializes the browser before starting agent work. A cold worker can
+take longer to become ready; browser reads return a temporary unavailable response
+during initialization. Once ready, the browser remains available between Turns.
+
+Choose **Live browser** in the shared workspace. Everyone sees the same page,
+viewport and navigation. Collaborators can enter a URL, click, scroll, and type
+into the focused field. Viewers can watch. Actions from people and the agent use
+one ordered queue. If someone changes the browser before your action arrives,
+refresh and try again against the current view. The browser uses the Session's
+existing network policy; a browser grant does not add network destinations.
+
+To preview generated web content, the agent can navigate to
+`https://rat-artifacts.invalid/index.html` after writing
+`/workspace/outputs/index.html`. This address serves files from that worker's
+outputs directory. It works with network access disabled and is never a public
+website. Symlinks cannot expose files outside outputs.
+
+**Add comment** captures the exact frame you were viewing. Your annotation view
+stays on that capture while other participants continue browsing. **Return to live
+view** rejoins the current page. Captures attached to feedback remain part of the
+Session's durable history even if the browser later navigates or its worker stops.
+
+The initial browser supports one page, a fixed viewport and periodically refreshed
+images. Pop-up tabs, downloads, file uploads, WebGL and WebSocket applications are not
+supported. A replaced worker starts a new browser generation; old actions cannot
+be replayed into it. Captured feedback survives, but live forms and JavaScript
+state are not transferred to the replacement browser.
+
+### Workspace API clients
+
+Enable the browser by including this reserved function declaration in the Agent's
+`tools` when the Session is created:
+
+```json
+{
+  "type": "function",
+  "name": "rat_things_browser",
+  "description": "Use the live browser shared with this Session.",
+  "parameters": {"type": "object", "properties": {}, "additionalProperties": false}
+}
+```
+
+Rat Things resolves this grant into the harness's browser tool. Clients do not
+fulfil it as an application function call. The ordinary Agents API DTOs are
+unchanged.
+
+Activity includes `workspace_threads`, with an immutable `target`, `resolved`
+state and attributed `comments`, and `browser_available`. Activity includes image
+metadata rather than inline image bytes. When `target.image_available` is true,
+read the saved image with
+`GET /v1/rat/sessions/{session_id}/workspace/threads/{thread_id}/image`. This returns
+the original image bytes and media type, requires Session read access, and must not
+be cached. The desktop fetches saved browser images when you select their feedback.
+
+To start an annotation,
+post the following to the feedback endpoint with an actor-scoped
+`Idempotency-Key`. The service resolves the artifact version; clients cannot
+supply an image or substitute a different version:
+
+```json
+{
+  "text": "Make the primary action clearer.",
+  "target": {
+    "kind": "artifact",
+    "id": "art_example",
+    "anchor": {"type": "point", "x": 0.6, "y": 0.3}
+  }
+}
+```
+
+Anchors are whole-item (`{"type":"item"}`), normalized points, normalized regions
+(with `width` and `height`), or text selections (`start`, `end`, `quote`, using
+UTF-16 offsets into the original text). Replies use `thread_id` instead of
+`target`. Resolving or reopening also supplies `thread_id`, `text` and
+`action: "resolve"` or `"reopen"`. Keep the same request key when retrying an
+uncertain submission; use a new key for each intentional new contribution.
+
+A browser frame contains `epoch`, `revision`, `frame_id`, dimensions, a base64 JPEG,
+URL, title and bounded page text. A browser action supplies `epoch`, `revision`
+and `operation`, with an `Idempotency-Key`. Operations include `navigate`, `click`,
+`type`, `key`, `scroll`, `back`, `forward` and `reload`. Coordinates are normalized
+to the displayed viewport. Do not automatically replay rejected actions against a
+newer revision. Authorized frame reads can share capture work within a server
+process; permission checks are performed for each request.
+
+To annotate a browser frame, first post `{"frame_id":"..."}` to the capture
+endpoint. Use its returned `id` as a feedback target with `kind: "browser"`.
+Capture a recently displayed frame before it leaves the worker's bounded frame
+cache. New annotations require a capture less than an hour old. Already accepted
+feedback remains readable and can be retried with the same key and content after
+that capture expires. Replies to its annotation thread use the saved context.
+Retries still require current contribution access; changing content under an
+accepted key returns an idempotency conflict.

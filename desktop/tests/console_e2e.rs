@@ -10,7 +10,15 @@ use rat_things_desktop::ConsoleApp;
 use reqwest::blocking::Client;
 use serde_json::{Value, json};
 use std::{
+    io::{Read, Write},
+    net::{TcpListener, TcpStream},
     path::{Path, PathBuf},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+        mpsc::{self, Receiver, Sender},
+    },
+    thread,
     time::Duration,
 };
 use support::*;
@@ -105,17 +113,18 @@ impl Fixture {
     }
 
     fn post(&self, path: &str, body: Value) -> Value {
-        self.client
+        let response = self
+            .client
             .post(format!("{}/api{path}", self.proxy.url))
             .bearer_auth(&self.token)
             .header("x-rat-console-request", "1")
             .json(&body)
             .send()
-            .unwrap()
-            .error_for_status()
-            .unwrap()
-            .json()
-            .unwrap()
+            .unwrap();
+        let status = response.status();
+        let text = response.text().unwrap();
+        assert!(status.is_success(), "Fixture POST {path}: {status}: {text}");
+        serde_json::from_str(&text).unwrap()
     }
 
     fn screenshot(&self, app: &mut App, name: &str) {
@@ -163,6 +172,155 @@ fn choose_model(app: &mut App, option: &str) {
     app.get_by_role_and_label(Role::ComboBox, "Model").click();
     tick(app);
     click(app, option);
+}
+
+struct HeldReplyFixture {
+    url: String,
+    release: Sender<()>,
+    submissions: Receiver<Value>,
+    stop: Arc<AtomicBool>,
+    server: Option<thread::JoinHandle<()>>,
+}
+
+impl HeldReplyFixture {
+    fn new() -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        listener.set_nonblocking(true).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let server_stop = stop.clone();
+        let (release_tx, release_rx) = mpsc::channel();
+        let release_rx = Arc::new(Mutex::new(release_rx));
+        let (submission_tx, submissions) = mpsc::channel();
+        let server = thread::spawn(move || {
+            while !server_stop.load(Ordering::Acquire) {
+                match listener.accept() {
+                    Ok((stream, _)) => {
+                        let submissions = submission_tx.clone();
+                        let release = release_rx.clone();
+                        thread::spawn(move || serve_held_reply(stream, submissions, release));
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        Self {
+            url,
+            release: release_tx,
+            submissions,
+            stop,
+            server: Some(server),
+        }
+    }
+}
+
+impl Drop for HeldReplyFixture {
+    fn drop(&mut self) {
+        let _ = self.release.send(());
+        self.stop.store(true, Ordering::Release);
+        if let Some(server) = self.server.take() {
+            let _ = server.join();
+        }
+    }
+}
+
+fn serve_held_reply(
+    mut stream: TcpStream,
+    submissions: Sender<Value>,
+    release: Arc<Mutex<Receiver<()>>>,
+) {
+    stream.set_nonblocking(false).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    let (path, body) = read_http_request(&mut stream);
+    let response = match path.split('?').next().unwrap_or(&path) {
+        "/api/v1/agents/sessions" => {
+            json!({"data":[{"id":"sess_shared","object":"agent.session","status":"idle","metadata":{"name":"Held reply"}}],"has_more":false})
+        }
+        "/api/v1/workspace" => json!({"kind":"local","name":"This computer"}),
+        "/api/v1/rat/sessions/sess_shared/activity" => json!({
+            "cursor":"activity_1",
+            "session":{"id":"sess_shared","object":"agent.session","status":"idle","metadata":{"name":"Held reply"}},
+            "runtime":{"runtime":"codex"},
+            "items":[
+                {"id":"msg_a","type":"message","role":"user","content":[{"type":"input_text","text":"Original message A"}]},
+                {"id":"msg_b","type":"message","role":"user","content":[{"type":"input_text","text":"Original message B"}]}
+            ],
+            "turns":[],"inputs":[],"artifacts":[]
+        }),
+        "/api/v1/agents/sessions/sess_shared/runtime" => json!({"runtime":"codex"}),
+        "/api/v1/rat/sessions/sess_shared/messages" => {
+            let submitted: Value = serde_json::from_slice(&body).unwrap();
+            submissions.send(submitted).unwrap();
+            let _ = release
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(15));
+            write_http_response(&mut stream, 204, "", "");
+            return;
+        }
+        _ => {
+            write_http_response(
+                &mut stream,
+                404,
+                "application/json",
+                r#"{"error":{"message":"not found"}}"#,
+            );
+            return;
+        }
+    };
+    write_http_response(&mut stream, 200, "application/json", &response.to_string());
+}
+
+fn read_http_request(stream: &mut TcpStream) -> (String, Vec<u8>) {
+    let mut header = Vec::new();
+    let mut byte = [0u8; 1];
+    while !header.ends_with(b"\r\n\r\n") {
+        stream.read_exact(&mut byte).unwrap();
+        header.push(byte[0]);
+    }
+    let header = String::from_utf8(header).unwrap();
+    let path = header
+        .lines()
+        .next()
+        .unwrap()
+        .split_whitespace()
+        .nth(1)
+        .unwrap()
+        .to_owned();
+    let length = header
+        .lines()
+        .find_map(|line| {
+            let (key, value) = line.split_once(':')?;
+            key.eq_ignore_ascii_case("content-length")
+                .then(|| value.trim().parse::<usize>().unwrap())
+        })
+        .unwrap_or(0);
+    let mut body = vec![0; length];
+    stream.read_exact(&mut body).unwrap();
+    (path, body)
+}
+
+fn write_http_response(stream: &mut TcpStream, status: u16, content_type: &str, body: &str) {
+    let status_text = match status {
+        200 => "OK",
+        204 => "No Content",
+        _ => "Not Found",
+    };
+    write!(
+        stream,
+        "HTTP/1.1 {status} {status_text}\r\nConnection: close\r\n"
+    )
+    .unwrap();
+    if !content_type.is_empty() {
+        write!(stream, "Content-Type: {content_type}\r\n").unwrap();
+    }
+    write!(stream, "Content-Length: {}\r\n\r\n{body}", body.len()).unwrap();
+    stream.flush().unwrap();
 }
 
 #[test]
@@ -227,6 +385,7 @@ fn pi_session_selects_bedrock_model_rejects_unsupported_effort_and_reads_runtime
     click(&mut app, "Advanced JSON");
     click(&mut app, "Create");
     visible(&mut app, "Message");
+    click(&mut app, "Details");
     visible(&mut app, "Runtime pi");
     let session = f.get("/v1/agents/sessions")["data"][0].clone();
     assert_eq!(session["agent"]["model"], "amazon.nova-2-lite-v1:0");
@@ -257,6 +416,7 @@ fn pi_session_selects_bedrock_model_rejects_unsupported_effort_and_reads_runtime
     drop(app);
     let mut reopened = f.app();
     click(&mut reopened, "Pi Bedrock review");
+    click(&mut reopened, "Details");
     visible(&mut reopened, "Runtime pi");
     f.screenshot(&mut reopened, "pi-session-reopened-1280x850.png");
 }
@@ -708,12 +868,36 @@ fn native_console_real_service_journey() {
     f.screenshot(&mut app, "model-options-1280x850.png");
     click(&mut app, "fixture-fast");
     f.screenshot(&mut app, "new-session-form-1280x850.png");
+    app.set_size(Vec2::new(900.0, 650.0));
+    tick(&mut app);
+    assert!(
+        app.get_by_label("Task")
+            .value()
+            .unwrap()
+            .contains("Review the deployment plan")
+    );
+    let model_rect = app.get_by_role_and_label(Role::ComboBox, "Model").rect();
+    let environment_rect = app
+        .get_by_role_and_label(Role::ComboBox, "Environment")
+        .rect();
+    assert!(
+        environment_rect.top() >= model_rect.bottom(),
+        "narrow settings stack without overlapping"
+    );
+    let create_rect = app.get_by_role_and_label(Role::Button, "Create").rect();
+    assert!(
+        create_rect.bottom() <= 650.0 && create_rect.right() <= 900.0,
+        "submit stays on screen"
+    );
+    f.screenshot(&mut app, "new-session-form-900x650.png");
+    app.set_size(Vec2::new(1280.0, 850.0));
+    tick(&mut app);
     click(&mut app, "Create");
     until(&mut app, "Session form to close after persistence", |app| {
         app.query_by_label("Cancel").is_none()
     });
     contains(&mut app, "Release review");
-    contains(&mut app, "Turn in progress");
+    contains(&mut app, "Agent is working");
     let session = f.get("/v1/agents/sessions")["data"][0].clone();
     let session_id = session["id"].as_str().unwrap();
     assert_eq!(f.state()["sessionCount"], 1);
@@ -739,7 +923,13 @@ fn native_console_real_service_journey() {
                     .contains("Include the deployment configuration.")
             })
     });
-    let steer = request_with_event(&f.state(), "agent.session.input.message");
+    let steer = f.state()["received"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|request| request["body"]["text"] == "Include the deployment configuration.")
+        .unwrap()
+        .clone();
     assert!(steer["key"].as_str().is_some_and(|key| !key.is_empty()));
 
     f.control("/__test/advance", json!({"mode":"question"}));
@@ -761,6 +951,20 @@ fn native_console_real_service_journey() {
     f.control("/__test/advance", json!({"mode":"complete"}));
     contains(&mut app, "Review complete.");
     contains(&mut app, "npm run check");
+    contains(&mut app, "Ready for the next step");
+    fill(
+        &mut app,
+        "Message",
+        "Keep this draft while I inspect activity.",
+    );
+    click(&mut app, "Activity");
+    visible(&mut app, "Recent activity");
+    app.key_press(Key::Escape);
+    tick(&mut app);
+    assert_eq!(
+        app.get_by_label("Message").value().as_deref(),
+        Some("Keep this draft while I inspect activity.")
+    );
     f.screenshot(&mut app, "session-1280x850.png");
     drop(app);
     let mut app = f.app();
@@ -914,7 +1118,7 @@ fn native_console_real_service_journey() {
             .len()
             == 2
     });
-    contains(&mut app, "Turn in progress");
+    contains(&mut app, "Agent is working");
     click(&mut app, "Cancel turn");
     contains(&mut app, "cancelled");
     let cancel = request_with_event(&f.state(), "agent.session.input.cancel");
@@ -935,6 +1139,11 @@ fn native_console_real_service_journey() {
         "Save",
     );
     contains(&mut app, "Review agent");
+    f.screenshot(&mut app, "agent-details-1280x850.png");
+    app.set_size(Vec2::new(900.0, 650.0));
+    f.screenshot(&mut app, "agent-details-900x650.png");
+    app.set_size(Vec2::new(1280.0, 850.0));
+    tick(&mut app);
     let agents = f.get("/v1/agents?limit=100");
     let edited = agents["data"]
         .as_array()
@@ -960,6 +1169,7 @@ fn native_console_real_service_journey() {
 
     click(&mut app, "Templates");
     click(&mut app, "New environment template");
+    f.screenshot(&mut app, "template-form-1280x850.png");
     fill(&mut app, "Name", "Draft environment");
     fill(&mut app, "npm packages", "typescript");
     let mut package_input = String::from("typescript");
@@ -1024,6 +1234,12 @@ fn native_console_real_service_journey() {
         json!(["/workspace/tools"])
     );
     contains(&mut app, "Review environment");
+    contains(&mut app, "api.example.com");
+    f.screenshot(&mut app, "template-details-1280x850.png");
+    app.set_size(Vec2::new(900.0, 650.0));
+    f.screenshot(&mut app, "template-details-900x650.png");
+    app.set_size(Vec2::new(1280.0, 850.0));
+    tick(&mut app);
     click(&mut app, "Edit environment template");
     editor(
         &mut app,
@@ -1184,6 +1400,7 @@ fn native_console_real_service_journey() {
                 let path = request["path"].as_str().unwrap();
                 path.starts_with("/v1/agents")
                     || path.starts_with("/v1/vaults")
+                    || path.starts_with("/v1/rat/sessions/")
                     || path == "/v1/models"
             })
     );
@@ -1264,7 +1481,7 @@ fn model_catalog_recovers_from_errors_and_retains_saved_values() {
     f.control("/__test/models", json!({"mode":"empty-response"}));
     let mut app = f.app();
     click(&mut app, "New session");
-    contains(&mut app, "No models are available for this deployment.");
+    contains(&mut app, "No models available.");
     fill(&mut app, "Task", "Review without guessing a model.");
     click(&mut app, "Create");
     visible(&mut app, "Cancel");
@@ -1294,10 +1511,7 @@ fn model_catalog_recovers_from_errors_and_retains_saved_values() {
     click(&mut app, "Load more");
     click(&mut app, "Agent 0");
     click(&mut app, "Edit agent");
-    contains(
-        &mut app,
-        "This saved model is not available in this deployment. Choose another model to continue.",
-    );
+    contains(&mut app, "Saved model unavailable. Choose another model.");
     let original = model_draft(&mut app);
     assert_eq!(
         original["model"], "fixture-model",
@@ -1486,10 +1700,14 @@ fn local_workspace_welcome_starters_and_failed_cloud_connection() {
         uuid::Uuid::new_v4().simple(),
         uuid::Uuid::new_v4().simple()
     );
+    // This welcome-screen test does not require the developer’s running container engine.
+    let docker_host = format!("unix://{}/absent-engine.sock", directory.path().display());
     let proxy = Server::spawn(
         root,
         "scripts/console-server.ts",
         &[
+            ("DOCKER_CONTEXT", ""),
+            ("DOCKER_HOST", &docker_host),
             ("RAT_THINGS_AGENTS_API_URL", ""),
             ("RAT_THINGS_API_URL", ""),
             ("RAT_THINGS_LOCAL_DIR", directory.path().to_str().unwrap()),
@@ -1502,7 +1720,7 @@ fn local_workspace_welcome_starters_and_failed_cloud_connection() {
     let mut app = Harness::builder()
         .with_size(Vec2::new(1280.0, 850.0))
         .build_eframe(|_| ConsoleApp::new(proxy.url.clone(), token.clone()).unwrap());
-    visible(&mut app, "A little help, right at home.");
+    visible(&mut app, "What are we working on?");
     let output = root.join("test-results/native-console");
     std::fs::create_dir_all(&output).unwrap();
     app.render()
@@ -1510,7 +1728,7 @@ fn local_workspace_welcome_starters_and_failed_cloud_connection() {
         .save(output.join("local-welcome.png"))
         .unwrap();
     click(&mut app, "This computer");
-    visible(&mut app, "A home for your work");
+    visible(&mut app, "Workspaces");
     app.render()
         .unwrap()
         .save(output.join("local-workspace.png"))
@@ -1524,8 +1742,8 @@ fn local_workspace_welcome_starters_and_failed_cloud_connection() {
     click(&mut app, "Connect AWS workspace");
     contains(&mut app, "Your current workspace is still selected.");
     click(&mut app, "Done");
-    visible(&mut app, "A little help, right at home.");
-    click(&mut app, "Untangle an idea");
+    visible(&mut app, "What are we working on?");
+    click(&mut app, "Plan an idea");
     contains(&mut app, "Help me turn a rough idea");
     choose_model(&mut app, "local-fixture");
     assert_eq!(model_draft(&mut app)["agent"]["model"], "local-fixture");
@@ -1565,7 +1783,7 @@ fn workspace_switch_preserves_current_work_during_slow_failure_and_recovers() {
     let mut app = Harness::builder()
         .with_size(Vec2::new(1280.0, 850.0))
         .build_eframe(|_| ConsoleApp::new(server.url.clone(), "a".repeat(64)).unwrap());
-    visible(&mut app, "A little help, right at home.");
+    visible(&mut app, "What are we working on?");
     click(&mut app, "This computer");
     fill(&mut app, "Agents API URL", "https://workspace.example/v1");
     visible(&mut app, "Ready · Linux VM is running.");
@@ -1582,10 +1800,7 @@ fn workspace_switch_preserves_current_work_during_slow_failure_and_recovers() {
             .is_disabled()
     );
     visible(&mut app, "Connecting to your workspace…");
-    assert!(
-        app.query_by_label("A little help, right at home.")
-            .is_some()
-    );
+    assert!(app.query_by_label("What are we working on?").is_some());
     app.key_press_modifiers(Modifiers::COMMAND, Key::N);
     tick(&mut app);
     assert!(
@@ -1604,8 +1819,8 @@ fn workspace_switch_preserves_current_work_during_slow_failure_and_recovers() {
     visible(&mut app, "What are we working on?");
     click(&mut app, "Your AWS workspace");
     click(&mut app, "Use this computer");
-    visible(&mut app, "A little help, right at home.");
-    click(&mut app, "Untangle an idea");
+    visible(&mut app, "What are we working on?");
+    click(&mut app, "Plan an idea");
     visible(&mut app, "Task");
     let draft = app.get_by_label("Task").value();
     click(&mut app, "This computer");
@@ -1639,7 +1854,7 @@ fn local_setup_retains_inputs_through_slow_failure_and_retry() {
     let mut app = Harness::builder()
         .with_size(Vec2::new(1280.0, 850.0))
         .build_eframe(|_| ConsoleApp::new(server.url.clone(), "a".repeat(64)).unwrap());
-    visible(&mut app, "A little help, right at home.");
+    visible(&mut app, "What are we working on?");
     control(json!({"hold": true}));
     let first_frame = std::time::Instant::now();
     app.get_by_role_and_label(Role::Button, "This computer")
@@ -1679,8 +1894,24 @@ fn local_setup_retains_inputs_through_slow_failure_and_retry() {
         .unwrap()
         .save(output.join("local-setup-ready.png"))
         .unwrap();
+    app.set_size(Vec2::new(900.0, 650.0));
+    tick(&mut app);
+    let title_rect = app.get_by_label("Workspaces").rect();
+    assert!(
+        title_rect.top() >= 0.0,
+        "workspace title stays on screen after resize"
+    );
+    let done_rect = app.get_by_role_and_label(Role::Button, "Done").rect();
+    assert!(
+        done_rect.bottom() <= 650.0 && done_rect.top() >= 0.0,
+        "workspace footer stays reachable"
+    );
+    app.render()
+        .unwrap()
+        .save(output.join("local-setup-900x650.png"))
+        .unwrap();
     click(&mut app, "Done");
-    visible(&mut app, "A little help, right at home.");
+    visible(&mut app, "What are we working on?");
 }
 
 struct WorkspaceFixture {
@@ -1829,7 +2060,7 @@ fn native_setup_retries_uncertain_requests_and_stops_polling_at_restart() {
     assert_ne!(next_id, first_id.as_str().unwrap());
     f.control(json!({"change_state":{"status":"awaiting_restart"}}));
     visible(&mut app, "Setup is ready to finish.");
-    contains(&mut app, "Quit and reopen Rat Things to finish.");
+    contains(&mut app, "Restart Rat Things to finish.");
     assert!(
         app.query_by_role_and_label(Role::Button, "Restart")
             .is_none()
@@ -1997,7 +2228,7 @@ fn open_copy_source(f: &WorkspaceFixture) -> App {
     contains(&mut app, "ChatGPT connected");
     click(&mut app, "Done");
     until(&mut app, "workspace window to close", |app| {
-        app.query_by_label("A home for your work").is_none()
+        app.query_by_label("Workspaces").is_none()
     });
     click(&mut app, "Copy source");
     click(&mut app, "This computer");
@@ -2099,7 +2330,7 @@ fn native_copy_requires_a_destination_model_and_recovers_the_saved_review_after_
     visible(&mut app, "AWS model: fixture-model");
     visible(
         &mut app,
-        "Your edits apply to a new copy. This saved copy keeps the destination and model shown here.",
+        "These edits apply to a new copy. This saved copy is unchanged.",
     );
     visible(&mut app, "AWS model: fixture-fast");
     enabled(&mut app, "Copy to AWS");
@@ -2321,7 +2552,7 @@ fn native_copy_ignores_old_models_and_keeps_polling_after_the_window_closes() {
             .is_disabled()
     );
     click(&mut app, "Done");
-    assert!(app.query_by_label("A home for your work").is_none());
+    assert!(app.query_by_label("Workspaces").is_none());
     let polls = f
         .requests(&path)
         .iter()
@@ -2345,4 +2576,346 @@ fn native_copy_ignores_old_models_and_keeps_polling_after_the_window_closes() {
     click(&mut app, "This computer");
     visible(&mut app, "Copy status: Complete");
     assert!(f.state()["executionStarts"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn replies_keep_the_original_context_through_the_native_composer_and_service() {
+    let f = Fixture::new();
+    let session = f.post("/v1/agents/sessions", json!({"agent":{"model":"fixture-model"},"environment":{"type":"none"},"input":"Make environment differences visible.","metadata":{"name":"Reply direction"}}));
+    let id = session["id"].as_str().unwrap();
+    let original = f.get(&format!("/v1/rat/sessions/{id}/activity"))["items"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut app = f.app();
+    click(&mut app, "Reply direction");
+    visible(&mut app, "Message");
+    click(&mut app, "Reply");
+    visible(&mut app, "Replying to You");
+    fill(&mut app, "Message", "Test a clean setup as well.");
+    until(&mut app, "active Turn", |app| {
+        app.query_by_role_and_label(Role::Button, "Steer").is_some()
+    });
+    click(&mut app, "Steer");
+    until(&mut app, "saved reply", |_| {
+        f.get(&format!("/v1/rat/sessions/{id}/activity"))["inputs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|input| {
+                input["reply"]["message_id"] == original
+                    && input["reply"]["text"] == "Make environment differences visible."
+            })
+    });
+    contains(&mut app, "Test a clean setup as well.");
+    until(&mut app, "composer cleared after acceptance", |app| {
+        app.get_by_label("Message").value().as_deref() == Some("")
+    });
+    f.screenshot(&mut app, "reply-context-1280x850.png");
+    drop(app);
+    let mut reopened = f.app();
+    click(&mut reopened, "Reply direction");
+    contains(&mut reopened, "Test a clean setup as well.");
+    contains(&mut reopened, "Make environment differences visible.");
+}
+
+#[test]
+fn held_reply_completion_preserves_draft_after_retargeting() {
+    let fixture = HeldReplyFixture::new();
+    let mut app = Harness::builder()
+        .with_size(Vec2::new(1280.0, 850.0))
+        .build_eframe(|_| ConsoleApp::new(fixture.url.clone(), "fixture".into()).unwrap());
+    click(&mut app, "Held reply");
+    until(&mut app, "both messages loaded", |app| {
+        app.query_all_by_role_and_label(Role::Button, "Reply")
+            .count()
+            == 2
+    });
+    let reply_actions = app
+        .query_all_by_role_and_label(Role::Button, "Reply")
+        .collect::<Vec<_>>();
+    assert_eq!(reply_actions.len(), 2);
+    reply_actions[0].click();
+    tick(&mut app);
+    fill(&mut app, "Message", "Keep this for the next reply.");
+    click(&mut app, "Send");
+    let submitted = fixture
+        .submissions
+        .recv_timeout(Duration::from_secs(5))
+        .expect("held reply request");
+    assert_eq!(submitted["reply_to"], "msg_a");
+
+    let reply_actions = app
+        .query_all_by_role_and_label(Role::Button, "Reply")
+        .collect::<Vec<_>>();
+    assert_eq!(reply_actions.len(), 2);
+    let message_b_before = app
+        .query_all_by_label_contains("Original message B")
+        .count();
+    reply_actions[1].click();
+    until(&mut app, "composer retargeted to message B", |app| {
+        app.query_all_by_label_contains("Original message B")
+            .count()
+            > message_b_before
+    });
+
+    fixture.release.send(()).unwrap();
+    until(&mut app, "held reply completion", |app| {
+        app.get_by_label("Message").value().as_deref() == Some("")
+            || app
+                .query_by_role_and_label(Role::Button, "Send")
+                .is_some_and(|button| !button.accesskit_node().is_disabled())
+    });
+    assert_eq!(
+        app.get_by_label("Message").value().as_deref(),
+        Some("Keep this for the next reply.")
+    );
+    assert!(
+        app.query_all_by_label_contains("Original message B")
+            .count()
+            > message_b_before
+    );
+}
+
+#[test]
+fn artifact_feedback_is_shared_durable_and_keeps_unsent_text() {
+    let f = Fixture::new();
+    let session = f.post("/v1/agents/sessions", json!({"agent":{"model":"fixture-model"},"environment":{"type":"none"},"input":"Make a product direction.","metadata":{"name":"Workspace review"}}));
+    let id = session["id"].as_str().unwrap();
+    f.control("/__test/advance", json!({"mode":"complete"}));
+    let artifact = f.get(&format!("/v1/agents/sessions/{id}/artifacts"))["data"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let label = format!(
+        "report.txt · {}",
+        &artifact[artifact.len().saturating_sub(6)..]
+    );
+    let mut app = f.app();
+    click(&mut app, "Workspace review");
+    click(&mut app, "Shared workspace");
+    f.control("/__test/reads", json!({"fail":true}));
+    click(&mut app, &label);
+    visible(&mut app, "Retry preview");
+    f.control("/__test/reads", json!({"fail":false}));
+    click(&mut app, "Retry preview");
+    visible(&mut app, "Native console artifact");
+    click(&mut app, "Add comment");
+    fill(
+        &mut app,
+        "Artifact feedback",
+        "Define the audience before choosing features.",
+    );
+    click(&mut app, "Share feedback");
+    until(&mut app, "shared annotation", |_| {
+        f.get(&format!("/v1/rat/sessions/{id}/activity"))["workspace_threads"]
+            .as_array()
+            .is_some_and(|threads| threads.len() == 1)
+    });
+    visible(&mut app, "Resolve");
+    fill(
+        &mut app,
+        "Artifact feedback",
+        "Keep this draft while I check the discussion.",
+    );
+    click(&mut app, "← Conversation");
+    click(&mut app, "Shared workspace");
+    assert_eq!(
+        app.get_by_label("Artifact feedback").value().as_deref(),
+        Some("Keep this draft while I check the discussion.")
+    );
+    click(&mut app, "Conversation");
+    fill(
+        &mut app,
+        "Message",
+        "A separate direction for the same agent.",
+    );
+    click(&mut app, "Feedback");
+    assert_eq!(
+        app.get_by_label("Artifact feedback").value().as_deref(),
+        Some("Keep this draft while I check the discussion.")
+    );
+    f.screenshot(&mut app, "shared-artifact-feedback-1280x850.png");
+    app.set_size(Vec2::new(900.0, 650.0));
+    click(&mut app, "Discussion");
+    visible(&mut app, "Share feedback");
+    click(&mut app, "Conversation");
+    assert_eq!(
+        app.get_by_label("Message").value().as_deref(),
+        Some("A separate direction for the same agent.")
+    );
+    click(&mut app, "Work");
+    visible(&mut app, "Native console artifact");
+    click(&mut app, "Discussion");
+    click(&mut app, "Feedback");
+    assert_eq!(
+        app.get_by_label("Artifact feedback").value().as_deref(),
+        Some("Keep this draft while I check the discussion.")
+    );
+    f.screenshot(&mut app, "shared-artifact-feedback-900x650.png");
+    app.set_size(Vec2::new(1280.0, 850.0));
+
+    click(&mut app, "Resolve");
+    until(&mut app, "resolved annotation", |_| {
+        f.get(&format!("/v1/rat/sessions/{id}/activity"))["workspace_threads"][0]["resolved"]
+            == true
+    });
+    app.get_by_label("Show resolved").click();
+    tick(&mut app);
+    visible(&mut app, "Reopen");
+    click(&mut app, "Reopen");
+    until(&mut app, "reopened annotation", |_| {
+        f.get(&format!("/v1/rat/sessions/{id}/activity"))["workspace_threads"][0]["resolved"]
+            == false
+    });
+    drop(app);
+    let mut reopened = f.app();
+    click(&mut reopened, "Workspace review");
+    click(&mut reopened, "Shared workspace");
+    click(&mut reopened, &label);
+    visible(
+        &mut reopened,
+        "Define the audience before choosing features.",
+    );
+}
+
+#[test]
+fn browser_annotation_navigation_rejects_a_late_live_frame() {
+    use base64::Engine;
+    let f = Fixture::new();
+    let image = image::RgbImage::from_pixel(1280, 800, image::Rgb([37, 37, 39]));
+    let mut encoded = std::io::Cursor::new(Vec::new());
+    image
+        .write_to(&mut encoded, image::ImageFormat::Jpeg)
+        .unwrap();
+    let mut frame = json!({"epoch":"fixture","revision":1,"frame_id":"a".repeat(64),"width":1280,"height":800,"image":base64::engine::general_purpose::STANDARD.encode(encoded.into_inner()),"url":"https://rat-artifacts.invalid/direction.html","title":"Product direction","text":"Product direction"});
+    f.control("/__test/workspace", json!({"frame":frame}));
+    f.post("/v1/agents/sessions", json!({"agent":{"model":"fixture-model","tools":[{"type":"function","name":"rat_things_browser","description":"Use the shared browser.","parameters":{"type":"object","properties":{}}}]},"environment":{"type":"openai_hosted"},"input":"Review together.","metadata":{"name":"Shared browser review"}}));
+    let mut app = f.app();
+    click(&mut app, "Shared browser review");
+    click(&mut app, "Shared workspace");
+    click(&mut app, "Live browser");
+    visible(&mut app, "https://rat-artifacts.invalid/direction.html");
+    click(&mut app, "Add comment");
+    fill(
+        &mut app,
+        "Artifact feedback",
+        "Keep the original direction visible while we discuss it.",
+    );
+    click(&mut app, "Share feedback");
+    visible(&mut app, "Resolve");
+    frame["url"] = json!("https://rat-artifacts.invalid/late-response.html");
+    frame["revision"] = json!(2);
+    frame["frame_id"] = json!("b".repeat(64));
+    f.control("/__test/workspace", json!({"frame":frame,"hold":true}));
+    click(&mut app, "Return to live view");
+    until(&mut app, "held live browser request", |_| {
+        f.client
+            .get(format!("{}/__test/workspace", f.upstream.url))
+            .send()
+            .unwrap()
+            .json::<Value>()
+            .unwrap()["waiting"]
+            .as_u64()
+            .unwrap()
+            >= 1
+    });
+    // Navigation remains usable while the browser lane has an older request in flight.
+    app.get_by_label("1 · Open").click();
+    tick(&mut app);
+    visible(&mut app, "Saved capture · live page may differ");
+    f.control("/__test/workspace", json!({"hold":false}));
+    until(&mut app, "saved image loaded separately", |app| {
+        app.query_all_by_role(Role::Image)
+            .any(|node| node.rect().width() > 200.0)
+            && f.state()["received"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|request| {
+                    request["method"] == "GET"
+                        && request["path"].as_str().is_some_and(|path| {
+                            path.contains("/workspace/threads/") && path.ends_with("/image")
+                        })
+                })
+    });
+    for _ in 0..30 {
+        tick(&mut app);
+    }
+    assert!(
+        app.query_all_by_label("https://rat-artifacts.invalid/late-response.html")
+            .next()
+            .is_none()
+    );
+    fill(
+        &mut app,
+        "Artifact feedback",
+        "This reply belongs to the captured page.",
+    );
+    f.screenshot(&mut app, "shared-browser-annotation-1280x850.png");
+    app.set_size(Vec2::new(900.0, 650.0));
+    click(&mut app, "Discussion");
+    visible(&mut app, "Share feedback");
+    f.screenshot(&mut app, "shared-browser-annotation-900x650.png");
+}
+
+#[test]
+fn explicit_browser_click_preempts_an_inflight_refresh_with_original_revision() {
+    use base64::Engine;
+    let f = Fixture::new();
+    let image = image::RgbImage::from_pixel(1280, 800, image::Rgb([37, 37, 39]));
+    let mut encoded = std::io::Cursor::new(Vec::new());
+    image
+        .write_to(&mut encoded, image::ImageFormat::Jpeg)
+        .unwrap();
+    f.control("/__test/workspace", json!({"frame":{"epoch":"held-read","revision":7,"frame_id":"d".repeat(64),"width":1280,"height":800,"image":base64::engine::general_purpose::STANDARD.encode(encoded.into_inner()),"url":"https://rat-artifacts.invalid/click.html","title":"Click during refresh","text":"Click during refresh"}}));
+    f.post("/v1/agents/sessions", json!({"agent":{"model":"fixture-model","tools":[{"type":"function","name":"rat_things_browser","description":"Use the shared browser.","parameters":{"type":"object","properties":{}}}]},"environment":{"type":"openai_hosted"},"input":"Review together.","metadata":{"name":"Click during refresh"}}));
+    let mut app = f.app();
+    click(&mut app, "Click during refresh");
+    click(&mut app, "Shared workspace");
+    click(&mut app, "Live browser");
+    visible(&mut app, "https://rat-artifacts.invalid/click.html");
+    f.control("/__test/workspace", json!({"hold":true}));
+    until(&mut app, "held refresh", |_| {
+        f.client
+            .get(format!("{}/__test/workspace", f.upstream.url))
+            .send()
+            .unwrap()
+            .json::<Value>()
+            .unwrap()["waiting"]
+            .as_u64()
+            .unwrap()
+            > 0
+    });
+    app.query_all_by_role(Role::Image)
+        .max_by(|a, b| a.rect().area().total_cmp(&b.rect().area()))
+        .unwrap()
+        .click();
+    tick(&mut app);
+    // The HTTP lane may serialize transport. The click must survive the held
+    // read and retain its original frame when that lane becomes available.
+    f.control("/__test/workspace", json!({"hold":false}));
+    until(&mut app, "click retained across the held refresh", |_| {
+        f.state()["received"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|request| {
+                request["method"] == "POST" && request["body"]["operation"]["action"] == "click"
+            })
+    });
+    let state = f.state();
+    let click = state["received"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|request| request["body"]["operation"]["action"] == "click")
+        .unwrap();
+    assert_eq!(click["body"]["epoch"], "held-read");
+    assert_eq!(click["body"]["revision"], 7);
+    assert!((click["body"]["operation"]["x"].as_f64().unwrap() - 0.5).abs() < 0.01);
+    f.control("/__test/workspace", json!({"hold":false}));
+    for _ in 0..5 {
+        tick(&mut app);
+    }
 }

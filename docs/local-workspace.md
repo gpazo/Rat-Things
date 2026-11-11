@@ -1,4 +1,4 @@
-# A little help, right at home
+# Local workspaces
 
 Start with the computer you already own. Rat Things can keep Agents, Sessions,
 Turns and conversation history locally, using the same API and desktop app as an
@@ -31,7 +31,7 @@ Leave `RAT_THINGS_AGENTS_API_URL` and `RAT_THINGS_API_URL` unset to start locall
 The desktop starts a private local service, or connects to one already running.
 **This computer** in the sidebar tells you where you are.
 
-Choose **Untangle an idea**, pick a model, and create the Session. The model picker
+Choose **Plan an idea**, pick a model, and create the Session. The model picker
 reads your installed Codex model catalog. If it cannot load, check your login and
 use **Refresh models**. `RAT_THINGS_MODEL` can select one exact model ID for the
 local catalog; that model still needs to be available to your credentials.

@@ -1,4 +1,7 @@
 import OpenAI from 'openai';
+import { SessionEventStore } from '../../src/core/session-event-store.js';
+import type { StoredSessionRuntime } from '../../src/core/session-runtime-store.js';
+import type { SessionState } from '../../src/core/session-ports.js';
 import { LocalTransferService } from '../../src/app/local-transfer.js';
 import { AgentsApiError } from '../../src/domain/agents-api-validation.js';
 import { iamApiPrincipal } from '../../src/domain/api-permissions.js';
@@ -19,14 +22,19 @@ import type { SessionExecution, SessionTurnObservation } from '../../src/core/se
 import type { AgentSessionItem } from '../../src/domain/agents-api.js';
 import { routeAgentsRequest } from '../../src/lambdas/agents-router.js';
 import { MemoryAgentsStore } from '../../tests/agents/fixtures.js';
+import type { BrowserFrame } from '../../src/domain/shared-browser.js';
 
 const owner = 'console-owner';
-const store = new MemoryAgentsStore();
+const store = new SessionEventStore(new MemoryAgentsStore());
 const secrets = new Map<string, CredentialAuthCreateParam>();
 const observations = new Map<string, SessionTurnObservation>();
 const output = new Map<string, AgentSessionItem[]>();
 const executionStarts: string[] = [];
 const received: Array<{ path: string; method: string; body?: unknown; key?: string | null }> = [];
+let workspaceFrame: BrowserFrame | undefined;
+let workspaceGate: ReturnType<typeof gate> | undefined;
+let workspaceRequests = 0;
+let workspaceWaiting = 0;
 const browser = process.env.RAT_THINGS_BROWSER_FIXTURE === '1' ? await (await import('./browser-fixture.js')).createBrowserFixture() : undefined;
 const execution: SessionExecution = browser?.execution ?? {
   prepare: async (ownerId, sessionId, environment) => {
@@ -50,6 +58,13 @@ const execution: SessionExecution = browser?.execution ?? {
   items: async (_owner, _session, id) => output.get(id) ?? [],
   artifacts: async (_owner, session, turn) => [{ artifact: { id: `artifact-${turn}`, object: 'agent.session.artifact', session_id: session.id, environment_id: 'fixture-env', created_at: session.created_at, path: 'report.txt', size_bytes: 23, turn_id: turn }, content: { bucket: 'fixture', key: turn, sha256: '0'.repeat(64) } }],
   artifactContent: async () => new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode('Native console artifact')); controller.close(); } }),
+  browser: async () => {
+    if (!workspaceFrame) throw new Error('No fixture browser frame');
+    const frame = structuredClone(workspaceFrame);
+    workspaceRequests++;
+    if (workspaceGate) { workspaceWaiting++; try { await workspaceGate.promise; } finally { workspaceWaiting--; } }
+    return frame;
+  },
 };
 let modelMode: 'available' | 'empty' | 'empty-response' | 'error' | 'retired' | 'no-default' = 'available';
 function fixtureModels(): ModelCatalog | undefined {
@@ -310,6 +325,15 @@ const server = createServer((request, response) => void (async () => {
     response.end(JSON.stringify({ received, executionStarts, copies: { requests: copyRequests, models: copyModelRequests, snapshots: copySnapshots, plans: (await transfers.list()).data, destinationSessions: (await sessions.list('copy-destination')).data }, runtimeChanges: [...runtimeChanges.values()], loginFlow: loginFlow ?? null, secretCount: secrets.size, sessionCount: (await sessions.list(owner)).data.length }));
     return;
   }
+  if (url.pathname === '/__test/workspace') {
+    const control = body ? JSON.parse(body) as { frame?: BrowserFrame; hold?: boolean } : {};
+    if (control.frame) workspaceFrame = control.frame;
+    if (control.hold === true) workspaceGate ??= gate();
+    if (control.hold === false) { workspaceGate?.release(); workspaceGate = undefined; }
+    response.setHeader('content-type', 'application/json');
+    response.end(JSON.stringify({ requests: workspaceRequests, waiting: workspaceWaiting }));
+    return;
+  }
   if (url.pathname === '/__test/reads') {
     const control = JSON.parse(body) as { hold?: boolean; fail?: boolean };
     if (!control.hold) { releaseReads?.(); releaseReads = undefined; }
@@ -399,7 +423,17 @@ const dispatcher = setInterval(() => {
   if (dispatching) return;
   dispatching = true;
   void (async () => {
-    for (const session of (await sessions.list(owner)).data) await sessions.dispatch(owner, session.id);
+    for (const session of (await sessions.list(owner)).data) {
+      await sessions.dispatch(owner, session.id);
+      const state = await store.get<SessionState>(owner, 'sessions', session.id);
+      if (!state) continue;
+      const observed = await Promise.all(state.value.turns.map(binding => execution.observe(owner, session, binding.turn)));
+      const snapshot = { sessionId: session.id, agentId: session.agent.id, rootThreadId: 'fixture', subagents: [],
+        turns: await Promise.all(observed.map(async ({ turn }) => ({ threadId: 'fixture', nativeTurnId: turn.id, turn, items: await execution.items(owner, session, turn.id), artifacts: await execution.artifacts(owner, session, turn.id) }))),
+        requiredActions: observed.flatMap(entry => entry.requiredActions) };
+      const previous = await store.get<StoredSessionRuntime>(owner, 'session_runtime', session.id);
+      if (JSON.stringify(previous?.value.snapshot) !== JSON.stringify(snapshot)) await store.put({ ownerId: owner, collection: 'session_runtime', id: session.id, createdAt: previous?.createdAt ?? session.created_at, revision: (previous?.revision ?? 0) + 1, value: { runId: 'fixture', snapshot } }, previous?.revision ?? 0);
+    }
   })().catch(error => console.error(error)).finally(() => { dispatching = false; });
 }, 30);
 let stopping = false;

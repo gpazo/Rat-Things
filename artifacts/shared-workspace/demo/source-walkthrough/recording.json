@@ -1,0 +1,9 @@
+{
+  "source": "Actual ConsoleApp renders driven through native controls",
+  "fps": 12,
+  "frames": 1083,
+  "duration_seconds": 90.25,
+  "playback_speed": 1.4,
+  "model": "Deterministic local Responses fixture; no paid inference",
+  "identity": "Three fixture identities on authenticated loopback connections; not OIDC login validation"
+}

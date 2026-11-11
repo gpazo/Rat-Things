@@ -1,3 +1,5 @@
+import { withBrowserEffects } from './pi-browser-effects.js';
+import { sharedBrowserGranted } from '../domain/shared-browser.js';
 import { syncWorkspaceStorage } from './workspace-sync.js';
 import { checkpointWorkspace } from './workspace-handoff.js';
 import { fork } from 'node:child_process';
@@ -41,7 +43,11 @@ export async function executePiWorker(request: RunRequest, workspace: string, ti
   // The host stores bytes under its private state root; tools see the verified bind mount.
   const plan = planCodexLaunch(request, launch.environment.type === 'openai_hosted' ? '/workspace' : workspace, timeoutMs, process.env);
   if (!plan.identity) throw new Error('Pi requires a separate non-root process identity');
-  const broker = await createPiEffectBroker({ launch, plan, lease: dependencies.lease, ...(launch.environment.type === 'openai_hosted' ? { flushWorkspace: () => syncWorkspaceStorage(workspace) } : {}), ...(control.sessionMcp ? { mcp: control.sessionMcp } : {}), ...(control.sessionEnvironmentCredentials ? { credentials: control.sessionEnvironmentCredentials } : {}), ...(signal ? { signal } : {}) });
+  let broker: import('./pi/protocol.js').PiEffects = await createPiEffectBroker({ launch, plan, lease: dependencies.lease, ...(launch.environment.type === 'openai_hosted' ? { flushWorkspace: () => syncWorkspaceStorage(workspace) } : {}), ...(control.sessionMcp ? { mcp: control.sessionMcp } : {}), ...(control.sessionEnvironmentCredentials ? { credentials: control.sessionEnvironmentCredentials } : {}), ...(signal ? { signal } : {}) });
+  if (sharedBrowserGranted(launch.agent.tools)) {
+    if (!control.browser) { await broker.close(); throw new Error('Shared browser worker is unavailable'); }
+    broker = withBrowserEffects(broker, async command => { await dependencies.lease.assertActive(); return control.browser!(command); });
+  }
   const child = fork(fileURLToPath(new URL('./pi-child.mjs', import.meta.url)), [], {
     cwd: workspace, ...plan.identity, stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
     execArgv: [], serialization: 'json',
@@ -135,7 +141,7 @@ export async function executePiWorker(request: RunRequest, workspace: string, ti
     const childLaunch: SessionLaunch = { runtime: launch.runtime, sessionId: launch.sessionId, turnId: launch.turnId, agent: launch.agent,
       environment: launch.environment, input: launch.input, ...(launch.turn ? { turn: launch.turn } : {}), ...(launch.piForkContext ? { piForkContext: launch.piForkContext } : {}) };
     phase = 'initialize';
-    await invoke({ method: 'initialize', value: { launch: childLaunch, allowedModelIds: dependencies.allowedModelIds, tools: broker.tools, mode: control.sessionRuntime?.lifetime === 'host-managed' ? 'persistent' : 'bounded' } });
+    await invoke({ method: 'initialize', value: { launch: childLaunch, allowedModelIds: dependencies.allowedModelIds, tools: broker.tools, mode: control.sessionRuntime?.lifetime === 'host-managed' || sharedBrowserGranted(launch.agent.tools) ? 'persistent' : 'bounded' } });
     for (const command of launch.replay ?? (launch.turn ? [{ type: 'start', turn: launch.turn, input: launch.input } satisfies SessionReplayCommand] : [])) {
       phase = 'replay';
       await invoke({ method: 'replay', value: command });

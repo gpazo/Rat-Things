@@ -1,0 +1,55 @@
+{
+  "status": "passed_with_harness_correction",
+  "scope": "One deployed AWS Session, three authenticated HTTP/SSE collaborators and real Luna inference; not three native desktop windows",
+  "checks": [
+    "OIDC roles and fixed browser execution grant configured",
+    "Shared Session accepted",
+    "Browser initialized in an idle Session with zero model Turns",
+    "Real agent created the page and used the browser",
+    "All three identities see the same live page after the Turn ends",
+    "Engineer navigation is visible to Designer and QA",
+    "Point, reply and region annotations propagate to three live streams with unique identity colors and idempotency",
+    "Collaborators can resolve and reopen the same durable feedback thread",
+    "Agent acknowledged all three nonce-bearing markers and read the visual-only code; label capitalization normalized",
+    "All four Turns completed and all annotation receipts dispatched",
+    "Three reauthenticated collaborators reconnect from revision zero and receive all five comments with the original captured image",
+    "Viewer can read the browser but cannot navigate or annotate; outsider cannot read",
+    "QA revocation closes the active stream and denies browser access while Designer and Engineer streams remain open"
+  ],
+  "timings_ms": {
+    "session_submit": 785,
+    "browser_ready_without_inference": 35710,
+    "initial_prompt_submit": 257,
+    "first_assistant": 45508,
+    "first_assistant_after_prompt": 9797,
+    "first_turn_complete": 55615,
+    "accept_design": 94,
+    "accept_qa": 262,
+    "accept_engineering": 623,
+    "feedback_visible_to_everyone": 2337,
+    "accept_resolve": 345,
+    "accept_reopen": 248,
+    "revocation_stream_close": 482
+  },
+  "model": "openai.gpt-5.6-luna",
+  "completed_session_usage": {
+    "input": 94437,
+    "output": 1207
+  },
+  "estimated_total_inference_usd": 0.0296461,
+  "infrastructure_cost_usd": null,
+  "infrastructure_cost_note": "Not attributed from AWS billing; inference subtotal is not total test spend. Disposable stack cleanup is recorded separately.",
+  "attempts": 6,
+  "sessions_with_inference": 2,
+  "harness_correction": "The original exact-capitalization assertion stalled on Engineer versus ENGINEER. The actual image code and all nonce-bearing markers were present. The same Session completed remaining permission/reconnect/revocation checks with reauthenticated disposable identities and no additional inference. Original failed evidence is retained.",
+  "source_evidence": [
+    "evidence.json",
+    "continuation.json"
+  ],
+  "limitations": [
+    "Single sample, not a load benchmark",
+    "No three-window native UI e2e",
+    "Cold worker replacement and browser state recovery not exercised",
+    "The final socket chmod/chown ordering correction was validated locally after this AWS run."
+  ]
+}

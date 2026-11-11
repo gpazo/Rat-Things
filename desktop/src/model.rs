@@ -272,9 +272,13 @@ pub(crate) struct Page {
 
 #[derive(Clone)]
 pub(crate) struct SessionSnapshot {
+    pub workspace_threads: Vec<Value>,
+    pub browser_available: bool,
     pub cursor: Option<String>,
     pub role: Option<String>,
     pub permissions: Option<Vec<String>>,
+    pub actor_colors: std::collections::HashMap<String, String>,
+    pub replies: std::collections::HashMap<String, Value>,
     pub actor_labels: std::collections::HashMap<String, String>,
     pub runtime: Result<RuntimeInfo, String>,
     pub session: Resource,
@@ -289,6 +293,8 @@ impl SessionSnapshot {
             serde_json::from_value(value[name].clone())
                 .map_err(|_| format!("Invalid activity {name}"))
         };
+        let mut actor_colors = std::collections::HashMap::new();
+        let mut replies = std::collections::HashMap::new();
         let mut actor_labels = std::collections::HashMap::new();
         for input in value["inputs"].as_array().into_iter().flatten() {
             let actor = &input["actor"];
@@ -309,6 +315,12 @@ impl SessionSnapshot {
                 .filter_map(Value::as_str)
             {
                 actor_labels.insert(id.to_owned(), label.clone());
+                if let Some(color) = input["participant"]["color"].as_str() {
+                    actor_colors.insert(id.to_owned(), color.to_owned());
+                }
+                if input["reply"].is_object() {
+                    replies.insert(id.to_owned(), input["reply"].clone());
+                }
             }
         }
         let mut items: Vec<Resource> = parse("items")?;
@@ -324,7 +336,9 @@ impl SessionSnapshot {
                 let Some(id) = message["id"].as_str() else {
                     continue;
                 };
-                actor_labels.insert(id.to_owned(), label.clone());
+                actor_labels
+                    .entry(id.to_owned())
+                    .or_insert_with(|| label.clone());
                 if items.iter().any(|item| item.id == id) {
                     continue;
                 }
@@ -347,6 +361,11 @@ impl SessionSnapshot {
             )
         });
         Ok(Self {
+            workspace_threads: value["workspace_threads"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default(),
+            browser_available: value["browser_available"].as_bool().unwrap_or(false),
             session: serde_json::from_value(value["session"].clone())
                 .map_err(|_| "Invalid activity Session")?,
             items,
@@ -367,6 +386,8 @@ impl SessionSnapshot {
                 .map_err(|_| "Invalid activity permissions")?,
             cursor: value["cursor"].as_str().map(ToOwned::to_owned),
             actor_labels,
+            actor_colors,
+            replies,
         })
     }
 

@@ -1,0 +1,54 @@
+1
+00:00:00,000 --> 00:00:07,000
+Three teammates. One Session. One agent.
+The task: plan a better bug-report product.
+
+2
+00:00:07,000 --> 00:00:13,000
+Join the conversation at any time.
+Maya drafts a message. Eli and Sam see that she’s typing.
+
+3
+00:00:13,000 --> 00:00:20,000
+One live browser, shared by the team.
+Eli clicks “Review together” on the concept page.
+
+4
+00:00:20,000 --> 00:00:24,000
+The same live page, in three clients.
+These are three different clients viewing the same live browser.
+
+5
+00:00:24,000 --> 00:00:29,000
+Capture the page before adding feedback.
+Annotations stay with this version, even if the live browser moves on.
+
+6
+00:00:29,000 --> 00:00:35,000
+Maya pins a design concern.
+“Lead with shared evidence, not blame.”
+
+7
+00:00:35,000 --> 00:00:43,000
+Eli replies to Maya’s note.
+First release: capture runtime versions and the failing command.
+
+8
+00:00:43,000 --> 00:00:51,000
+Sam marks a region and raises an edge case.
+For the product under review: what should happen offline?
+
+9
+00:00:51,000 --> 00:00:56,000
+One discussion, visible to everyone.
+The same note and reply appear in each client, with names and colors intact.
+
+10
+00:00:56,000 --> 00:01:10,000
+The same agent receives the image and feedback.
+The team’s comments become context for the continuing conversation.
+
+11
+00:01:10,000 --> 00:01:15,000
+“Works on our machines.”
+One shared Session. Everyone can contribute. The agent keeps the context.

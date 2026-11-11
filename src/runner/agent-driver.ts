@@ -44,6 +44,7 @@ export interface AgentDriverControl {
   captureTraces?: boolean;
   session?: SessionLaunch;
   sessionMcp?: import('./session-mcp.js').SessionMcpRuntime;
+  browser?: (command: import('../domain/shared-browser.js').BrowserCommand) => Promise<import('../domain/shared-browser.js').BrowserFrame>;
   sessionEnvironmentCredentials?: import('./session-environment-credentials.js').SessionEnvironmentCredentialsRuntime;
   sessionRuntime?: { previous?: SessionRuntimeState; lifetime?: 'bounded' | 'host-managed'; changed(state: SessionRuntimeState): void; flush(): Promise<void>;
     requiredResumeThreadId?: string; checkpoint?: import('./session-runtime.js').SessionCheckpointOptions; startupTrace?: StartupTraceObserver };

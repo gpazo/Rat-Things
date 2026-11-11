@@ -39,6 +39,16 @@
   --rt-warning: #dfbf84;
   --rt-error: #ec9f9b;
 
+  /* Participant authorship only. Further unique colors are allocated by the Session. */
+  --rt-participant-1: #d9adf5;
+  --rt-participant-2: #8fc9ff;
+  --rt-participant-3: #f3c77b;
+  --rt-participant-4: #f2a9c2;
+  --rt-participant-5: #b8ce91;
+  --rt-participant-6: #c4b9ff;
+  --rt-participant-7: #efa78b;
+  --rt-participant-8: #9acddd;
+
   /* Shape */
   --rt-radius-sm: 6px;
   --rt-radius: 8px;

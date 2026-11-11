@@ -1,0 +1,26 @@
+[
+  {
+    "width": 1280,
+    "replyCancellationPreservesDraft": true,
+    "unquotedSend": true,
+    "quotedSend": true,
+    "activity": true,
+    "workspaceLink": true,
+    "viewerReadOnly": true,
+    "resizePreservesDraft": true,
+    "reducedMotion": true,
+    "pageErrors": []
+  },
+  {
+    "width": 390,
+    "replyCancellationPreservesDraft": true,
+    "unquotedSend": true,
+    "quotedSend": true,
+    "activity": true,
+    "workspaceLink": true,
+    "viewerReadOnly": true,
+    "resizePreservesDraft": true,
+    "reducedMotion": true,
+    "pageErrors": []
+  }
+]

@@ -6,6 +6,7 @@ import type { SessionLaunch } from '../../src/domain/session-execution.js';
 import type { RunRequest } from '../../src/domain/contracts.js';
 import type { AgentDriverControl } from '../../src/runner/agent-driver.js';
 import { piCatalog } from '../../src/runner/pi/provider.js';
+import { sharedBrowserTool } from '../../src/domain/shared-browser.js';
 
 const fixture = vi.hoisted(() => ({ fork: vi.fn(), execute: vi.fn(), close: vi.fn() }));
 vi.mock('node:child_process', async importOriginal => ({ ...await importOriginal<typeof import('node:child_process')>(), fork: fixture.fork }));
@@ -16,6 +17,30 @@ import { executePiWorker } from '../../src/runner/pi-host.js';
 afterEach(() => { vi.restoreAllMocks(); vi.clearAllMocks(); });
 
 describe('Pi host IPC ordering', () => {
+  it('keeps a shared browser Session alive between Turns until the host stops it', async () => {
+    let initialized: Record<string, unknown> | undefined;
+    class Child extends EventEmitter {
+      public connected = true;
+      public send(message: Record<string, unknown>): void {
+        if (message.method === 'initialize') initialized = message.value as Record<string, unknown>;
+        setImmediate(() => {
+          this.emit('message', { kind: 'result', id: message.id, ok: true });
+          if (message.method === 'resume') this.emit('message', { kind: 'finished' });
+        });
+      }
+      public kill(): boolean { this.connected = false; setImmediate(() => this.emit('exit', null, 'SIGTERM')); return true; }
+    }
+    fixture.fork.mockReturnValue(new Child());
+    const launch: SessionLaunch = { runtime: resolveRuntime({ rat_things_runtime: 'pi' }, null, piCatalog(['amazon.nova-lite-v1:0'], 'us-east-1')),
+      sessionId: 'session', turnId: 'turn', agent: sessionAgent({ model: 'amazon.nova-lite-v1:0', tools: [sharedBrowserTool] }, 'agent', 1),
+      environment: { type: 'none' }, input: [] };
+    const unused = vi.fn();
+    await executePiWorker({ metadata: {} } as RunRequest, '/tmp', 5000, { session: launch, browser: unused } as AgentDriverControl, {
+      allowedModelIds: [], lease: { assertActive: async () => {}, load: unused, reserveIds: unused, commit: unused }, token: unused, changed: unused,
+    });
+    expect(initialized?.mode).toBe('persistent');
+    expect(unused).not.toHaveBeenCalled();
+  });
   it('denies malformed requests before persistence, lease, token or broker effects', async () => {
     const responses: Record<string, unknown>[] = [];
     const methods = ['reserve', 'commit', 'projection', 'effect', 'effect_cancel', 'secret method'];

@@ -1,0 +1,17 @@
+{
+  "scope": "Disposable diagnostic MicroVM; no Session, no model request, no execution IAM role",
+  "image_version": "4.0",
+  "observations": [
+    "Chromium process was in D (disk sleep), wchan folio_wait_bit_common during initial startup.",
+    "A direct CDP probe produced Browser.getVersion and Target.createTarget responses after earlier ten-second deadlines had failed.",
+    "The generated Rat Things browser controller produced a real JPEG frame through Codex rat_managed sandbox with disabled external network."
+  ],
+  "warm_sandbox_probe": {
+    "elapsed_ms": 3779,
+    "url": "about:blank",
+    "image_base64_bytes": 9012,
+    "exit_code": 0
+  },
+  "interpretation": "Cold image paging exceeded the interactive command budget. Startup now has a separate bounded budget; sandbox and network policy remain enforced.",
+  "cleanup": "Both diagnostic MicroVMs terminated; shell token kept only in process memory."
+}

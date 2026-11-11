@@ -1,0 +1,204 @@
+{
+  "source_manifest_sha256": "2e1c088608e06e4434cb062d1256aa08859c9cad00f9c6b687cb5ffebba526b2",
+  "shots": [
+    {
+      "id": "premise",
+      "seconds": 7,
+      "layout": "opening",
+      "frames": [
+        41,
+        41
+      ],
+      "crop": [
+        270,
+        285,
+        737,
+        485
+      ],
+      "title": "Three teammates. One Session. One agent.",
+      "subtitle": "The task: plan a better bug-report product."
+    },
+    {
+      "id": "typing",
+      "seconds": 6,
+      "layout": "rows",
+      "frames": [
+        12,
+        20
+      ],
+      "hold_seconds": 2,
+      "crop": [
+        366,
+        655,
+        1147,
+        730
+      ],
+      "title": "Join the conversation at any time.",
+      "subtitle": "Maya drafts a message. Eli and Sam see that she’s typing."
+    },
+    {
+      "id": "live-browser",
+      "seconds": 7,
+      "layout": "single",
+      "person": 1,
+      "frames": [
+        41,
+        49
+      ],
+      "hold_seconds": 2,
+      "crop": [
+        252,
+        128,
+        750,
+        550
+      ],
+      "title": "One live browser, shared by the team.",
+      "subtitle": "Eli clicks “Review together” on the concept page."
+    },
+    {
+      "id": "browser-sync",
+      "seconds": 4,
+      "layout": "rows",
+      "frames": [
+        49,
+        49
+      ],
+      "crop": [
+        274,
+        310,
+        734,
+        368
+      ],
+      "title": "The same live page, in three clients.",
+      "subtitle": "These are three different clients viewing the same live browser."
+    },
+    {
+      "id": "capture",
+      "seconds": 5,
+      "layout": "single",
+      "person": 0,
+      "frames": [
+        50,
+        55
+      ],
+      "crop": [
+        248,
+        204,
+        1264,
+        565
+      ],
+      "title": "Capture the page before adding feedback.",
+      "subtitle": "Annotations stay with this version, even if the live browser moves on.",
+      "hold_seconds": 3
+    },
+    {
+      "id": "maya-pin",
+      "seconds": 6,
+      "layout": "single",
+      "person": 0,
+      "frames": [
+        56,
+        67
+      ],
+      "hold_seconds": 2,
+      "crop": [
+        248,
+        204,
+        1264,
+        565
+      ],
+      "title": "Maya pins a design concern.",
+      "subtitle": "“Lead with shared evidence, not blame.”"
+    },
+    {
+      "id": "eli-reply",
+      "seconds": 8,
+      "layout": "single",
+      "person": 1,
+      "frames": [
+        68,
+        85
+      ],
+      "hold_seconds": 2,
+      "crop": [
+        248,
+        204,
+        1264,
+        589
+      ],
+      "title": "Eli replies to Maya’s note.",
+      "subtitle": "First release: capture runtime versions and the failing command."
+    },
+    {
+      "id": "sam-region",
+      "seconds": 8,
+      "layout": "single",
+      "person": 2,
+      "frames": [
+        86,
+        111
+      ],
+      "hold_seconds": 2,
+      "crop": [
+        248,
+        204,
+        1264,
+        665
+      ],
+      "title": "Sam marks a region and raises an edge case.",
+      "subtitle": "For the product under review: what should happen offline?"
+    },
+    {
+      "id": "feedback-sync",
+      "seconds": 5,
+      "layout": "rows",
+      "frames": [
+        122,
+        122
+      ],
+      "crop": [
+        768,
+        340,
+        1248,
+        428
+      ],
+      "title": "One discussion, visible to everyone.",
+      "subtitle": "The same note and reply appear in each client, with names and colors intact."
+    },
+    {
+      "id": "agent-response",
+      "seconds": 14,
+      "layout": "agent",
+      "frames": [
+        144,
+        144
+      ],
+      "crop": [
+        366,
+        116,
+        1147,
+        195
+      ],
+      "title": "The same agent receives the image and feedback.",
+      "subtitle": "The team’s comments become context for the continuing conversation."
+    },
+    {
+      "id": "takeaway",
+      "seconds": 5,
+      "layout": "single",
+      "person": 0,
+      "frames": [
+        122,
+        122
+      ],
+      "crop": [
+        248,
+        204,
+        1264,
+        640
+      ],
+      "title": "“Works on our machines.”",
+      "subtitle": "One shared Session. Everyone can contribute. The agent keeps the context."
+    }
+  ]
+}

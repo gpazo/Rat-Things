@@ -1,0 +1,18 @@
+[
+  {
+    "capture": "flow-wide",
+    "exitCode": 2
+  },
+  {
+    "capture": "flow-compact",
+    "exitCode": 2
+  },
+  {
+    "capture": "states-wide",
+    "exitCode": 2
+  },
+  {
+    "capture": "movie-and-beats",
+    "exitCode": 0
+  }
+]

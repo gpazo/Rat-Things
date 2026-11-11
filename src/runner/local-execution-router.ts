@@ -7,6 +7,11 @@ import type { AgentSession } from '../domain/agents-api.js';
 export function localExecutionRouter(store: AgentsStore, codex: LocalHarness['execution'], pi: LocalHarness['execution']): LocalHarness['execution'] {
   const selected = async (owner: string, session: AgentSession) => (await store.get<SessionState>(owner, 'sessions', session.id))?.value.runtime?.kind === 'pi' ? pi : codex;
   return {
+    browser: async (owner, session, command) => {
+      const executor = await selected(owner, session);
+      if (!executor.browser) throw new Error('This runtime does not support the shared browser.');
+      return executor.browser(owner, session, command);
+    },
     prepare: (...args) => (args[8] === 'pi' ? pi : codex).prepare(...args),
     initialize: async (owner, session, placement) => (await selected(owner, session)).initialize?.(owner, session, placement),
     reconcile: async (owner, session) => (await selected(owner, session)).reconcile?.(owner, session),

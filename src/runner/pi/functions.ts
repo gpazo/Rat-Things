@@ -3,6 +3,7 @@ import type { Context } from '@earendil-works/chord';
 import type { TSchema } from '@earendil-works/pi-ai';
 import { defineTool, type DocumentObserver, type DocumentReader, type Session, type SessionDocToken, type JsonObject, type ToolRegistration } from '@earendil-works/pi-durable';
 import { canonicalJson } from '../../domain/json.js';
+import { SHARED_BROWSER_TOOL_NAME } from '../../domain/shared-browser.js';
 import type { SessionLaunch } from '../../domain/session-execution.js';
 import { FunctionsDoc, PI_CONTEXT, activeTurn, json, piInput, publicCallId, type PiFunctionResult } from './protocol.js';
 
@@ -21,7 +22,7 @@ export async function waitForDocument<T extends JsonObject, R>(reader: DocumentO
 }
 
 export function functionTools(launch: SessionLaunch): ToolRegistration[] {
-  return launch.agent.tools.filter(tool => tool.type === 'function').map(tool => defineTool({
+  return launch.agent.tools.filter(tool => tool.type === 'function').filter(tool => tool.name !== SHARED_BROWSER_TOOL_NAME).map(tool => defineTool({
     name: tool.name, description: tool.description ?? '', parameters: tool.parameters as TSchema, replay: 'safe',
     execute: async (args, api, context) => {
       const callId = publicCallId(api.taskId);

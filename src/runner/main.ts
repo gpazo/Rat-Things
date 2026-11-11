@@ -1,3 +1,5 @@
+import { startSharedBrowser } from './shared-browser-host.js';
+import { sharedBrowserGranted } from '../domain/shared-browser.js';
 import { readSessionOutputSecrets } from '../credentials/session-output.js';
 import { createOutputRedactor } from '../core/output-redactor.js';
 import { piCatalogFromConfig } from '../adapters/pi-model-catalog.js';
@@ -118,6 +120,7 @@ async function runAgentWorkerInvocation(startupTrace: StartupTraceObserver): Pro
   let bedrockTokenFile: Awaited<ReturnType<typeof installBedrockTokenFile>> | undefined;
   let codexAuthFileSession: CodexAuthFileSession | undefined;
   let heartbeat: ExecutionHeartbeat | undefined;
+  let sharedBrowser: Awaited<ReturnType<typeof startSharedBrowser>> | undefined;
   let sessionMcp: SessionMcpRuntime | undefined;
   let sessionEnvironmentCredentials: SessionEnvironmentCredentialsRuntime | undefined;
   let sessionJournal: SessionRuntimeJournal | undefined;
@@ -267,6 +270,13 @@ async function runAgentWorkerInvocation(startupTrace: StartupTraceObserver): Pro
         if (!prepared.sandbox) throw new Error('Managed sandbox generation is missing');
         environmentFiles = { execute: async (operation) => { const result = await codexEnvironmentFiles({ workspace: '/workspace', operation, binary: plan.binary, ...(launch.runtime?.kind === 'pi' && launch.environment.type === 'openai_hosted' ? { managed: { binaryArguments: hostedCodexArguments(['-c', 'features.plugins=false', 'app-server'], launch.environment.network), policy: { workspace: '/workspace', network: launch.environment.network, credentialProxy: false } } } : {}), ...(plan.identity ? { identity: plan.identity } : {}), signal: abort.signal }); if (launch.runtime?.kind === 'pi') await syncWorkspaceStorage(workspace); return result; } };
         runnerControl?.setEnvironmentFiles((operation) => environmentFiles!.execute(operation as import('../core/environment-file-ports.js').EnvironmentFileOperation));
+        if (sharedBrowserGranted(launch.agent.tools)) {
+          if (!plan.identity || launch.environment.type !== 'openai_hosted') throw new Error('The browser requires an isolated worker identity');
+          sharedBrowser = await startSharedBrowser({ directory: '/workspace', network: launch.environment.network,
+            codexBinary: plan.binary, identity: plan.identity, environment: plan.environment });
+          runnerControl?.setBrowser(command => sharedBrowser!.execute(command));
+        }
+
         managedReady = true;
         if (launch.runtime?.kind === 'pi') await syncWorkspaceStorage(workspace);
         await environments.managedReady(sessionOwner, environmentId, runId, prepared.sandbox, launch.runtime?.kind === 'pi' ? { sandboxId: prepared.sandbox.id, ...digests } : undefined);
@@ -286,7 +296,7 @@ async function runAgentWorkerInvocation(startupTrace: StartupTraceObserver): Pro
         if (handoffs) {
           const checkpointId = randomUUID();
           const stopWriters = async () => {
-            await Promise.all([sessionMcp?.close(), sessionEnvironmentCredentials?.close()]);
+            await Promise.all([sharedBrowser?.close(), sessionMcp?.close(), sessionEnvironmentCredentials?.close()]);
             sessionMcp = undefined; sessionEnvironmentCredentials = undefined;
             if (bedrockTokenFile) { await bedrockTokenFile.close(); bedrockTokenFile = undefined; }
             if (codexAuthFileSession) { await codexAuthFileSession.finalize(); codexAuthFileSession = undefined; }
@@ -390,7 +400,7 @@ async function runAgentWorkerInvocation(startupTrace: StartupTraceObserver): Pro
           // effect-to-Turn association is established at this boundary yet.
           context: () => launch.runtime?.kind === 'pi' ? { kind: 'unresolved', reason: 'unavailable' } : activeMcpTurnContext(currentRuntimeSnapshot),
       } });
-      driverControl = { ...driverControl, sessionMcp, ...(sessionEnvironmentCredentials ? { sessionEnvironmentCredentials } : {}) };
+      driverControl = { ...driverControl, sessionMcp, ...(sharedBrowser ? { browser: sharedBrowser.execute } : {}), ...(sessionEnvironmentCredentials ? { sessionEnvironmentCredentials } : {}) };
     }
     if (!piHost && driver.name === 'codex' && codexAuthMode() === 'bedrock') {
       if (current.agentsSession && current.execution?.backend === 'ec2') {
@@ -503,7 +513,7 @@ async function runAgentWorkerInvocation(startupTrace: StartupTraceObserver): Pro
   } finally {
     await managedHeartbeat?.stop();
     await managedStatus?.(managedReady ? managedExpired ? 'expired' : 'disconnected' : 'failed').catch(() => {});
-    await Promise.all([sessionMcp?.close(), sessionEnvironmentCredentials?.close()]);
+    await Promise.all([sharedBrowser?.close(), sessionMcp?.close(), sessionEnvironmentCredentials?.close()]);
     await heartbeat?.stop();
     if (loadedBedrockToken) delete process.env.AWS_BEARER_TOKEN_BEDROCK;
     if (bedrockTokenFile) { delete process.env.RAT_BEDROCK_AUTH_FILE; await bedrockTokenFile.close(); }

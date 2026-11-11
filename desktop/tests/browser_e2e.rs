@@ -83,7 +83,7 @@ fn real_browser_output_reaches_native_files() {
         assert!(Instant::now() < deadline, "Real browser timed out: {state}");
     }
     contains(&mut app, "Browser validation passed.");
-    contains(&mut app, "Turn completed");
+    contains(&mut app, "Ready for the next step");
     let state = evidence()["evidence"].clone();
     assert_eq!(state["denied"], true);
     assert_eq!(state["forbiddenRequests"], 0);

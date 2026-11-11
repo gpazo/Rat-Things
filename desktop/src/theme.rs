@@ -168,31 +168,200 @@ pub(crate) fn card() -> egui::Frame {
         .inner_margin(16)
 }
 
+/// Reusable hierarchy for native pages and dialogs. No effects or retained state.
+pub(crate) fn page_intro(ui: &mut egui::Ui, title: &str, description: &str) {
+    ui.label(RichText::new(title).font(semibold(22.0)));
+    if !description.is_empty() {
+        ui.add_space(4.0);
+        ui.add(egui::Label::new(RichText::new(description).color(MUTED)).wrap());
+    }
+    ui.add_space(16.0);
+}
+
+pub(crate) fn section<R>(
+    ui: &mut egui::Ui,
+    title: &str,
+    description: &str,
+    contents: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    let width = ui.available_width();
+    let result = card()
+        .show(ui, |ui| {
+            ui.set_width((width - 34.0).max(0.0));
+            ui.label(RichText::new(title).font(semibold(14.0)));
+            if !description.is_empty() {
+                ui.add(egui::Label::new(RichText::new(description).small().color(MUTED)).wrap());
+            }
+            ui.add_space(8.0);
+            contents(ui)
+        })
+        .inner;
+    ui.add_space(12.0);
+    result
+}
+
+pub(crate) fn field_label(ui: &mut egui::Ui, label: &str) -> egui::Response {
+    ui.label(RichText::new(label).text_style(TextStyle::Button))
+}
+
+pub(crate) fn suggestion(ui: &mut egui::Ui, title: &str) -> egui::Response {
+    let response = ui.add_sized(
+        [ui.available_width().min(540.0), 42.0],
+        egui::Button::new(RichText::new(title).font(medium(13.0)))
+            .right_text("→")
+            .fill(CARD)
+            .stroke(Stroke::new(1.0, BORDER)),
+    );
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, title));
+    response
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum NavIcon {
+    Conversation,
+    Agent,
+    Environment,
+    Vault,
+}
+
+pub(crate) fn navigation_button(
+    ui: &mut egui::Ui,
+    label: &str,
+    selected: bool,
+    icon: NavIcon,
+) -> egui::Response {
+    let response = ui.add_sized(
+        [ui.available_width(), 32.0],
+        egui::Button::new(
+            RichText::new(format!("      {label}"))
+                .font(medium(13.0))
+                .color(if selected { TEXT } else { MUTED }),
+        )
+        .right_text("")
+        .selected(selected)
+        .frame_when_inactive(selected)
+        .stroke(Stroke::NONE),
+    );
+    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, label));
+    let origin = egui::pos2(response.rect.left() + 10.0, response.rect.center().y - 7.0);
+    let stroke = Stroke::new(1.2, if selected { TEXT } else { MUTED });
+    let point = |x, y| origin + egui::vec2(x, y);
+    let line = |a: (f32, f32), b: (f32, f32)| {
+        ui.painter()
+            .line_segment([point(a.0, a.1), point(b.0, b.1)], stroke);
+    };
+    match icon {
+        NavIcon::Conversation => {
+            ui.painter().rect_stroke(
+                egui::Rect::from_min_max(point(0.0, 0.0), point(14.0, 10.0)),
+                2,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+            line((3.0, 10.0), (3.0, 14.0));
+            line((3.0, 14.0), (7.0, 10.0));
+        }
+        NavIcon::Agent => {
+            ui.painter().circle_stroke(point(7.0, 4.0), 3.0, stroke);
+            ui.painter().add(egui::Shape::line(
+                vec![
+                    point(1.0, 14.0),
+                    point(1.0, 12.0),
+                    point(4.0, 9.0),
+                    point(10.0, 9.0),
+                    point(13.0, 12.0),
+                    point(13.0, 14.0),
+                ],
+                stroke,
+            ));
+        }
+        NavIcon::Environment => {
+            ui.painter().rect_stroke(
+                egui::Rect::from_min_max(point(0.0, 1.0), point(14.0, 13.0)),
+                2,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+            line((0.0, 5.0), (14.0, 5.0));
+            line((4.0, 8.0), (6.0, 10.0));
+            line((6.0, 10.0), (4.0, 12.0));
+            line((8.0, 11.0), (11.0, 11.0));
+        }
+        NavIcon::Vault => {
+            ui.painter().rect_stroke(
+                egui::Rect::from_min_max(point(1.0, 5.0), point(13.0, 14.0)),
+                2,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+            ui.painter().add(egui::Shape::line(
+                vec![
+                    point(4.0, 5.0),
+                    point(4.0, 1.0),
+                    point(10.0, 1.0),
+                    point(10.0, 5.0),
+                ],
+                stroke,
+            ));
+            line((7.0, 8.0), (7.0, 11.0));
+        }
+    }
+    response
+}
+
 pub(crate) fn status(ui: &mut egui::Ui, status: &str) {
     if status.is_empty() {
         return;
     }
-    let (color, background) = match status {
-        "failed" | "error" | "disconnected" => (ERROR, Color32::from_rgb(55, 37, 35)),
-        "in_progress" => (ACCENT, SELECTED),
-        "queued" | "waiting" | "requires_action" => (WARNING, Color32::from_rgb(51, 45, 33)),
-        "ready" | "active" | "completed" | "connected" => (SUCCESS, Color32::from_rgb(37, 47, 38)),
-        _ => (MUTED, SURFACE),
+    let color = match status {
+        "failed" | "error" | "disconnected" => ERROR,
+        "in_progress" => ACCENT,
+        "queued" | "waiting" | "requires_action" => WARNING,
+        "ready" | "active" | "completed" | "connected" => SUCCESS,
+        _ => MUTED,
     };
     egui::Frame::new()
-        .fill(background)
+        .fill(CARD)
         .corner_radius(4)
         .inner_margin(egui::Margin::symmetric(8, 4))
         .show(ui, |ui| {
-            ui.label(
-                RichText::new(match status {
-                    "idle" => "Ready".into(),
-                    "in_progress" => "Working".into(),
-                    "requires_action" => "Needs input".into(),
-                    other => other.replace('_', " "),
-                })
-                .size(12.0)
-                .color(color),
-            );
+            ui.horizontal(|ui| {
+                let (rect, _) = ui.allocate_exact_size(egui::vec2(6.0, 6.0), egui::Sense::hover());
+                ui.painter().circle_filled(rect.center(), 3.0, color);
+                ui.label(
+                    RichText::new(match status {
+                        "idle" => "Ready".into(),
+                        "in_progress" => "Working".into(),
+                        "requires_action" => "Needs input".into(),
+                        other => other.replace('_', " "),
+                    })
+                    .size(12.0)
+                    .color(TEXT),
+                );
+            });
         });
+}
+
+// Semantic identity colors, mirrored in site/brand.css and session-collaboration-planning.ts.
+pub(crate) const PARTICIPANT_COLORS: [Color32; 8] = [
+    Color32::from_rgb(217, 173, 245),
+    Color32::from_rgb(143, 201, 255),
+    Color32::from_rgb(243, 199, 123),
+    Color32::from_rgb(242, 169, 194),
+    Color32::from_rgb(184, 206, 145),
+    Color32::from_rgb(196, 185, 255),
+    Color32::from_rgb(239, 167, 139),
+    Color32::from_rgb(154, 205, 221),
+];
+pub(crate) fn participant_color(value: &str) -> Color32 {
+    let Some(hex) = value
+        .strip_prefix('#')
+        .filter(|hex| hex.len() == 6 && hex.is_ascii())
+    else {
+        return MUTED;
+    };
+    let Ok(rgb) = u32::from_str_radix(hex, 16) else {
+        return MUTED;
+    };
+    Color32::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)
 }

@@ -1,0 +1,35 @@
+{
+  "status": "inconclusive",
+  "mode": "motion",
+  "stages": [
+    {
+      "key": "stage-1",
+      "label": "ss-fit rw sc",
+      "coverage": {
+        "status": "inconclusive",
+        "frames": 1101,
+        "durationMs": 18331.70000000298,
+        "medianMs": 16.69999999552965,
+        "maxGapMs": 39.899999998509884,
+        "skippedGaps": 36,
+        "cameraFrames": 0,
+        "reasons": [
+          "36 sampling gap(s) exceeded 27ms; motion during those gaps was not judged"
+        ],
+        "framingSamples": 36,
+        "layout": {
+          "controls": 4,
+          "paddedContainers": 10,
+          "compositionCrops": 0
+        }
+      },
+      "findings": [],
+      "manual": [
+        "same-box content change: textarea changes text or drawing at 2.84s [compose]; inspect the transition in motion (geometry alone cannot judge it)"
+      ]
+    }
+  ],
+  "errors": [],
+  "manualReviewRequired": true,
+  "exitCode": 2
+}

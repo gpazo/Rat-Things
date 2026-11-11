@@ -90,7 +90,8 @@ Read it before changing any of them.
   Change a value in both or neither, and update `BRAND.md` with it.
 - Web stylesheets link `brand.css` first and use its tokens. They may alias a token but must not
   introduce new colors. SVG diagrams in `docs/` use the token hex values directly.
-- Neutral grays only, plus one accent (`#828fff`) for focus, links, selection and "working" state.
+- Participant identity colors are allowed only for authorship, replies and typing; keep names visible.
+- For other UI elements, neutral grays only, plus one accent (`#828fff`) for focus, links, selection and "working" state.
   Status colors appear only on status indicators. The retired cyan, amber, mint, lime and
   teal palettes must not return.
 - Inter at weights 400, 500 and 600; sentence case; no glows, radial gradients or tinted shadows.

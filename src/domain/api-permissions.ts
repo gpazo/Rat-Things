@@ -130,6 +130,8 @@ export function routeActions(method: string, parts: readonly string[], body?: un
   if (/^v1\/webhooks(?:\/[^/]+(?:\/rotate-secret)?)?$/.test(path)) return ['credentials'];
   if (/^v1\/rat\/spaces\/[^/]+\/(?:bindings|execution-roles)(?:\/[^/]+)?$/.test(path)) return ['manage_space'];
   if (/^v1\/rat\/agents\/[^/]+\/workload$/.test(path)) return ['manage_space'];
+  if (/^v1\/rat\/sessions\/[^/]+\/(?:typing|messages)$/.test(path)) return method === 'POST' ? ['contribute'] : [];
+  if (/^v1\/rat\/sessions\/[^/]+\/workspace\/(?:feedback|browser(?:\/capture)?|threads\/[^/]+\/image)$/.test(path)) return read && (parts[5] === 'browser' && parts.length === 6 || parts[5] === 'threads' && parts.length === 8 && parts[7] === 'image') ? ['read'] : method === 'POST' ? ['contribute'] : [];
   if (/^v1\/rat\/sessions\/[^/]+\/activity(?:\/events)?$/.test(path)) return read ? ['read'] : [];
   if (/^v1\/rat\/shares(?:\/[^/]+(?:\/activate)?)?$/.test(path)) return [read ? 'read' : 'share'];
   return [];

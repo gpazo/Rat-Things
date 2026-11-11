@@ -13,6 +13,8 @@ import { prepareLocalWorkspace } from './local-workspace-setup.js';
 import { localWorkspaceIdentity } from '../domain/local-workspace.js';
 import { LOCAL_PI_POLICY_PATH, localPiEffectPolicy } from './local-pi-effect-policy.js';
 import { runLocalPiEffectWorker, verifyLocalManagedSandbox } from './local-pi-effect-worker.js';
+import { startSharedBrowser } from './shared-browser-host.js';
+import { browserCommand, sharedBrowserGranted } from '../domain/shared-browser.js';
 
 let phase = 'configuration';
 async function main() {
@@ -51,7 +53,12 @@ async function main() {
     env: { PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/home/agent', CODEX_HOME: '/home/agent/.codex' },
   });
   phase = 'transport';
+  const browser = sharedBrowserGranted(input.launch.agent.tools) ? await startSharedBrowser({
+    directory: '/workspace', network: input.launch.environment.network, codexBinary: '/opt/codex-runtime/bin/codex',
+    identity: { uid: 10001, gid: 10001 }, environment: { PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/home/agent', CODEX_HOME: '/home/agent/.codex' },
+  }) : undefined;
   const relay = createEnvironmentRelay({
+    ...(browser ? { browser: command => browser.execute(browserCommand(command)) } : {}),
     healthEnvironmentId: input.environmentId,
     publicURL: role => role === 'executor' ? 'http://127.0.0.1:3211' : input.publicURL,
     environments: {
@@ -74,7 +81,7 @@ async function main() {
     env: { PATH: process.env.PATH, HOME: '/home/agent', CODEX_HOME: '/home/agent/.codex', CODEX_API_KEY: input.executorKey },
   });
   let stopping = false;
-  const stop = async (code: number) => { if (stopping) return; stopping = true; executor.kill('SIGTERM'); await relay.close(); process.exit(code); };
+  const stop = async (code: number) => { if (stopping) return; stopping = true; executor.kill('SIGTERM'); await browser?.close(); await relay.close(); process.exit(code); };
   process.once('SIGTERM', () => { void stop(0); }); process.once('SIGINT', () => { void stop(0); });
   executor.once('error', () => { void stop(1); }); executor.once('exit', () => { void stop(1); });
 }

@@ -1,4 +1,5 @@
 import { requireLocalExecution } from '../core/session-share-fence.js';
+import { browserFrame, requireSharedBrowser, SharedBrowserActionError, type BrowserCommand } from '../domain/shared-browser.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { AgentsStore } from '../core/agents-ports.js';
 import type { EnvironmentService } from '../core/environment-service.js';
@@ -99,6 +100,18 @@ export class LocalManagedEnvironment {
       return codexEnvironmentFiles({ registryURL: connection.url, environmentId: resource.value.session.environment.id,
         harnessKey: connection.harnessKey, workspace: '/workspace', operation, binary: host.binary, environment: host.environment });
     });
+  }
+  public async browser(owner: string, session: AgentSession, command: BrowserCommand) {
+    await requireLocalExecution(this.options.store, owner, session.id);
+    requireSharedBrowser(session.agent.tools, session.environment);
+    if (session.environment.type !== 'openai_hosted') throw new Error('Expected Rat Things worker');
+    const connection = await this.ensure(owner, session);
+    const response = await fetch(new URL(`/cloud/environment/${session.environment.id}/browser`, connection.url), {
+      method: 'POST', headers: { authorization: `Bearer ${connection.harnessKey}`, 'content-type': 'application/json' },
+      body: JSON.stringify(command), signal: AbortSignal.timeout(28000),
+    });
+    if (!response.ok) throw new SharedBrowserActionError('Browser action could not complete. Refresh before interacting.');
+    return browserFrame(await response.json());
   }
   public async state(owner: string, session: AgentSession) {
     if (session.environment.type === 'none') return undefined;

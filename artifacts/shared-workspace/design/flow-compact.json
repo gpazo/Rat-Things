@@ -1,0 +1,39 @@
+{
+  "status": "inconclusive",
+  "mode": "motion",
+  "stages": [
+    {
+      "key": "stage-1",
+      "label": "ss-fit rw",
+      "coverage": {
+        "status": "inconclusive",
+        "frames": 887,
+        "durationMs": 15347.39999999851,
+        "medianMs": 16.69999999552965,
+        "maxGapMs": 60.30000000447035,
+        "skippedGaps": 35,
+        "cameraFrames": 0,
+        "reasons": [
+          "35 sampling gap(s) exceeded 27ms; motion during those gaps was not judged"
+        ],
+        "framingSamples": 30,
+        "layout": {
+          "controls": 7,
+          "paddedContainers": 10,
+          "compositionCrops": 0
+        }
+      },
+      "findings": [
+        "clipped: near aligned: span.ss-swap__in \"Pin 1 · “It works on my \" and span \"Pinned feedback\" start 5.5px apart in aside.rw-discussion; lines in a card share one left edge, or one is indented on purpose by a column (an avatar's width and gap), never by a few pixels (15 frames from 3.0s)",
+        "clipped: near aligned: span \"Pinned feedback\" and span.ss-swap__in \"Agent ready · same Sessi\" start 10.1px apart in div.rw-composer-area; lines in a card share one left edge, or one is indented on purpose by a column (an avatar's width and gap), never by a few pixels (6 frames from 3.0s)",
+        "clipped: near aligned: span \"Pinned feedback\" and span.ss-swap__in \"Feedback included · read\" start 10.1px apart in div.rw-composer-area; lines in a card share one left edge, or one is indented on purpose by a column (an avatar's width and gap), never by a few pixels (11 frames from 9.5s)"
+      ],
+      "manual": [
+        "same-box content change: textarea changes text or drawing at 4.20s [pin]; inspect the transition in motion (geometry alone cannot judge it)"
+      ]
+    }
+  ],
+  "errors": [],
+  "manualReviewRequired": true,
+  "exitCode": 2
+}

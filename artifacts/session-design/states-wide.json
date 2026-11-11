@@ -1,0 +1,37 @@
+{
+  "status": "inconclusive",
+  "mode": "motion",
+  "stages": [
+    {
+      "key": "stage-1",
+      "label": "ss-fit rw sc",
+      "coverage": {
+        "status": "inconclusive",
+        "frames": 1253,
+        "durationMs": 20859.60000000149,
+        "medianMs": 16.69999999552965,
+        "maxGapMs": 38,
+        "skippedGaps": 10,
+        "cameraFrames": 0,
+        "reasons": [
+          "10 sampling gap(s) exceeded 27ms; motion during those gaps was not judged"
+        ],
+        "framingSamples": 10,
+        "layout": {
+          "controls": 4,
+          "paddedContainers": 9,
+          "compositionCrops": 0
+        }
+      },
+      "findings": [
+        "vanishes with no exit: span.ss-swap__in \"Agent is working\" goes from full opacity to gone in one frame; fade it out (or move it out of view) before it is removed"
+      ],
+      "manual": [
+        "same-box content change: textarea changes text or drawing at 2.90s [compose]; inspect the transition in motion (geometry alone cannot judge it)"
+      ]
+    }
+  ],
+  "errors": [],
+  "manualReviewRequired": true,
+  "exitCode": 2
+}

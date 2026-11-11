@@ -280,6 +280,8 @@ describe('live MicroVM agent interaction', () => {
     await expect(controller.events(target)).rejects.toBeInstanceOf(
       AgentInteractionUnavailableError,
     );
+    await expect(controller.browser(target, { command_id: 'frame', operation: { action: 'snapshot' } }))
+      .rejects.toMatchObject({ status: 503, code: 'browser_unavailable' });
     vi.unstubAllGlobals();
   });
 });

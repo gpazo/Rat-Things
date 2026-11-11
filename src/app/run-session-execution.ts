@@ -31,10 +31,16 @@ import type { SessionState } from '../core/session-ports.js';
 
 /** AWS execution is private implementation machinery; public clients see sessions and turns. */
 export class RunSessionExecution implements SessionExecution {
+  public async browser(ownerId: string, session: AgentSession, command: import('../domain/shared-browser.js').BrowserCommand): Promise<import('../domain/shared-browser.js').BrowserFrame> {
+    const runtime = await this.runtime.get(ownerId, session.id);
+    const run = runtime?.value.runId ? await this.runById(ownerId, runtime.value.runId) : undefined;
+    if (!run?.execution || run.status !== 'running' || !this.options.interaction.browser) throw new AgentsApiError(503, 'The Session browser is not running. Start or resume its managed environment.', 'browser_unavailable');
+    return this.options.interaction.browser({ runId: run.runId, execution: run.execution }, command);
+  }
   private readonly runtime: SessionRuntimeStore;
   public constructor(private readonly options: {
     runs: Pick<RunService, 'get' | 'submit' | 'idFor' | 'cancel'>;
-    interaction: Pick<AgentInteractionController, 'checkpoint' | 'startSessionTurn' | 'events' | 'steer' | 'interrupt' | 'respond'>;
+    interaction: Pick<AgentInteractionController, 'browser' | 'checkpoint' | 'startSessionTurn' | 'events' | 'steer' | 'interrupt' | 'respond'>;
     artifacts: Pick<ArtifactStore, 'getJson' | 'putJson' | 'getBytes' | 'getStream'>; vaults: Pick<VaultService, 'requireVaults'>;
     environments: Pick<EnvironmentService, 'prepare' | 'state' | 'retire' | 'managedLaunch' | 'attachManaged'> & Partial<Pick<EnvironmentService, 'prepareFork'>>;
     tools: Pick<SessionToolService, 'prepare' | 'launch' | 'close'> & Partial<Pick<SessionToolService, 'environmentLaunch' | 'forkTools'>>;

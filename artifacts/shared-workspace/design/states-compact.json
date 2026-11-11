@@ -1,0 +1,52 @@
+{
+  "status": "inconclusive",
+  "mode": "motion",
+  "stages": [
+    {
+      "key": "stage-1",
+      "label": "ss-fit rw",
+      "coverage": {
+        "status": "inconclusive",
+        "frames": 1032,
+        "durationMs": 17382.29999999702,
+        "medianMs": 16.69999999552965,
+        "maxGapMs": 55.099999994039536,
+        "skippedGaps": 16,
+        "cameraFrames": 0,
+        "reasons": [
+          "16 sampling gap(s) exceeded 27ms; motion during those gaps was not judged"
+        ],
+        "framingSamples": 12,
+        "layout": {
+          "controls": 7,
+          "paddedContainers": 10,
+          "compositionCrops": 0
+        }
+      },
+      "findings": [
+        "tight control: button.rw-button \"Add comment\" sits 6.4px under div.rw-tabs \"BrowserMockupBrief\"; a button keeps 8px or more from the field, line or card edge above it (open, capture)",
+        "small text: button.rw-button \"Add comment\" renders at 9.3px on a phone; the floor is about 10px, so lay compact out at the column's width and set its type for it, not shrunk from the wide design (open, capture)",
+        "layout: button is 27px high but its content, padding and borders need 28.9px (24 frames from open)",
+        "layout: div.rw-capture-hint leaves 10px below its last child inside div.rw-capture-hint, short of its 14px bottom padding (open, capture, pin)",
+        "tight control: button.rw-quiet \"Return to live\" sits 7.4px under div.rw-tabs \"BrowserMockupBrief\"; a button keeps 8px or more from the field, line or card edge above it (capture +0.7s, pin)",
+        "small text: span \"1 · On this capture\" renders at 9.3px on a phone; the floor is about 10px, so lay compact out at the column's width and set its type for it, not shrunk from the wide design (8 frames from pin +0.7s)",
+        "clipped: near aligned: span.ss-swap__in \"Pin 1 · “It works on my \" and span \"Feedback goes to the tea\" start 5.5px apart in aside.rw-discussion; lines in a card share one left edge, or one is indented on purpose by a column (an avatar's width and gap), never by a few pixels (complete, complete +0.7s, end 16.53s)",
+        "jump: rw-button \"Add comment\" x +2.9px in one frame at 1.77s [capture]",
+        "jump: rw-button \"Add comment\" width -2.9px in one frame at 1.77s [capture]",
+        "jump: rw-button \"Add comment\" height -2.1px in one frame at 1.77s [capture]",
+        "jump: span \"Concept preview\" width +3.3px in one frame at 1.77s [capture]",
+        "jump: ss-swap \"Feedback goes to t\" width -7.4px in one frame at 6.91s [reply]",
+        "steps in its box: button.rw-quiet \"Return to live\" moves by layout, so its text snaps to whole pixels while the box glides, and hops inside it as it lands; give it or a parent a lasting layer (will-change: transform), and glide it by a transform",
+        "appears with no entrance: svg.lucide.lucide-arrow-left shows at full size and opacity in one frame; fade it in, or grow it out of what it comes from (a chip budding off a value scales from it as it fades in: Fly with held), never pop it in whole",
+        "vanishes with no exit: svg.lucide.lucide-message-square goes from full opacity to gone in one frame; fade it out (or move it out of view) before it is removed",
+        "handoff shift: svg.lucide.lucide-camera replaces an identical element that was last drawn 0.0px across, 1.6px down and -0.8x-0.8px larger, so it visibly snaps on the swap; measure the element that lands (rect() on it, not its container) and swap on a frame where both are identical"
+      ],
+      "manual": [
+        "same-box content change: textarea changes text or drawing at 4.18s [pin]; inspect the transition in motion (geometry alone cannot judge it)"
+      ]
+    }
+  ],
+  "errors": [],
+  "manualReviewRequired": true,
+  "exitCode": 2
+}

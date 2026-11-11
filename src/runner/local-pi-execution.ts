@@ -16,6 +16,8 @@ import { openPiEngine, type PiEngine } from './pi/engine.js';
 import { PI_CONTEXT, type PiEffects } from './pi/protocol.js';
 import type { LocalManagedEnvironment } from './local-managed-environment.js';
 import { PI_MANAGED_TOOLS } from './pi-managed-tools.js';
+import { sharedBrowserGranted, type BrowserCommand } from '../domain/shared-browser.js';
+import { withBrowserEffects } from './pi-browser-effects.js';
 
 interface LocalPiRuntime { engine: PiEngine; effects?: PiEffects; close(): Promise<void> }
 
@@ -42,6 +44,10 @@ export class LocalPiExecution implements SessionExecution {
     return { type: 'none' as const };
   }
   public environment(owner: string, session: AgentSession) { return this.options.managed?.state(owner, session) ?? Promise.resolve(undefined); }
+  public async browser(owner: string, session: AgentSession, command: BrowserCommand) {
+    if (!this.options.managed) throw new AgentsApiError(503, 'The Rat Things worker is unavailable.', 'browser_unavailable');
+    return this.options.managed.browser(owner, session, command);
+  }
   public initialize(owner: string, session: AgentSession) { return this.reconcile(owner, session, true); }
   public reconcile(owner: string, session: AgentSession, initialize = false) {
     return this.lifecycle.run(session.id, async () => {
@@ -189,6 +195,12 @@ export class LocalPiExecution implements SessionExecution {
         if (!this.options.managed) throw new Error('Managed Pi execution is unavailable');
         effects = await this.options.managed.openPiEffects(owner, session, lease, { runId, epoch });
       }
+      if (sharedBrowserGranted(session.agent.tools)) effects = withBrowserEffects(effects ?? {
+        tools: PI_MANAGED_TOOLS, execute: async () => { throw new Error('Cancellation cannot execute tools'); }, close: async () => {},
+      }, async command => {
+        if (mode !== 'execute') throw new Error('Cancellation cannot control the browser');
+        await lease.assertActive(); return this.browser(owner, session, command);
+      });
       const engine = await openPiEngine({ storage, models: this.options.models(pin), mode: 'bounded', nativeSeq: previous?.value.native?.head?.seq ?? 0,
         launch: { sessionId: session.id, turnId: '', runtime: pin, agent: session.agent, environment: session.environment, input: [], history },
         effectTools: effects?.tools ?? (session.environment.type === 'openai_hosted' ? PI_MANAGED_TOOLS : []),

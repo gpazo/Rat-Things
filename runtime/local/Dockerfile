@@ -1,13 +1,15 @@
 FROM public.ecr.aws/amazonlinux/amazonlinux:2023@sha256:c07ab0773eddf9449c0994a87d8148300db98bdf8d8dad672a9dc26321c104fc AS worker-root
 COPY package-inventory.py /opt/rat-build-tools/package-inventory.py
 RUN python3 /opt/rat-build-tools/package-inventory.py snapshot /opt/rat-build-evidence/base-packages.json \
-    && dnf --releasever=2023.12.20261016 --disablerepo='*' --enablerepo=amazonlinux --setopt=keepcache=True --setopt=gpgcheck=True install -y bash ca-certificates findutils git nodejs22 nodejs22-npm python3 python3-pip shadow-utils tar util-linux \
+    && dnf --releasever=2023.12.20261016 --disablerepo='*' --enablerepo=amazonlinux --setopt=keepcache=True --setopt=gpgcheck=True install -y bash ca-certificates curl-minimal findutils git nodejs22 nodejs22-npm python3 python3-pip shadow-utils tar util-linux \
     && python3 /opt/rat-build-tools/package-inventory.py /opt/rat-build-evidence/worker --before /opt/rat-build-evidence/base-packages.json \
     && dnf clean all && rm -rf /var/cache/dnf \
     && groupadd --gid 10001 agent \
     && useradd --uid 10001 --gid 10001 --create-home --shell /bin/bash agent \
     && install -d -o agent -g agent -m 0700 /workspace /home/agent/.codex
 COPY codex-runtime /opt/codex-runtime
+COPY install-browser.mjs /opt/rat-build-tools/install-browser.mjs
+RUN node /opt/rat-build-tools/install-browser.mjs
 COPY local-worker.mjs /opt/rat-things/local-worker.mjs
 RUN find /opt/codex-runtime -type d -exec chmod 755 {} + \
     && chmod 644 /opt/rat-things/local-worker.mjs \

@@ -1,0 +1,26 @@
+{
+  "status": "no-issues-detected",
+  "exitCode": 0,
+  "scopes": [
+    {
+      "selector": ".design-host",
+      "findings": [],
+      "checked": {
+        "controls": 6,
+        "paddedContainers": 7,
+        "compositionCrops": 0
+      },
+      "deferred": [],
+      "manual": [
+        "This snapshot checks box fit and authored insets; inspect optical centering, shape contours, interaction states and motion visually."
+      ]
+    }
+  ],
+  "errors": [],
+  "manualReviewRequired": true,
+  "viewport": {
+    "width": 390,
+    "height": 1000
+  },
+  "url": "http://127.0.0.1:4177/?scene=session&try=1"
+}

@@ -106,7 +106,7 @@ export async function startLocalServer(options: {
           response = Response.json(method === 'GET' ? await services.transfers.retrieve(id) : await services.transfers.execute(id));
         } else {
           const models = url.pathname === '/v1/models' && url.searchParams.get('runtime') !== 'pi' ? await services.models() : undefined;
-          response = await routeAgentsRequest(request, iamApiPrincipal(LOCAL_OWNER), { ...services, models });
+          response = await routeAgentsRequest(request, { ...iamApiPrincipal(LOCAL_OWNER), authentication: 'local', actor: { id: LOCAL_OWNER, kind: 'local', label: 'You' } }, { ...services, models });
         }
         const responseHeaders: Record<string, string> = { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' };
         response.headers.forEach((value, name) => { responseHeaders[name] = value; });

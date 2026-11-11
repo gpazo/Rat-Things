@@ -70,7 +70,7 @@ const server = createServer(async (request, response) => {
             ? 'agent_control_unavailable'
             : 'agent_control_failed',
         message: error instanceof Error ? error.message.slice(0, 1_000) : 'agent control failed',
-        ...(error instanceof RuntimeConflict && error.code === 'session_steer_rejected' ? { code: error.code } : {}),
+        ...(error instanceof RuntimeConflict && ['session_steer_rejected', 'shared_browser_action_rejected'].includes(error.code) ? { code: error.code } : {}),
       });
     }
     return;
@@ -522,7 +522,7 @@ function parseControlRoute(rawUrl) {
   if (parts.length < 5) return undefined;
   const runId = parts[3];
   if (!/^[A-Za-z0-9-]{1,128}$/.test(runId)) return undefined;
-  if (parts.length === 5 && ['events', 'health', 'steer', 'interrupt', 'session-start', 'environment-files', 'checkpoint'].includes(parts[4])) {
+  if (parts.length === 5 && ['events', 'health', 'steer', 'interrupt', 'session-start', 'environment-files', 'shared-browser', 'checkpoint'].includes(parts[4])) {
     return { runId, operation: parts[4], query: url.searchParams };
   }
   if (parts.length === 7 && parts[4] === 'requests' && parts[6] === 'respond') {
@@ -591,6 +591,9 @@ async function handleControlRequest(request, response, route) {
       return;
     case 'environment-files':
       send(response, 200, await sendControlCommand(run, { type: 'environment_files', operation: body }));
+      return;
+    case 'shared-browser':
+      send(response, 200, await sendControlCommand(run, { type: 'shared_browser', command: body }));
       return;
     case 'session-start':
       if (!isRecord(body.turn) || !Array.isArray(body.input)) throw new InvalidHookRequest('invalid session turn');
@@ -693,7 +696,7 @@ function handleRunnerControlMessage(runId, message) {
       if (message.ok === true) waiter.resolve(message.result);
       else waiter.reject(new RuntimeConflict(
         typeof message.error === 'string' ? message.error.slice(0, 1_000) : 'agent rejected control command',
-        message.code === 'session_steer_rejected' ? message.code : undefined,
+        ['session_steer_rejected', 'shared_browser_action_rejected'].includes(message.code) ? message.code : undefined,
       ));
       break;
     }
@@ -894,6 +897,7 @@ function prepareTransientRunState(stateRoot, runId) {
     ['codex-sqlite', join(codexHome, 'sqlite')],
     ['plugin-cache', join(codexHome, 'plugins', 'cache')],
     ['artifacts', join(workspace, '.rat-things', 'artifacts')],
+    ['browser', join(workspace, '.rat-things', 'browser')],
   ];
 
   if (

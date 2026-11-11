@@ -1,0 +1,31 @@
+{
+  "status": "passed",
+  "duration_seconds": 75,
+  "frames": 900,
+  "width": 1920,
+  "height": 1080,
+  "codec": "h264",
+  "bytes": 1304067,
+  "sha256": "63ef9742e1cb7667c701df79d57cb22f27f9938de989650db555c82a486534f7",
+  "full_decode": "passed",
+  "source_image_hashes_verified": 104,
+  "decoded_review_times": [
+    0,
+    3.5,
+    10.0,
+    16.5,
+    22.0,
+    25.5,
+    26.5,
+    28.5,
+    32.0,
+    39.0,
+    47.0,
+    49,
+    53.5,
+    63.0,
+    72.5,
+    74.9
+  ],
+  "paid_inference_calls_for_edit": 0
+}

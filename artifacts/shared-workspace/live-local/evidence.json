@@ -1,0 +1,19 @@
+{
+  "status": "passed",
+  "inference": "Local Responses fixture; zero paid calls",
+  "checks": [
+    "Real local Linux worker browser remains usable after a fixture-model Turn; local artifact navigation and click work",
+    "Attributed annotation is idempotent and reaches the real Codex protocol with the exact captured image",
+    "Graceful service restart preserves SQLite feedback and captured image while the replacement browser gets a new generation"
+  ],
+  "timings_ms": {
+    "first_turn": 7078
+  },
+  "fixture_requests": 2,
+  "limitations": [
+    "Direct local service orchestration, not native UI windows",
+    "No local subscription inference",
+    "No local multi-user OIDC deployment",
+    "Graceful restart only"
+  ]
+}

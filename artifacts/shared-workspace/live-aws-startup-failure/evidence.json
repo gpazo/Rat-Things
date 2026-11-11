@@ -1,0 +1,55 @@
+{
+  "proof": "workspace-0ee6344e-f341-469d-9316-b95b8bb3f398",
+  "model": "openai.gpt-5.6-luna",
+  "started_at": "2026-11-09T15:05:33.604Z",
+  "client_kind": "Independent authenticated HTTP/SSE clients (not native UI windows)",
+  "checks": [
+    "OIDC roles and fixed browser execution grant configured",
+    "Shared Session accepted"
+  ],
+  "timings_ms": {
+    "session_submit": 803
+  },
+  "limitations": [
+    "Single scenario; not a load benchmark",
+    "Cost estimate excludes infrastructure billing"
+  ],
+  "pricing": {
+    "source": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-56-luna.html",
+    "input_per_million_usd": 0.22,
+    "output_per_million_usd": 1.32,
+    "cache_read_per_million_usd": 0.022
+  },
+  "space_id": "space_4980e3bce45743c49eee79645c7238d9",
+  "session_id": "sess_126ec7a251bf4e579859fa0a300f4bc3",
+  "status": "failed",
+  "error": "Turn failed: {\"code\":\"invalid_request\",\"message\":\"The submitted input could not be delivered.\"}",
+  "assistant_text": "",
+  "browser_tool_text": [],
+  "turns": [
+    {
+      "id": "turn_9f5afa4f2d1842cf822836a05f7652b7",
+      "status": "failed",
+      "error": {
+        "code": "invalid_request",
+        "message": "The submitted input could not be delivered."
+      },
+      "usage": null
+    }
+  ],
+  "usage": {
+    "input": 0,
+    "output": 0
+  },
+  "estimated_inference_usd": 0,
+  "estimate_note": "Conservative uncached short-context token estimate; infrastructure excluded, not an AWS invoice.",
+  "threads": [],
+  "item_summary": [
+    {
+      "type": "message",
+      "id": "msg_1b92550f242a40dab60b0d9d61dbd75b"
+    }
+  ],
+  "cleanup_errors": [],
+  "finished_at": "2026-11-09T15:06:25.029Z"
+}

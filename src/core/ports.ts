@@ -60,6 +60,7 @@ export interface ExecutionController {
 }
 
 export interface AgentInteractionController {
+  browser?(target: AgentInteractionTarget, command: import('../domain/shared-browser.js').BrowserCommand): Promise<import('../domain/shared-browser.js').BrowserFrame>;
   checkpoint?(target: AgentInteractionTarget): Promise<unknown>;
   environmentFiles?(target: AgentInteractionTarget, operation: import('./environment-file-ports.js').EnvironmentFileOperation): Promise<unknown>;
   startSessionTurn?(target: AgentInteractionTarget, turn: import('../domain/agents-api.js').Turn, input: AgentSessionInputMessageParam[], settings?: import('../domain/session-execution.js').SessionModelSettings): Promise<void>;

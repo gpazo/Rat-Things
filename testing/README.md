@@ -480,3 +480,24 @@ To evaluate an approved Bedrock model, set `EVENT_FILTER_REPLAY_MODEL_ID` and `A
 before running the same command. This opt-in run makes paid inference calls with no tools.
 The output reports disagreement with the fixture annotations. The fixture is a regression
 example, not an estimate of production precision or recall.
+
+### Shared workspace and browser
+
+`tests/agents/session-workspace.test.ts` covers annotation receipts, roles,
+revocation, input delivery, actor-scoped idempotency and shared frame capture.
+The native console suite exercises the shared workspace through real HTTP routes.
+
+Real Chromium checks are opt-in and use deterministic local HTML, with no model
+inference. Set `RAT_BROWSER_TEST_BINARY` to a dedicated `chrome-headless-shell`
+executable and run:
+
+```bash
+npx vitest run tests/runner/shared-browser.test.ts tests/agents/session-workspace.test.ts --maxWorkers=1
+```
+
+On macOS the fixture rejects full Chrome/Chromium apps, including Chrome for
+Testing. Use Playwright's separately installed headless-shell binary so validation
+cannot open browser setup or reset dialogs. Every fixture uses its own temporary
+profile and closes its browser process group. Production workers use the pinned
+Linux headless Chromium pack installed at image build time. Updating that pack
+requires updating checksums and rebuilding both local and AWS worker images.

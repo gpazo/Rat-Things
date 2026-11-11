@@ -232,7 +232,11 @@ impl ConsoleApp {
             self.receive_team(TeamOperation::Share, Ok(Data::Local(share)), ctx);
             return;
         }
-        if ((self.workspace_open && self.team.open) || self.team.share_open) && !self.team.loaded {
+        // Restored team workspaces need their own identity before showing presence,
+        // even when the connection settings have never been opened this launch.
+        if (self.is_team() || (self.workspace_open && self.team.open) || self.team.share_open)
+            && !self.team.loaded
+        {
             self.team_request(
                 TeamOperation::Connections,
                 Method::GET,
@@ -511,6 +515,8 @@ impl ConsoleApp {
         }
     }
     pub(super) fn clear_team_access(&mut self, ctx: &egui::Context) {
+        self.collaboration = CollaborationUi::default();
+        self.artifact_workspace = ArtifactWorkspace::default();
         self.worker.cancel_activity();
         self.team.authority_revision += 1;
         self.team.authority_valid_until = None;
@@ -566,39 +572,143 @@ impl ConsoleApp {
         }
     }
     pub(super) fn team_controls(&mut self, ui: &mut Ui, ctx: &egui::Context, can_switch: bool) {
-        theme::card().show(ui, |ui| {
-            ui.label(RichText::new("Your team").font(theme::semibold(15.0)));
-            ui.label("Sign in with your own account. A space role determines what you can see and do.");
+        theme::section(ui, "Your team", "Your space role controls access.", |ui| {
             let label = ui.label("Team API URL");
-            ui.add(TextEdit::singleline(&mut self.team.endpoint).hint_text("https://team.example/v1").desired_width(f32::INFINITY)).labelled_by(label.id);
-            if ui.add_enabled(self.team.pending.is_none() && !self.team.endpoint.trim().is_empty(), egui::Button::new("Find team sign-in")).clicked() {
+            ui.add(
+                TextEdit::singleline(&mut self.team.endpoint)
+                    .hint_text("https://team.example/v1")
+                    .desired_width(f32::INFINITY),
+            )
+            .labelled_by(label.id);
+            if ui
+                .add_enabled(
+                    self.team.pending.is_none() && !self.team.endpoint.trim().is_empty(),
+                    egui::Button::new("Find team sign-in"),
+                )
+                .clicked()
+            {
                 self.team.providers.clear();
-                self.team_request(TeamOperation::Discovery, Method::POST, "/api/v1/team/discovery".into(), Some(json!({"endpoint":self.team.endpoint.trim()})), ctx);
+                self.team_request(
+                    TeamOperation::Discovery,
+                    Method::POST,
+                    "/api/v1/team/discovery".into(),
+                    Some(json!({"endpoint":self.team.endpoint.trim()})),
+                    ctx,
+                );
             }
             if !self.team.providers.is_empty() {
-                egui::ComboBox::new("team-provider", "Sign-in provider").selected_text(&self.team.provider).show_ui(ui, |ui| { for provider in &self.team.providers { let id = string(provider, "id"); ui.selectable_value(&mut self.team.provider, id.clone(), id); } });
-                if ui.add_enabled(self.team.pending.is_none() && self.team.login.is_none(), theme::primary_button("Sign in to team")).clicked() {
+                egui::ComboBox::new("team-provider", "Sign-in provider")
+                    .selected_text(&self.team.provider)
+                    .show_ui(ui, |ui| {
+                        for provider in &self.team.providers {
+                            let id = string(provider, "id");
+                            ui.selectable_value(&mut self.team.provider, id.clone(), id);
+                        }
+                    });
+                if ui
+                    .add_enabled(
+                        self.team.pending.is_none() && self.team.login.is_none(),
+                        theme::primary_button("Sign in to team"),
+                    )
+                    .clicked()
+                {
                     self.team_request(TeamOperation::Login, Method::POST, "/api/v1/team/login".into(), Some(json!({"endpoint":self.team.endpoint.trim(),"provider_id":self.team.provider})), ctx);
                 }
             }
             if let Some(login) = self.team.login.clone() {
-                ui.label(if string(&login, "status") == "waiting" { "Finish sign-in in your browser." } else { "Sign-in did not complete. Cancel and try again." });
-                if let Some(url) = login["url"].as_str() { ui.hyperlink_to("Open team sign-in", url); }
-                if ui.add_enabled(self.team.pending.is_none(), egui::Button::new("Cancel team sign-in")).clicked() { self.team_request(TeamOperation::CancelLogin, Method::DELETE, format!("/api/v1/team/login/{}",path_segment(&string(&login,"id"))), None, ctx); }
+                ui.label(if string(&login, "status") == "waiting" {
+                    "Finish sign-in in your browser."
+                } else {
+                    "Sign-in did not complete. Cancel and try again."
+                });
+                if let Some(url) = login["url"].as_str() {
+                    ui.hyperlink_to("Open team sign-in", url);
+                }
+                if ui
+                    .add_enabled(
+                        self.team.pending.is_none(),
+                        egui::Button::new("Cancel team sign-in"),
+                    )
+                    .clicked()
+                {
+                    self.team_request(
+                        TeamOperation::CancelLogin,
+                        Method::DELETE,
+                        format!("/api/v1/team/login/{}", path_segment(&string(&login, "id"))),
+                        None,
+                        ctx,
+                    );
+                }
             }
             self.team_spaces(ui, ctx, false, can_switch);
             if self.is_team() && self.can_manage() && self.permitted("manage_space") {
-                ui.separator(); ui.label("Space members");
+                ui.separator();
+                ui.label("Space members");
                 let space = string(self.workspace.as_ref().unwrap(), "space_id");
-                if self.team.bindings.is_none() && self.team.pending.is_none() { self.team.bindings = Some(Vec::new()); self.team_request(TeamOperation::Bindings, Method::GET, format!("/api/v1/rat/spaces/{}/bindings",path_segment(&space)), None, ctx); }
-                for binding in self.team.bindings.clone().unwrap_or_default() { ui.label(format!("{} · {}", string(&binding,"subject"), string(&binding,"role"))); }
-                let label=ui.label("Identity issuer"); ui.text_edit_singleline(&mut self.team.issuer).labelled_by(label.id);
-                let label=ui.label("Verified subject"); ui.text_edit_singleline(&mut self.team.subject).labelled_by(label.id);
-                egui::ComboBox::new("team-grant-role", "Space role").selected_text(if self.team.grant_role.is_empty() { "Choose role" } else { &self.team.grant_role }).show_ui(ui, |ui| { for role in ["viewer","collaborator","controller","manager"] { ui.selectable_value(&mut self.team.grant_role,role.into(),role); } });
-                if ui.add_enabled(self.team.pending.is_none() && !self.team.issuer.is_empty() && !self.team.subject.is_empty() && !self.team.grant_role.is_empty(),egui::Button::new("Grant space role")).clicked() { self.team_request(TeamOperation::Grant,Method::POST,format!("/api/v1/rat/spaces/{}/bindings",path_segment(&space)),Some(json!({"issuer":self.team.issuer,"subject":self.team.subject,"role":self.team.grant_role})),ctx); }
-                ui.label(RichText::new("Use the exact issuer and subject from the person's verified team identity.").small().color(theme::MUTED));
+                if self.team.bindings.is_none() && self.team.pending.is_none() {
+                    self.team.bindings = Some(Vec::new());
+                    self.team_request(
+                        TeamOperation::Bindings,
+                        Method::GET,
+                        format!("/api/v1/rat/spaces/{}/bindings", path_segment(&space)),
+                        None,
+                        ctx,
+                    );
+                }
+                for binding in self.team.bindings.clone().unwrap_or_default() {
+                    ui.label(format!(
+                        "{} · {}",
+                        string(&binding, "subject"),
+                        string(&binding, "role")
+                    ));
+                }
+                let label = ui.label("Identity issuer");
+                ui.text_edit_singleline(&mut self.team.issuer)
+                    .labelled_by(label.id);
+                let label = ui.label("Verified subject");
+                ui.text_edit_singleline(&mut self.team.subject)
+                    .labelled_by(label.id);
+                egui::ComboBox::new("team-grant-role", "Space role")
+                    .selected_text(if self.team.grant_role.is_empty() {
+                        "Choose role"
+                    } else {
+                        &self.team.grant_role
+                    })
+                    .show_ui(ui, |ui| {
+                        for role in ["viewer", "collaborator", "controller", "manager"] {
+                            ui.selectable_value(&mut self.team.grant_role, role.into(), role);
+                        }
+                    });
+                if ui
+                    .add_enabled(
+                        self.team.pending.is_none()
+                            && !self.team.issuer.is_empty()
+                            && !self.team.subject.is_empty()
+                            && !self.team.grant_role.is_empty(),
+                        egui::Button::new("Grant space role"),
+                    )
+                    .clicked()
+                {
+                    self.team_request(TeamOperation::Grant,Method::POST,format!("/api/v1/rat/spaces/{}/bindings",path_segment(&space)),Some(json!({"issuer":self.team.issuer,"subject":self.team.subject,"role":self.team.grant_role})),ctx);
+                }
+                ui.label(
+                    RichText::new(
+                        "Use the issuer and subject from the person’s verified identity.",
+                    )
+                    .small()
+                    .color(theme::MUTED),
+                );
             }
-            if ui.add_enabled(self.team.pending.is_none(), egui::Button::new("Refresh team accounts")).clicked() { self.team.loaded = false; self.team.bindings = None; }
+            if ui
+                .add_enabled(
+                    self.team.pending.is_none(),
+                    egui::Button::new("Refresh team accounts"),
+                )
+                .clicked()
+            {
+                self.team.loaded = false;
+                self.team.bindings = None;
+            }
             self.team_feedback(ui);
         });
     }
@@ -668,12 +778,13 @@ impl ConsoleApp {
         if !self.team.share_open {
             return;
         }
-        egui::Modal::new(egui::Id::unique("share-session")).show(ctx,|ui| {
-            ui.set_width(440.0); ui.heading("Share this Session");
-            ui.label("The same agent, history and workspace will continue in your team space. Work can continue after you close this app.");
+        egui::Modal::new(egui::Id::unique("share-session")).frame(theme::card().inner_margin(24).corner_radius(12)).show(ctx,|ui| {
+            ui.set_width(560.0_f32.min((ctx.content_rect().width() - 96.0).max(240.0)));
+            theme::page_intro(ui, "Share this Session", "Move this Session, its history and workspace to a team space.");
+            egui::ScrollArea::vertical().id_salt("share-body").max_height((ctx.content_rect().height() - 240.0).max(120.0)).show(ui, |ui| {
             if self.team.share_request.is_none() {
                 self.team_spaces(ui,ctx,true,false);
-                if self.team.connections.is_empty() { ui.label("Connect your team in Workspace to choose a space."); }
+                if self.team.connections.is_empty() { ui.label("Connect a team account in Workspaces first."); }
                 let eligible=self.team.spaces.iter().any(|s| string(s,"id")==self.team.space && Role::parse(&string(s,"role")).contributes());
                 if ui.add_enabled(eligible && self.team.pending.is_none(),theme::primary_button("Share Session")).clicked() {
                     let connection=self.team.connections.iter().find(|c| string(c,"id")==self.team.connection).unwrap();
@@ -683,7 +794,7 @@ impl ConsoleApp {
                 }
             } else {
                 let status=self.team.share.as_ref().map(|s| string(s,"status")).unwrap_or_else(|| "submitting".into());
-                ui.label(match status.as_str() { "quiescing"=>"Waiting for the current Turn to finish…", "staging"=>"Saving the Session and workspace…", "released"=>"Activating the hosted Session…", "complete"=>"Shared. Opening the team Session…", "failed"=>"Share needs attention. Your Session remains protected from duplicate execution.", _=>"Confirming the Share request…" });
+                ui.label(match status.as_str() { "quiescing"=>"Waiting for the current Turn to finish…", "staging"=>"Saving the Session and workspace…", "released"=>"Activating the hosted Session…", "complete"=>"Shared. Opening the team Session…", "failed"=>"Sharing failed. Retry or keep the Session local when available.", _=>"Confirming the Share request…" });
                 if let Some(error)=self.team.share.as_ref().and_then(|s| s["error"].as_str()) { ui.label(error); }
                 if status == "failed" && self.team.share.as_ref().is_some_and(|share| share["can_abort"] == true) && self.team.pending.is_none() && ui.button("Keep local").clicked()
                     && let Some(share) = &self.team.share { self.team_request(TeamOperation::AbortShare, Method::DELETE, format!("/api/v1/workspace/shares/{}", path_segment(&string(share,"id"))), None, ctx); }
@@ -693,7 +804,13 @@ impl ConsoleApp {
                 }
             }
             self.team_feedback(ui);
-            if ui.button("Close").clicked() { self.team.share_open=false; }
+            });
+            ui.add_space(12.0);
+            ui.separator();
+            ui.add_space(8.0);
+            ui.horizontal(|ui| { ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("Close").clicked() { self.team.share_open=false; }
+            }); });
         });
     }
 }

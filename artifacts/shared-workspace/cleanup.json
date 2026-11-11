@@ -1,0 +1,10 @@
+{
+  "status": "destroyed",
+  "deployment_id": "ws1109",
+  "verified_at": "2026-11-09T16:33:20.455455+00:00",
+  "terraform_managed_resources": 0,
+  "verification": "Image-scoped MicroVM termination scans and deployment-tagged resource checks completed in the teardown harness.",
+  "kms": "Disabled and scheduled for deletion, as required by AWS.",
+  "test_identities": "Scenario cleanup completed without errors; disposable Cognito user pool removed with the stack.",
+  "local_resources": "Both completed local proofs exited successfully after removing their own containers, paired volumes and temporary profiles. Docker reports no remaining containers. Unrelated preexisting volumes were left intact."
+}
