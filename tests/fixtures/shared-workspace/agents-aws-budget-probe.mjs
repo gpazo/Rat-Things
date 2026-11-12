@@ -1,5 +1,4 @@
 import { registerHooks } from 'node:module';
-import { createServer } from 'node:http';
 import { mkdir, readFile, readdir } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 const scratch=resolve(process.env.RT_PROBE_DIR); process.chdir(scratch); await mkdir('profile',{recursive:true});
@@ -50,5 +49,6 @@ const bypass=await nativeFetch(details.url+'/api/v1/rat/sessions/session_mock/me
 const encoded=await nativeFetch(details.url+'/api/v1/rat/sessions/session_mock/%6dessages',{method:'POST',headers,body:JSON.stringify({text:'encoded path probe'})});
 const feedback=await nativeFetch(details.url+'/api/v1/rat/sessions/session_mock/workspace/feedback',{method:'POST',headers,body:JSON.stringify({text:'feedback probe'})});
 const fork=await nativeFetch(details.url+'/api/v1/agents/sessions/session_mock/fork',{method:'POST',headers,body:JSON.stringify({input:'alternate inference route'})});
-console.log(`GUARD_RESULT=${JSON.stringify({bare_status:capped.status,trailing_slash_status:bypass.status,encoded_status:encoded.status,feedback_status:feedback.status,fork_status:fork.status,upstream_forwarded:forwarded})}`);
+const read=await nativeFetch(details.url+'/api/v1/rat/sessions/session_mock/activity',{headers});
+console.log(`GUARD_RESULT=${JSON.stringify({bare_status:capped.status,trailing_slash_status:bypass.status,encoded_status:encoded.status,feedback_status:feedback.status,fork_status:fork.status,read_status:read.status,upstream_forwarded:forwarded})}`);
 process.stdin.emit('end');

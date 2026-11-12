@@ -16,6 +16,8 @@ import { sharedBrowserTool } from '../../../src/domain/shared-browser.js';
 import { iamApiPrincipal, rolePermissions } from '../../../src/domain/api-permissions.js';
 import { routeAgentsRequest } from '../../../src/lambdas/agents-router.js';
 import { activityStream } from '../../../src/lambdas/activity-stream.js';
+import { classifyDemoRoute } from '../demo-policy.js';
+import { cleanupAgentsLive, type LiveTurnUsage } from './cleanup.js';
 
 // Two AI participants share one local Session. Only participant authentication is
 // demo-only (loopback bearer tokens); services, SQLite, Codex, the Linux worker,
@@ -61,9 +63,10 @@ const server = createServer((incoming, outgoing) => void (async () => {
   const request = new Request(`http://127.0.0.1${path}${url.search}`, { method: incoming.method ?? 'GET', headers, signal: abort.signal, ...(chunks.length ? { body: Buffer.concat(chunks) } : {}) });
   const after = request.headers.get('last-event-id') ?? url.searchParams.get('after');
   const space = { id: 'space_agents', name: 'Claude + Codex', role: 'collaborator', permissions: person.permissions };
-  const contribution = request.method === 'POST' && (path === `/v1/rat/sessions/${sessionId}/messages` || path === `/v1/agents/sessions/${sessionId}/events`);
+  const route = classifyDemoRoute(request.method, path, sessionId ?? '');
   let response: Response;
-  if (contribution && (await services.sessions.turns(LOCAL_OWNER, sessionId!)).data.length >= maxTurns) {
+  if (route.kind === 'deny') response = Response.json({ error: { message: 'Route is not available through this demo.', code: 'resource_not_found' } }, { status: 404 });
+  else if (route.kind === 'inference' && (await services.sessions.turns(LOCAL_OWNER, sessionId!)).data.length >= maxTurns) {
     response = Response.json({ error: { message: `Demo Turn limit (${maxTurns}) reached.`, code: 'demo_budget' } }, { status: 429 });
   } else if (path === '/v1/workspace') response = Response.json({ ...space, kind: 'team', connection_id: 'agents', space_id: space.id });
   else if (path === '/v1/rat/spaces') response = Response.json({ object: 'list', data: [space] });
@@ -79,20 +82,42 @@ const server = createServer((incoming, outgoing) => void (async () => {
 })().catch(error => { if (!outgoing.headersSent) { outgoing.writeHead(500); outgoing.end(JSON.stringify({ error: { message: String(error) } })); } else outgoing.destroy(); }));
 
 const connection = join(directory, 'agents-live.json');
-let closing: Promise<void> | undefined;
+let closing: Promise<number> | undefined;
 const close = () => closing ??= (async () => {
-  server.closeAllConnections(); server.close();
-  const usage = sessionId ? (await services.sessions.turns(LOCAL_OWNER, sessionId)).data : [];
-  await services.close();
-  await rm(connection, { force: true });
-  if (sessionId) { const volume = localWorkerNames(workspaceId, sessionId).volume; await promisify(execFile)('docker', ['volume', 'rm', volume, `${volume}-state`]).catch(() => undefined); }
-  await writeFile(join(output, 'cleanup.json'), JSON.stringify({ status: 'removed', resources: 'Session worker container and paired volumes; the demo profile and its sign-in are kept',
-    model, inference: 'ChatGPT subscription through Codex (not API-billed)', turns: usage.length,
-    usage: usage.map(turn => ({ id: turn.id, status: turn.status, usage: (turn as { usage?: unknown }).usage ?? null })) }, null, 2) + '\n');
+  const workerVolume = sessionId ? localWorkerNames(workspaceId, sessionId).volume : undefined;
+  const stateVolume = workerVolume ? `${workerVolume}-state` : undefined;
+  const result = await cleanupAgentsLive({
+    stopServer: async () => {
+      server.closeAllConnections();
+      if (server.listening) await new Promise<void>((resolveClose, rejectClose) => server.close(error => error ? rejectClose(error) : resolveClose()));
+    },
+    readTurns: async (): Promise<LiveTurnUsage[]> => sessionId ? (await services.sessions.turns(LOCAL_OWNER, sessionId)).data : [],
+    closeServices: () => services.close(),
+    removeConnectionFile: () => rm(connection, { force: true }),
+    removeVolume: async name => { await promisify(execFile)('docker', ['volume', 'rm', name], { timeout: 30_000 }); },
+    volumeExists: async name => {
+      const { stdout } = await promisify(execFile)('docker', ['volume', 'ls', '--filter', `name=${name}`, '--format', '{{.Name}}'], { timeout: 30_000 });
+      return stdout.split(/\r?\n/).some(volume => volume.trim() === name);
+    },
+    ...(workerVolume && stateVolume ? { volumes: [workerVolume, stateVolume] as const } : {}),
+    writeEvidence: cleanup => writeFile(join(output, 'cleanup.json'), JSON.stringify({
+      status: cleanup.status,
+      resources: cleanup.resources,
+      usage_status: cleanup.usage.status,
+      ...(cleanup.usage.status === 'failed' ? { usage_error: cleanup.usage.error } : {}),
+      model,
+      inference: 'ChatGPT subscription through Codex (not API-billed)',
+      turns: cleanup.usage.status === 'read' ? cleanup.usage.turns.length : null,
+      usage: cleanup.usage.status === 'read' ? cleanup.usage.turns.map(({ id, status, usage }) => ({ id, status, usage: usage ?? null })) : [],
+    }, null, 2) + '\n'),
+  });
+  if (result.evidenceError) console.error(`Could not write cleanup evidence: ${result.evidenceError}`);
+  if (result.exitCode !== 0) console.error(`Demo cleanup incomplete: ${JSON.stringify(result.result.resources)}`);
+  return result.exitCode;
 })();
-process.stdin.resume(); process.stdin.on('end', () => { void close().then(() => process.exit()); });
-for (const signal of ['SIGTERM', 'SIGINT'] as const) process.once(signal, () => { void close().then(() => process.exit()); });
-setTimeout(() => { console.error(`Demo time limit (${maxMinutes} min) reached.`); void close().then(() => process.exit()); }, maxMinutes * 60_000).unref();
+process.stdin.resume(); process.stdin.on('end', () => { void close().then(code => process.exit(code)); });
+for (const signal of ['SIGTERM', 'SIGINT'] as const) process.once(signal, () => { void close().then(code => process.exit(code)); });
+setTimeout(() => { console.error(`Demo time limit (${maxMinutes} min) reached.`); void close().then(code => process.exit(code)); }, maxMinutes * 60_000).unref();
 
 try {
   const session = await services.sessions.create(LOCAL_OWNER, {

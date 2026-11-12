@@ -5,8 +5,6 @@ import { createServer } from 'node:http';
 import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { Readable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { chromium } from '@playwright/test';
 import { createAgentsClient } from '../../../src/agents-client.js';
@@ -15,6 +13,7 @@ import { beginBrowserLogin, discoverTeamLogin } from '../../../src/client-oidc.j
 import { ConsoleTeams } from '../../../src/console-team.js';
 import { startLocalServer } from '../../../src/local-server.js';
 import { createTeamIdentities, type TeamIdentityFixture, type TestTeamIdentity } from '../../aws/team-identities.js';
+import { createAgentsAwsRelayHandler } from './relay.js';
 
 // Conversation-only (environment "none"), so neither this Mac nor AWS starts a Linux workspace.
 // Live proof of the local-first flow: Claude works alone on this Mac, Shares the Session to a
@@ -222,33 +221,10 @@ try {
     { name: 'claude', person: claude, label: 'Claude · Claude Code', loopback: randomUUID() },
     { name: 'codex', person: codex, label: 'Codex · Codex CLI', loopback: randomUUID() },
   ];
-  relay.on('request', (incoming, outgoing) => void (async () => {
-    const abort = new AbortController(); outgoing.once('close', () => abort.abort());
-    const who = participants.find(entry => incoming.headers.authorization === `Bearer ${entry.loopback}`);
-    if (!who) { outgoing.writeHead(401); outgoing.end(); return; }
-    const url = new URL(incoming.url ?? '/', 'http://127.0.0.1');
-    const path = url.pathname.replace(/^\/api/, '');
-    const chunks: Buffer[] = []; for await (const chunk of incoming) chunks.push(Buffer.from(chunk));
-    const reply = (status: number, body: unknown) => { outgoing.writeHead(status, { 'content-type': 'application/json' }); outgoing.end(JSON.stringify(body)); };
-    if (path === '/v1/workspace') {
-      const spaces = await team<{ data: Array<{ id: string; name: string; role: string; permissions: string[] }> }>(who.person, '/rat/spaces');
-      const space = spaces.data.find(value => value.id === spaceId);
-      return reply(200, space ? { ...space, kind: 'team', connection_id: 'aws', space_id: spaceId } : { kind: 'team', role: 'no_access', permissions: [], space_id: spaceId });
-    }
-    if (path === '/v1/team/connections') return reply(200, { data: [{ id: 'aws', endpoint, identity: { issuer: who.person.issuer, subject: who.person.subject, label: who.label } }] });
-    if (!path.startsWith('/v1/') || path.startsWith('/v1/team/')) return reply(404, { error: { message: 'Not available through the relay.' } });
-    if (incoming.method === 'POST' && [`/v1/rat/sessions/${sessionId}/messages`, `/v1/agents/sessions/${sessionId}/events`].includes(path)) {
-      const usage = hostedUsage(await team<Activity>(claude, `/rat/sessions/${sessionId}/activity`));
-      if (usage.turns >= maxHostedTurns || usage.estimated_usd >= spendLimit) return reply(429, { error: { message: `Live budget reached (${usage.turns} hosted Turns, $${usage.estimated_usd}).`, code: 'demo_budget' } });
-    }
-    const headers: Record<string, string> = { authorization: `Bearer ${await who.person.accessTokenForRequest()}`, 'x-rat-space': spaceId };
-    for (const key of ['content-type', 'idempotency-key', 'last-event-id', 'accept']) { const value = incoming.headers[key]; if (typeof value === 'string') headers[key] = value; }
-    const upstream = await fetch(`${endpoint}${path.slice(3)}${url.search}`, { method: incoming.method ?? 'GET', headers, redirect: 'error', signal: abort.signal, ...(chunks.length ? { body: Buffer.concat(chunks) } : {}) });
-    const responseHeaders: Record<string, string> = {};
-    upstream.headers.forEach((value, key) => { if (!['content-encoding', 'content-length', 'transfer-encoding', 'connection'].includes(key)) responseHeaders[key] = value; });
-    outgoing.writeHead(upstream.status, responseHeaders);
-    if (upstream.body) await pipeline(Readable.fromWeb(upstream.body as import('node:stream/web').ReadableStream), outgoing); else outgoing.end();
-  })().catch(() => { if (!outgoing.headersSent) { outgoing.writeHead(502); outgoing.end(); } else outgoing.destroy(); }));
+  relay.on('request', createAgentsAwsRelayHandler({ participants, endpoint, spaceId, sessionId, maxHostedTurns, spendLimit,
+    team,
+    hostedUsage: async () => hostedUsage(await team<Activity>(claude, `/rat/sessions/${sessionId}/activity`)),
+  }));
   relay.listen(0, '127.0.0.1'); await once(relay, 'listening');
   const address = relay.address(); assert(address && typeof address !== 'string');
   const details = { url: `http://127.0.0.1:${address.port}`, sessionId, title, model: 'openai.gpt-5.6-luna',
