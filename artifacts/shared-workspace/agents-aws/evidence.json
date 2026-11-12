@@ -1,0 +1,134 @@
+{
+  "proof": "local-share-invite-collaborate",
+  "model": {
+    "local": "gpt-5.6-luna via ChatGPT subscription",
+    "hosted": "openai.gpt-5.6-luna via Amazon Bedrock"
+  },
+  "started_at": "2026-11-12T05:03:37.397Z",
+  "endpoint": "https://63g2xlmzpd2fs4gg.32l.lambda-web.us-west-2.on.aws/v1",
+  "region": "us-west-2",
+  "steps": [
+    {
+      "name": "team space created; Claude is its only member (manager)",
+      "elapsed_ms": 6223,
+      "space_id": "space_4a3786aa7e6a4427a2440bc85f91561b"
+    },
+    {
+      "name": "Claude signed in to the team from this Mac (Cognito hosted page, PKCE)",
+      "elapsed_ms": 8900
+    },
+    {
+      "name": "local Turn completed on the ChatGPT subscription",
+      "elapsed_ms": 17539,
+      "session_id": "sess_eedb0b4e9022454493a0372626ea377a"
+    },
+    {
+      "name": "Session shared to AWS; the local copy is fenced",
+      "elapsed_ms": 19579,
+      "share": {
+        "id": "e0caabd8-b65a-4b6c-8678-b4fa6c08aa5c",
+        "source_session_id": "sess_eedb0b4e9022454493a0372626ea377a",
+        "destination": {
+          "baseURL": "https://63g2xlmzpd2fs4gg.32l.lambda-web.us-west-2.on.aws/v1",
+          "space_id": "space_4a3786aa7e6a4427a2440bc85f91561b",
+          "connection_id": "1aaeffc8-665f-43c6-b230-f3d9c94df2aa",
+          "region": "us-west-2"
+        },
+        "status": "complete",
+        "destination_session_id": "sess_eedb0b4e9022454493a0372626ea377a",
+        "files": 0,
+        "bytes": 0,
+        "error": null,
+        "can_abort": false
+      }
+    },
+    {
+      "name": "Claude created a single-use collaborator invite; Codex has no access yet",
+      "elapsed_ms": 20131,
+      "invite_id": "inv_477d495349434c139d8f584de10b84e3",
+      "expires_at": 1795064637
+    },
+    {
+      "name": "Codex joined with the link via the desktop join flow; the link is now spent",
+      "elapsed_ms": 22781,
+      "role": "collaborator"
+    },
+    {
+      "name": "Codex reads the shared history from AWS",
+      "elapsed_ms": 23001,
+      "imported_turns": 1,
+      "items": 2
+    },
+    {
+      "name": "relay ready for both participants",
+      "elapsed_ms": 23004,
+      "relay_directory": "/Users/gp/.rat-things/multiplayer-demo/aws-live-HRSCKG/relay"
+    }
+  ],
+  "limits": {
+    "max_hosted_turns": 4,
+    "inference_usd": 1,
+    "deadline_minutes": 75
+  },
+  "limitations": [
+    "Participants are AI agents using disposable Cognito users",
+    "Native consoles reach AWS through a loopback relay holding each verified sign-in, not through separate desktop installs",
+    "Inference estimate uses list prices; infrastructure billing is separate"
+  ],
+  "local": {
+    "session_id": "sess_eedb0b4e9022454493a0372626ea377a",
+    "turn": {
+      "id": "turn_f22e99519c734bd6b659aa9a5b67b696",
+      "object": "agent.session.turn",
+      "session_id": "sess_eedb0b4e9022454493a0372626ea377a",
+      "agent_id": "agent_ad55449c5ef7411892adbd34927a9330",
+      "subagent_id": null,
+      "status": "completed",
+      "created_at": 1794459827,
+      "started_at": 1794459828,
+      "completed_at": 1794459834,
+      "error": null,
+      "usage": {
+        "input_tokens": 6449,
+        "input_tokens_details": {
+          "cached_tokens": 0
+        },
+        "output_tokens": 153,
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "total_tokens": 6602
+      }
+    }
+  },
+  "hosted": {
+    "turns": 3,
+    "tokens": {
+      "input": 14897,
+      "cached": 9467,
+      "output": 578
+    },
+    "estimated_usd": 0.00217,
+    "statuses": [
+      "completed",
+      "completed",
+      "completed",
+      "completed"
+    ],
+    "imported_turns": 1,
+    "contributors": [
+      "Claude · Claude Code",
+      "Codex · Codex CLI"
+    ]
+  },
+  "cleanup": {
+    "hosted_session": "deleted",
+    "hosted_agent": "deleted",
+    "local_service": "stopped",
+    "claude_connection": "removed",
+    "codex_connection": "removed",
+    "identities": "removed"
+  },
+  "stopped": "stdin closed",
+  "finished_at": "2026-11-12T05:10:08.300Z"
+}

@@ -1,0 +1,54 @@
+{
+  "status": "removed",
+  "resources": "Session worker container and paired volumes; the demo profile and its sign-in are kept",
+  "model": "gpt-5.6-luna",
+  "inference": "ChatGPT subscription through Codex (not API-billed)",
+  "turns": 3,
+  "usage": [
+    {
+      "id": "turn_11382ddde8bf4710a20069a51c90cdbe",
+      "status": "completed",
+      "usage": {
+        "input_tokens": 92069,
+        "input_tokens_details": {
+          "cached_tokens": 88960
+        },
+        "output_tokens": 1466,
+        "output_tokens_details": {
+          "reasoning_tokens": 468
+        },
+        "total_tokens": 93535
+      }
+    },
+    {
+      "id": "turn_6135000b6086494095dc598179022445",
+      "status": "completed",
+      "usage": {
+        "input_tokens": 26806,
+        "input_tokens_details": {
+          "cached_tokens": 24832
+        },
+        "output_tokens": 1380,
+        "output_tokens_details": {
+          "reasoning_tokens": 162
+        },
+        "total_tokens": 28186
+      }
+    },
+    {
+      "id": "turn_ed4baba59a7e4b318a9601a35e6831db",
+      "status": "completed",
+      "usage": {
+        "input_tokens": 50050,
+        "input_tokens_details": {
+          "cached_tokens": 24960
+        },
+        "output_tokens": 4810,
+        "output_tokens_details": {
+          "reasoning_tokens": 139
+        },
+        "total_tokens": 54860
+      }
+    }
+  ]
+}
