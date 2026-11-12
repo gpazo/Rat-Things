@@ -51,6 +51,16 @@ pub(super) enum TeamOperation {
     AbortShare,
 }
 #[derive(Default)]
+enum InviteFlow {
+    #[default]
+    Idle,
+    ChoosingConnection {
+        connections: Vec<Value>,
+    },
+    ChoosingProvider,
+    SigningIn,
+}
+#[derive(Default)]
 pub(super) struct TeamState {
     pub authority_pending: Option<u64>,
     pub authority_due: Option<Instant>,
@@ -79,7 +89,7 @@ pub(super) struct TeamState {
     pub grant_role: String,
     /// A pasted invite link. Its fragment is a single-use secret.
     pub invite: String,
-    pub invite_sign_in: bool,
+    invite_flow: InviteFlow,
     pub invite_role: String,
     pub invite_link: Option<(String, String)>,
     pub invites: Option<Vec<Value>>,
@@ -361,11 +371,15 @@ impl ConsoleApp {
             }
             TeamOperation::Login | TeamOperation::LoginStatus => {
                 if string(&value, "status") == "complete" {
+                    let invite_sign_in = matches!(
+                        &self.team.invite_flow,
+                        InviteFlow::ChoosingProvider | InviteFlow::SigningIn
+                    );
                     self.team.loaded = false;
                     self.team.login = None;
+                    self.team.invite_flow = InviteFlow::Idle;
                     self.notice = Some("Team sign-in complete. Choose a space.".into());
-                    if self.team.invite_sign_in {
-                        self.team.invite_sign_in = false;
+                    if invite_sign_in {
                         if let Some(error) = value["invite_error"].as_str() {
                             self.team.error = Some(error.into());
                         } else if value["joined"].is_object() {
@@ -383,10 +397,18 @@ impl ConsoleApp {
                     {
                         ctx.open_url(egui::OpenUrl::new_tab(url));
                     }
+                    if matches!(operation, TeamOperation::Login)
+                        && matches!(&self.team.invite_flow, InviteFlow::ChoosingProvider)
+                    {
+                        self.team.invite_flow = InviteFlow::SigningIn;
+                    }
                     self.team.login = Some(value);
                 }
             }
-            TeamOperation::CancelLogin => self.team.login = None,
+            TeamOperation::CancelLogin => {
+                self.team.login = None;
+                self.team.invite_flow = InviteFlow::Idle;
+            }
             TeamOperation::Spaces(id) => {
                 self.team.connection = id;
                 self.team.spaces = value["data"].as_array().cloned().unwrap_or_default();
@@ -420,13 +442,14 @@ impl ConsoleApp {
             }
             TeamOperation::Join => match string(&value, "status").as_str() {
                 "joined" => {
+                    self.team.invite_flow = InviteFlow::Idle;
                     self.team.invite.clear();
                     self.team.loaded = false;
                     self.notice = Some(joined_notice(&value));
                     self.load_team_spaces(string(&value, "connection_id"), ctx);
                 }
                 "waiting" => {
-                    self.team.invite_sign_in = true;
+                    self.team.invite_flow = InviteFlow::SigningIn;
                     if let Some(url) = value["url"]
                         .as_str()
                         .filter(|url| url.starts_with("https://"))
@@ -436,7 +459,7 @@ impl ConsoleApp {
                     self.team.login = Some(value);
                 }
                 "choose_provider" => {
-                    self.team.invite_sign_in = true;
+                    self.team.invite_flow = InviteFlow::ChoosingProvider;
                     self.team.endpoint = string(&value, "endpoint");
                     self.team.providers = value["login_providers"]
                         .as_array()
@@ -450,7 +473,18 @@ impl ConsoleApp {
                         .unwrap_or_default();
                     self.notice = Some("Choose your team sign-in to use the invite.".into());
                 }
+                "choose_connection" => {
+                    let connections = value["connections"].as_array().cloned().unwrap_or_default();
+                    if connections.len() > 1 {
+                        self.team.invite_flow = InviteFlow::ChoosingConnection { connections };
+                    } else {
+                        self.team.invite_flow = InviteFlow::Idle;
+                        self.team.error =
+                            Some("The team account choices are unavailable. Try again.".into());
+                    }
+                }
                 _ => {
+                    self.team.invite_flow = InviteFlow::Idle;
                     self.team.error = Some(
                         value["error"]
                             .as_str()
@@ -673,12 +707,19 @@ impl ConsoleApp {
     pub(super) fn team_controls(&mut self, ui: &mut Ui, ctx: &egui::Context, can_switch: bool) {
         theme::section(ui, "Your team", "Your space role controls access.", |ui| {
             let label = ui.label("Team API URL");
-            ui.add(
-                TextEdit::singleline(&mut self.team.endpoint)
-                    .hint_text("https://team.example/v1")
-                    .desired_width(f32::INFINITY),
-            )
-            .labelled_by(label.id);
+            let endpoint_response = ui
+                .add(
+                    TextEdit::singleline(&mut self.team.endpoint)
+                        .hint_text("https://team.example/v1")
+                        .desired_width(f32::INFINITY)
+                        .interactive(self.team.pending.is_none() && self.team.login.is_none()),
+                )
+                .labelled_by(label.id);
+            if endpoint_response.changed() {
+                self.team.invite_flow = InviteFlow::Idle;
+                self.team.providers.clear();
+                self.team.provider.clear();
+            }
             if ui
                 .add_enabled(
                     self.team.pending.is_none() && !self.team.endpoint.trim().is_empty(),
@@ -686,7 +727,9 @@ impl ConsoleApp {
                 )
                 .clicked()
             {
+                self.team.invite_flow = InviteFlow::Idle;
                 self.team.providers.clear();
+                self.team.provider.clear();
                 self.team_request(
                     TeamOperation::Discovery,
                     Method::POST,
@@ -712,7 +755,7 @@ impl ConsoleApp {
                     .clicked()
                 {
                     let mut body = json!({"endpoint":self.team.endpoint.trim(),"provider_id":self.team.provider});
-                    if self.team.invite_sign_in {
+                    if matches!(&self.team.invite_flow, InviteFlow::ChoosingProvider) {
                         body["invite"] = self.team.invite.trim().into();
                     }
                     self.team_request(
@@ -750,20 +793,32 @@ impl ConsoleApp {
                 }
             }
             let label = ui.label("Invite link");
-            ui.add(
-                TextEdit::singleline(&mut self.team.invite)
-                    .hint_text("https://team.example/v1/rat/invites#…")
-                    .desired_width(f32::INFINITY),
-            )
-            .labelled_by(label.id);
-            if ui
-                .add_enabled(
-                    self.team.pending.is_none()
-                        && self.team.login.is_none()
-                        && !self.team.invite.trim().is_empty(),
-                    egui::Button::new("Join with invite link"),
+            let invite_response = ui
+                .add(
+                    TextEdit::singleline(&mut self.team.invite)
+                        .hint_text("https://team.example/v1/rat/invites#…")
+                        .desired_width(f32::INFINITY)
+                        .interactive(self.team.pending.is_none() && self.team.login.is_none()),
                 )
-                .clicked()
+                .labelled_by(label.id);
+            if invite_response.changed() && !matches!(&self.team.invite_flow, InviteFlow::Idle) {
+                let clear_providers =
+                    matches!(&self.team.invite_flow, InviteFlow::ChoosingProvider);
+                self.team.invite_flow = InviteFlow::Idle;
+                if clear_providers {
+                    self.team.providers.clear();
+                    self.team.provider.clear();
+                }
+            }
+            if matches!(&self.team.invite_flow, InviteFlow::Idle)
+                && ui
+                    .add_enabled(
+                        self.team.pending.is_none()
+                            && self.team.login.is_none()
+                            && !self.team.invite.trim().is_empty(),
+                        egui::Button::new("Join with invite link"),
+                    )
+                    .clicked()
             {
                 self.team_request(
                     TeamOperation::Join,
@@ -772,6 +827,57 @@ impl ConsoleApp {
                     Some(json!({"invite":self.team.invite.trim()})),
                     ctx,
                 );
+            }
+            let invite_connections = match &self.team.invite_flow {
+                InviteFlow::ChoosingConnection { connections } => connections.clone(),
+                _ => Vec::new(),
+            };
+            if !invite_connections.is_empty() {
+                ui.label("Choose which verified team account will use this invite.");
+                for connection in invite_connections {
+                    let identity = &connection["identity"];
+                    let subject = string(identity, "subject");
+                    let label = string(identity, "label");
+                    let account = if label.is_empty() {
+                        subject.clone()
+                    } else {
+                        label
+                    };
+                    ui.label(egui::RichText::new(&account).font(theme::medium(13.0)));
+                    ui.small(format!(
+                        "Verified subject: {subject} · {} · {}",
+                        string(identity, "issuer"),
+                        string(&connection["provider"], "id")
+                    ));
+                    let choice = format!("Join as {account}");
+                    if ui
+                        .add_enabled(
+                            self.team.pending.is_none(),
+                            theme::primary_button(choice)
+                                .min_size(egui::vec2(ui.available_width(), 30.0))
+                                .wrap(),
+                        )
+                        .clicked()
+                    {
+                        self.team_request(
+                            TeamOperation::Join,
+                            Method::POST,
+                            "/api/v1/team/join".into(),
+                            Some(json!({"invite":self.team.invite.trim(),"connection_id":string(&connection,"id")})),
+                            ctx,
+                        );
+                    }
+                    ui.add_space(8.0);
+                }
+                if ui
+                    .add_enabled(
+                        self.team.pending.is_none(),
+                        egui::Button::new("Cancel invite"),
+                    )
+                    .clicked()
+                {
+                    self.team.invite_flow = InviteFlow::Idle;
+                }
             }
             self.team_spaces(ui, ctx, false, can_switch);
             if self.is_team() && self.can_manage() && self.permitted("manage_space") {
@@ -1222,7 +1328,9 @@ mod tests {
         let (sent, received) = mpsc::channel();
         let server = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
-            stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
             let mut request = Vec::new();
             let mut byte = [0];
             while !request.ends_with(b"\r\n\r\n") {
@@ -1452,15 +1560,20 @@ mod tests {
             Ok(Data::Local(json!({"status":"choose_provider","endpoint":"https://team.example/v1","login_providers":[{"id":"staff"},{"id":"guests"}]}))),
             &ctx,
         );
-        assert!(app.team.invite_sign_in);
         assert_eq!(app.team.endpoint, "https://team.example/v1");
         assert_eq!(app.team.provider, "staff");
+        app.receive_team(
+            TeamOperation::Login,
+            Ok(Data::Local(
+                json!({"id":"login","status":"waiting","url":"https://identity.example/authorize"}),
+            )),
+            &ctx,
+        );
         app.receive_team(
             TeamOperation::LoginStatus,
             Ok(Data::Local(json!({"status":"complete","connection":{"id":"connection"},"joined":{"space":{"id":"space","name":"Design review"},"role":"collaborator","joined":true}}))),
             &ctx,
         );
-        assert!(!app.team.invite_sign_in);
         assert!(app.team.invite.is_empty());
         assert_eq!(
             app.notice.as_deref(),
@@ -1481,9 +1594,14 @@ mod tests {
             &egui::Context::default(),
         );
         let mut ui = invite_controls_harness(app);
-        let choice = "Join as Personal account · personal-account · https://identity.example · staff";
+        let choice = "Join as Personal account";
         assert!(ui.query_by_label(choice).is_some());
-
+        assert!(
+            ui.query_by_label(
+                "Verified subject: personal-account · https://identity.example · staff"
+            )
+            .is_some()
+        );
         let (received, server) = local_request_server(
             listener,
             json!({"status":"joined","connection_id":"personal","space":{"id":"space","name":"Design review"},"role":"collaborator","joined":true}),
@@ -1508,12 +1626,15 @@ mod tests {
             &egui::Context::default(),
         );
         let mut ui = invite_controls_harness(app);
-        assert!(ui.query_by_label("Join as work-account · https://identity.example · staff").is_some());
+        assert!(ui.query_by_label("Join as work-account").is_some());
         ui.get_by_label("Cancel invite").click();
         ui.run_steps(2);
-        assert!(ui.query_by_label("Join as work-account · https://identity.example · staff").is_none());
+        assert!(ui.query_by_label("Join as work-account").is_none());
         assert!(ui.query_by_label("Join with invite link").is_some());
-        assert_eq!(ui.state().team.invite, "https://team.example/v1/rat/invites#rti_secret");
+        assert_eq!(
+            ui.state().team.invite,
+            "https://team.example/v1/rat/invites#rti_secret"
+        );
     }
     #[test]
     fn editing_an_invite_clears_the_old_provider_choice() {
@@ -1527,9 +1648,13 @@ mod tests {
         );
         let mut ui = invite_controls_harness(app);
         assert!(ui.query_by_label("Sign in to team").is_some());
-        ui.get_by_label("Invite link").set_text_value_accesskit("https://other.example/v1/rat/invites#rti_new");
+        ui.get_by_label("Invite link")
+            .set_text_value_accesskit("https://other.example/v1/rat/invites#rti_new");
         ui.run_steps(2);
-        assert_eq!(ui.get_by_label("Invite link").value().as_deref(), Some("https://other.example/v1/rat/invites#rti_new"));
+        assert_eq!(
+            ui.get_by_label("Invite link").value().as_deref(),
+            Some("https://other.example/v1/rat/invites#rti_new")
+        );
         assert!(ui.query_by_label("Sign in to team").is_none());
         assert!(ui.query_by_label("Join with invite link").is_some());
     }
@@ -1545,7 +1670,9 @@ mod tests {
             Ok(Data::Local(json!({"status":"choose_provider","endpoint":"https://team.example/v1","login_providers":[{"id":"staff"}]}))),
             &egui::Context::default(),
         );
-        app.team.login = Some(json!({"id":"cancelled-login","status":"waiting","url":"https://identity.example/authorize"}));
+        app.team.login = Some(
+            json!({"id":"cancelled-login","status":"waiting","url":"https://identity.example/authorize"}),
+        );
         app.receive_team(
             TeamOperation::CancelLogin,
             Ok(Data::Local(json!({"status":"cancelled"}))),
@@ -1582,7 +1709,18 @@ mod tests {
         );
         assert!(!app.team.invite.is_empty());
         app.team.error = None;
-        app.team.invite_sign_in = true;
+        app.receive_team(
+            TeamOperation::Join,
+            Ok(Data::Local(json!({"status":"choose_provider","endpoint":"https://team.example/v1","login_providers":[{"id":"staff"}]}))),
+            &ctx,
+        );
+        app.receive_team(
+            TeamOperation::Login,
+            Ok(Data::Local(
+                json!({"id":"login","status":"waiting","url":"https://identity.example/authorize"}),
+            )),
+            &ctx,
+        );
         app.receive_team(
             TeamOperation::LoginStatus,
             Ok(Data::Local(json!({"status":"complete","connection":{"id":"connection"},"invite_error":"Ask for a new one."}))),

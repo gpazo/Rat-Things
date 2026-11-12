@@ -4,8 +4,31 @@ import { beginBrowserLogin, discoverTeamLogin, type LoginAttempt } from './clien
 
 type Joined = { space: { id: string; name: string }; role: string; joined: boolean };
 type LoginState = { id: string; status: 'waiting'; url: string } | { id: string; status: 'complete'; connection: TeamConnection; joined?: Joined; invite_error?: string } | { id: string; status: 'failed'; error: string };
+type InviteConnectionOption = Pick<TeamConnection, 'id' | 'identity'> & { provider: Pick<TeamConnection['provider'], 'id'> };
+type InviteJoinPlan =
+  | { kind: 'redeem'; connection: TeamConnection }
+  | { kind: 'choose_connection'; connections: TeamConnection[] }
+  | { kind: 'sign_in' }
+  | { kind: 'failed'; error: string };
 const INVITE_PATH = '/v1/rat/invites';
 const INVITE_TOKEN = /^rti_[A-Za-z0-9_-]{43}$/;
+
+function planInviteJoin(endpoint: string, connections: TeamConnection[], selectedId?: string): InviteJoinPlan {
+  if (selectedId !== undefined) {
+    const selected = connections.find(connection => connection.id === selectedId);
+    if (!selected) return { kind: 'failed', error: 'The selected team account is no longer available. Choose again.' };
+    if (selected.endpoint !== endpoint) return { kind: 'failed', error: 'The selected team account belongs to another team endpoint.' };
+    return { kind: 'redeem', connection: selected };
+  }
+  const matching = connections.filter(connection => connection.endpoint === endpoint);
+  if (matching.length === 1) return { kind: 'redeem', connection: matching[0]! };
+  if (matching.length > 1) return { kind: 'choose_connection', connections: matching };
+  return { kind: 'sign_in' };
+}
+
+function inviteConnectionOption(connection: TeamConnection): InviteConnectionOption {
+  return { id: connection.id, identity: connection.identity, provider: { id: connection.provider.id } };
+}
 
 /** An invite link is the team endpoint plus a fragment secret, so opening it in a browser never sends the secret. */
 export function parseInviteLink(value: unknown): { endpoint: string; token: string } {
@@ -29,9 +52,17 @@ export class ConsoleTeams {
     if (method === 'POST' && path === '/join') {
       let invite: { endpoint: string; token: string };
       try { invite = parseInviteLink(input.invite); } catch (error) { return { status: 'failed', error: (error as Error).message }; }
-      const connection = (await this.store.list()).find(c => c.endpoint === invite.endpoint);
-      if (connection) {
-        try { return { status: 'joined', connection_id: connection.id, ...await this.redeem(connection, invite.token) }; }
+      const selectedId = typeof input.connection_id === 'string' ? input.connection_id : undefined;
+      if (Object.hasOwn(input, 'connection_id') && selectedId === undefined) {
+        return { status: 'failed', error: 'The selected team account is no longer available. Choose again.' };
+      }
+      const plan = planInviteJoin(invite.endpoint, await this.store.list(), selectedId);
+      if (plan.kind === 'failed') return { status: 'failed', error: plan.error };
+      if (plan.kind === 'choose_connection') {
+        return { status: 'choose_connection', endpoint: invite.endpoint, connections: plan.connections.map(inviteConnectionOption) };
+      }
+      if (plan.kind === 'redeem') {
+        try { return { status: 'joined', connection_id: plan.connection.id, ...await this.redeem(plan.connection, invite.token) }; }
         catch (error) { return { status: 'failed', error: error instanceof Error ? error.message : 'The invite could not be used.' }; }
       }
       const discovered = await this.authentication.discover(invite.endpoint);
