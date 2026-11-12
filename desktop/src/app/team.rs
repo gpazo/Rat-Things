@@ -1196,6 +1196,64 @@ mod tests {
         harness.run_steps(2);
         harness
     }
+    fn invite_controls_harness(app: ConsoleApp) -> Harness<'static, ConsoleApp> {
+        let mut harness = Harness::new_ui_state(
+            |ui, app: &mut ConsoleApp| {
+                theme::apply(ui.ctx());
+                let ctx = ui.ctx().clone();
+                app.team_controls(ui, &ctx, true);
+            },
+            app,
+        );
+        harness.set_size(egui::vec2(900.0, 700.0));
+        harness.run_steps(2);
+        harness
+    }
+    fn invite_choice_response() -> Value {
+        json!({"status":"choose_connection","endpoint":"https://team.example/v1","connections":[
+            {"id":"work","identity":{"issuer":"https://identity.example","subject":"work-account"},"provider":{"id":"staff"}},
+            {"id":"personal","identity":{"issuer":"https://identity.example","subject":"personal-account","label":"Personal account"},"provider":{"id":"staff"}}
+        ]})
+    }
+    fn local_request_server(
+        listener: TcpListener,
+        response: Value,
+    ) -> (mpsc::Receiver<Value>, std::thread::JoinHandle<()>) {
+        let (sent, received) = mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            let mut request = Vec::new();
+            let mut byte = [0];
+            while !request.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).unwrap();
+                request.push(byte[0]);
+            }
+            let header_end = request.len();
+            let headers = String::from_utf8_lossy(&request[..header_end]).into_owned();
+            let content_length = headers
+                .lines()
+                .find_map(|line| {
+                    line.to_ascii_lowercase()
+                        .strip_prefix("content-length:")
+                        .map(|value| value.trim().parse::<usize>().unwrap())
+                })
+                .unwrap_or_default();
+            while request.len() < header_end + content_length {
+                stream.read_exact(&mut byte).unwrap();
+                request.push(byte[0]);
+            }
+            let body = if content_length == 0 {
+                Value::Null
+            } else {
+                serde_json::from_slice(&request[header_end..]).unwrap()
+            };
+            sent.send(body).unwrap();
+            let response = response.to_string();
+            write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}",response.len()).unwrap();
+        });
+        (received, server)
+    }
     fn receive(harness: &mut Harness<'_, ConsoleApp>) {
         for _ in 0..100 {
             harness.step();
@@ -1409,6 +1467,101 @@ mod tests {
             Some("Joined Design review as collaborator. Choose it below to open the team space.")
         );
         assert!(app.team.pending.is_some());
+    }
+    #[test]
+    fn invite_account_choice_submits_the_chosen_connection_id() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let mut app = app(endpoint);
+        app.workspace = Some(json!({"kind":"local"}));
+        app.team.invite = "https://team.example/v1/rat/invites#rti_secret".into();
+        app.receive_team(
+            TeamOperation::Join,
+            Ok(Data::Local(invite_choice_response())),
+            &egui::Context::default(),
+        );
+        let mut ui = invite_controls_harness(app);
+        let choice = "Join as Personal account · personal-account · https://identity.example · staff";
+        assert!(ui.query_by_label(choice).is_some());
+
+        let (received, server) = local_request_server(
+            listener,
+            json!({"status":"joined","connection_id":"personal","space":{"id":"space","name":"Design review"},"role":"collaborator","joined":true}),
+        );
+        ui.get_by_label(choice).click();
+        ui.run_steps(2);
+        let body = received.recv_timeout(Duration::from_secs(5)).unwrap();
+        server.join().unwrap();
+        assert_eq!(
+            body,
+            json!({"invite":"https://team.example/v1/rat/invites#rti_secret","connection_id":"personal"})
+        );
+    }
+    #[test]
+    fn cancelling_account_choice_clears_the_chooser_and_keeps_the_invite() {
+        let mut app = app("http://127.0.0.1:1".into());
+        app.workspace = Some(json!({"kind":"local"}));
+        app.team.invite = "https://team.example/v1/rat/invites#rti_secret".into();
+        app.receive_team(
+            TeamOperation::Join,
+            Ok(Data::Local(invite_choice_response())),
+            &egui::Context::default(),
+        );
+        let mut ui = invite_controls_harness(app);
+        assert!(ui.query_by_label("Join as work-account · https://identity.example · staff").is_some());
+        ui.get_by_label("Cancel invite").click();
+        ui.run_steps(2);
+        assert!(ui.query_by_label("Join as work-account · https://identity.example · staff").is_none());
+        assert!(ui.query_by_label("Join with invite link").is_some());
+        assert_eq!(ui.state().team.invite, "https://team.example/v1/rat/invites#rti_secret");
+    }
+    #[test]
+    fn editing_an_invite_clears_the_old_provider_choice() {
+        let mut app = app("http://127.0.0.1:1".into());
+        app.workspace = Some(json!({"kind":"local"}));
+        app.team.invite = "https://team.example/v1/rat/invites#rti_secret".into();
+        app.receive_team(
+            TeamOperation::Join,
+            Ok(Data::Local(json!({"status":"choose_provider","endpoint":"https://team.example/v1","login_providers":[{"id":"staff"}]}))),
+            &egui::Context::default(),
+        );
+        let mut ui = invite_controls_harness(app);
+        assert!(ui.query_by_label("Sign in to team").is_some());
+        ui.get_by_label("Invite link").set_text_value_accesskit("https://other.example/v1/rat/invites#rti_new");
+        ui.run_steps(2);
+        assert_eq!(ui.get_by_label("Invite link").value().as_deref(), Some("https://other.example/v1/rat/invites#rti_new"));
+        assert!(ui.query_by_label("Sign in to team").is_none());
+        assert!(ui.query_by_label("Join with invite link").is_some());
+    }
+    #[test]
+    fn cancelling_invite_sign_in_does_not_reuse_the_invite_for_a_new_sign_in() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let mut app = app(endpoint);
+        app.workspace = Some(json!({"kind":"local"}));
+        app.team.invite = "https://team.example/v1/rat/invites#rti_secret".into();
+        app.receive_team(
+            TeamOperation::Join,
+            Ok(Data::Local(json!({"status":"choose_provider","endpoint":"https://team.example/v1","login_providers":[{"id":"staff"}]}))),
+            &egui::Context::default(),
+        );
+        app.team.login = Some(json!({"id":"cancelled-login","status":"waiting","url":"https://identity.example/authorize"}));
+        app.receive_team(
+            TeamOperation::CancelLogin,
+            Ok(Data::Local(json!({"status":"cancelled"}))),
+            &egui::Context::default(),
+        );
+        let mut ui = invite_controls_harness(app);
+        assert!(ui.query_by_label("Sign in to team").is_some());
+        let (received, server) = local_request_server(
+            listener,
+            json!({"id":"new-login","status":"waiting","url":"https://identity.example/authorize"}),
+        );
+        ui.get_by_label("Sign in to team").click();
+        ui.run_steps(2);
+        let body = received.recv_timeout(Duration::from_secs(5)).unwrap();
+        server.join().unwrap();
+        assert!(body.get("invite").is_none());
     }
     #[test]
     fn a_used_invite_keeps_the_link_and_reports_why() {

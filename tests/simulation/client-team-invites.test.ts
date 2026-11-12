@@ -16,20 +16,27 @@ afterEach(async () => { await Promise.all(directories.splice(0).map(path => rm(p
 async function fixture(redeem: (request: Request) => Response, providers = [provider]) {
   const directory = await mkdtemp(join(tmpdir(), 'rat-invite-')); directories.push(directory);
   const redemptions: Request[] = [];
+  let discoveries = 0;
+  let loginStarts = 0;
   const store = new TeamConnectionStore(directory, async (input, init) => {
     const request = new Request(input, init);
     if (request.url.endsWith('/rat/invites/redeem')) { redemptions.push(request.clone()); return redeem(request); }
-    return Response.json({ actor: { issuer: provider.issuer, subject: 'sam' } });
+    const token = request.headers.get('authorization')?.replace(/^Bearer /, '');
+    return Response.json({ actor: { issuer: provider.issuer, subject: token === 'access' ? 'sam' : token } });
   });
   let finish!: (result: LoginResult) => void;
   const result = new Promise<LoginResult>(resolve => { finish = resolve; });
   const teams = new ConsoleTeams(store, {
-    discover: async () => ({ base_url: 'https://api.example/v1', login_providers: providers }),
-    begin: async () => ({ url: 'https://identity.example/authorize?state=s', result, close: () => undefined }),
+    discover: async () => { discoveries++; return { base_url: 'https://api.example/v1', login_providers: providers }; },
+    begin: async () => { loginStarts++; return { url: 'https://identity.example/authorize?state=s', result, close: () => undefined }; },
   });
-  return { store, teams, redemptions, finish };
+  return { store, teams, redemptions, finish, get discoveries() { return discoveries; }, get loginStarts() { return loginStarts; } };
 }
 const joined = () => Response.json({ space: { id: 'space_a', name: 'Design review' }, role: 'collaborator', joined: true });
+const connectionLogin = (subject: string): LoginResult => ({
+  identity: { issuer: provider.issuer, subject },
+  tokens: { access_token: subject, expires_at: Date.now() / 1000 + 300 },
+});
 
 it('parses only HTTPS invite links whose secret stays in the fragment', () => {
   expect(parseInviteLink(` ${link} `)).toEqual({ endpoint: 'https://api.example/v1', token });
@@ -47,6 +54,62 @@ it('redeems through an existing connection to the invite endpoint', async () => 
   expect(s.redemptions[0]!.headers.get('authorization')).toBe('Bearer access');
   expect(s.redemptions[0]!.headers.has('x-rat-space')).toBe(false);
   expect(await s.redemptions[0]!.json()).toEqual({ token });
+});
+
+it('asks before redeeming when several verified accounts match the invite endpoint', async () => {
+  const s = await fixture(joined);
+  const work = await s.store.save('https://api.example/v1', provider, connectionLogin('work-account'));
+  const personal = await s.store.save('https://api.example/v1', provider, connectionLogin('personal-account'));
+
+  const result = await s.teams.route('POST', '/join', { invite: link });
+
+  expect(result).toMatchObject({
+    status: 'choose_connection',
+    endpoint: 'https://api.example/v1',
+    connections: expect.arrayContaining([
+      { id: work.id, identity: { issuer: provider.issuer, subject: 'work-account' }, provider: { id: 'team' } },
+      { id: personal.id, identity: { issuer: provider.issuer, subject: 'personal-account' }, provider: { id: 'team' } },
+    ]),
+  });
+  expect(JSON.stringify(result)).not.toContain('tokens');
+  expect(s.redemptions).toHaveLength(0);
+  expect(s.discoveries).toBe(0);
+  expect(s.loginStarts).toBe(0);
+});
+
+it('redeems with the explicitly selected verified account', async () => {
+  const s = await fixture(joined);
+  await s.store.save('https://api.example/v1', provider, connectionLogin('work-account'));
+  const personal = await s.store.save('https://api.example/v1', provider, connectionLogin('personal-account'));
+
+  const result = await s.teams.route('POST', '/join', { invite: link, connection_id: personal.id });
+
+  expect(result).toMatchObject({ status: 'joined', connection_id: personal.id });
+  expect(s.redemptions).toHaveLength(1);
+  expect(s.redemptions[0]!.headers.get('authorization')).toBe('Bearer personal-account');
+  expect(s.discoveries).toBe(0);
+  expect(s.loginStarts).toBe(0);
+});
+
+it('rejects a deleted account selection without redeeming or starting a new sign-in', async () => {
+  const s = await fixture(joined);
+  const removed = await s.store.save('https://api.example/v1', provider, connectionLogin('work-account'));
+  await s.store.remove(removed.id);
+
+  expect(await s.teams.route('POST', '/join', { invite: link, connection_id: removed.id })).toMatchObject({ status: 'failed' });
+  expect(s.redemptions).toHaveLength(0);
+  expect(s.discoveries).toBe(0);
+  expect(s.loginStarts).toBe(0);
+});
+
+it('rejects an account selection from a different team endpoint', async () => {
+  const s = await fixture(joined);
+  const other = await s.store.save('https://other.example/v1', provider, connectionLogin('work-account'));
+
+  expect(await s.teams.route('POST', '/join', { invite: link, connection_id: other.id })).toMatchObject({ status: 'failed' });
+  expect(s.redemptions).toHaveLength(0);
+  expect(s.discoveries).toBe(0);
+  expect(s.loginStarts).toBe(0);
 });
 
 it('signs in first, then redeems, and keeps the sign-in when the invite was already used', async () => {
