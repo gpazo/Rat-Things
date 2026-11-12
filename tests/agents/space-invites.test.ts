@@ -153,6 +153,36 @@ describe('space invite links', () => {
     expect(listed.data.map(invite => invite.id)).toContain(oldestOpen.id);
     expect(listed.has_more).toBe(false);
     await expect(s.access.invite(s.authority, { role: 'viewer' })).rejects.toMatchObject({ status: 409 });
+    await s.access.revokeInvite(s.authority, oldestOpen.id);
+    expect((await s.access.invites(s.authority)).data.map(invite => invite.id)).not.toContain(oldestOpen.id);
+  });
+
+  it('counts and revokes invites created before mint fencing', async () => {
+    const clock = Date.now();
+    const base = new MemoryAgentsStore();
+    const s = await setup(() => clock, base);
+    const ownerId = spaceOwner(s.space.id);
+    const createdAt = Math.floor(clock / 1000);
+    for (let index = 0; index < 50; index++) {
+      const invite: SpaceInvite = {
+        id: `legacy_${index}`,
+        space_id: s.space.id,
+        role: 'viewer',
+        created_by: s.authority.actor.id,
+        created_at: createdAt,
+        expires_at: createdAt + 3600,
+        status: 'active',
+      };
+      await base.put({ ownerId, collection: 'space_invites', id: invite.id, createdAt, revision: 1, value: invite }, 0);
+    }
+
+    const listed = await s.access.invites(s.authority);
+    expect(listed.data).toHaveLength(50);
+    await expect(s.access.invite(s.authority, { role: 'viewer' })).rejects.toMatchObject({ status: 409 });
+
+    await s.access.revokeInvite(s.authority, 'legacy_0');
+    await expect(s.access.invite(s.authority, { role: 'viewer' })).resolves.toMatchObject({ status: 'active' });
+    expect((await s.access.invites(s.authority)).data).toHaveLength(50);
   });
 
   it('rejects redemption when the principal expires during invite reads', async () => {

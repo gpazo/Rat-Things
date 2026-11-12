@@ -4,20 +4,19 @@ import { AgentsApiError, AgentsResourceConflictError, invalid } from '../domain/
 import { SPACE_ROLES, requireSpaceActions, rolePermissions, type ApiActor, type ApiPrincipal, type SpaceAction, type SpaceRole } from '../domain/api-permissions.js';
 import { oidcActorId, principalActor, requireUnexpired } from './principal.js';
 import { performanceCount, performancePhase } from '../core/performance.js';
+import {
+  ACTIVE_INVITE_LIMIT, INVITE_GENERATIONS, isActiveSpaceInvite, planInviteGeneration,
+  type SpaceInvite, type SpaceInviteGeneration,
+} from './space-invite-planning.js';
 
 const DIRECTORY = 'rat:spaces';
 export interface Space { id: string; name: string; active: boolean }
 export interface SpaceBinding { actor_id: string; issuer: string; subject: string; kind: 'human' | 'workload'; label?: string; role: SpaceRole; expires_at?: number; active: boolean }
-/** A single-use link grant. Only the SHA-256 of its secret is stored. */
-export interface SpaceInvite {
-  id: string; space_id: string; role: InviteRole; label?: string; created_by: string; created_at: number; expires_at: number;
-  status: 'active' | 'redeemed' | 'revoked'; redeemed_by?: string; redeemed_at?: number;
-}
-type InviteRole = Exclude<SpaceRole, 'manager'>;
+export type { SpaceInvite } from './space-invite-planning.js';
+type InviteRole = SpaceInvite['role'];
 const INVITE_ROLES: readonly InviteRole[] = ['viewer', 'collaborator', 'controller'];
 const INVITE_TOKEN = /^rti_[A-Za-z0-9_-]{43}$/;
 const INVITE_MAX_SECONDS = 7 * 86400;
-const ACTIVE_INVITE_LIMIT = 50;
 export interface SpaceAuthority {
   ownerId: string;
   spaceId: string;
@@ -125,9 +124,11 @@ export class SpaceAccessService {
     if (input.label !== undefined && (typeof input.label !== 'string' || !input.label.trim() || input.label.length > 128)) invalid('Invalid invite label.', 'label');
     const seconds = input.expires_in ?? INVITE_MAX_SECONDS;
     if (typeof seconds !== 'number' || !Number.isSafeInteger(seconds) || seconds < 300 || seconds > INVITE_MAX_SECONDS) invalid('Invites expire after 5 minutes to 7 days.', 'expires_in');
+    const generation = await this.store.get<SpaceInviteGeneration>(authority.ownerId, INVITE_GENERATIONS, 'active');
+    const records = await listAll<SpaceInvite>(this.store, authority.ownerId, 'space_invites');
     const now = Math.floor(this.now() / 1000);
-    const open = await this.store.list<SpaceInvite>(authority.ownerId, 'space_invites', { limit: 100 });
-    if (open.data.filter(item => usable(item.value, now)).length >= ACTIVE_INVITE_LIMIT) {
+    const openCount = records.reduce((count, item) => count + Number(isActiveSpaceInvite(item.value, now)), 0);
+    if (openCount >= ACTIVE_INVITE_LIMIT) {
       throw new AgentsApiError(409, `A space can have at most ${ACTIVE_INVITE_LIMIT} open invites. Revoke unused invites first.`, 'conflict');
     }
     const token = `rti_${randomBytes(32).toString('base64url')}`;
@@ -135,7 +136,9 @@ export class SpaceAccessService {
       ...(input.label ? { label: input.label as string } : {}), created_by: authority.actor.id, created_at: now, expires_at: now + seconds, status: 'active' };
     const retainUntil = invite.expires_at + INVITE_MAX_SECONDS;
     await authority.revalidate(); requireUnexpired(authority, this.now());
+    const nextGeneration = planInviteGeneration(authority.ownerId, authority.spaceId, now, generation);
     const writes = [
+      { resource: nextGeneration.resource, expectedRevision: nextGeneration.expectedRevision },
       { resource: { ownerId: authority.ownerId, collection: 'space_invites', id: invite.id, revision: 1, createdAt: now, expiresAt: retainUntil, value: invite }, expectedRevision: 0 },
       { resource: { ownerId: DIRECTORY, collection: 'space_invite_tokens', id: inviteKey(token), revision: 1, createdAt: now, expiresAt: retainUntil,
         value: { space_id: invite.space_id, invite_id: invite.id } }, expectedRevision: 0 },
@@ -144,9 +147,9 @@ export class SpaceAccessService {
     return { ...invite, token };
   }
   public async invites(authority: SpaceAuthority) {
+    const records = await listAll<SpaceInvite>(this.store, authority.ownerId, 'space_invites');
     const now = Math.floor(this.now() / 1000);
-    const records = await this.store.list<SpaceInvite>(authority.ownerId, 'space_invites', { limit: 100 });
-    return { data: records.data.map(item => item.value).filter(invite => usable(invite, now)), has_more: records.has_more };
+    return { data: records.map(item => item.value).filter(invite => isActiveSpaceInvite(invite, now)), has_more: false };
   }
   public async revokeInvite(authority: SpaceAuthority, inviteId: string) {
     const previous = await this.store.get<SpaceInvite>(authority.ownerId, 'space_invites', inviteId);
@@ -178,8 +181,9 @@ export class SpaceAccessService {
       this.store.get<Space>(DIRECTORY, 'spaces', index.value.space_id), this.store.get<SpaceInvite>(owner, 'space_invites', index.value.invite_id),
       this.store.get<SpaceBinding>(owner, 'space_bindings', actor.id), this.store.get(actor.id, 'space_discovery', index.value.space_id),
     ]);
+    requireUnexpired(principal, this.now());
     const now = Math.floor(this.now() / 1000);
-    if (!space?.value.active || !invite || invite.value.space_id !== space.id || !usable(invite.value, now)) unavailable();
+    if (!space?.value.active || !invite || invite.value.space_id !== space.id || !isActiveSpaceInvite(invite.value, now)) unavailable();
     if (previous?.value.active && previous.value.kind !== 'human') throw new AgentsApiError(409, 'This identity is registered as a workload in the space.', 'conflict');
     const current = previous?.value.active && previous.value.issuer === actor.issuer && previous.value.subject === actor.subject
       && (previous.value.expires_at === undefined || previous.value.expires_at > now) ? previous.value : undefined;
@@ -188,20 +192,37 @@ export class SpaceAccessService {
     const label = previous?.value.label ?? invite.value.label ?? actor.label?.trim().slice(0, 128);
     const binding: SpaceBinding = { actor_id: actor.id, issuer: actor.issuer, subject: actor.subject, kind: 'human', role: invite.value.role, active: true,
       ...(current?.expires_at !== undefined ? { expires_at: current.expires_at } : {}), ...(label ? { label } : {}) };
+    const redemptionValidUntil = Math.min(principal.expiresAt ?? Infinity, invite.value.expires_at * 1000);
     try {
       await this.store.commit([
         { resource: { ownerId: owner, collection: 'space_bindings', id: actor.id, createdAt: previous?.createdAt ?? now, revision: (previous?.revision ?? 0) + 1, value: binding }, expectedRevision: previous?.revision ?? 0 },
         { resource: { ownerId: actor.id, collection: 'space_discovery', id: space.id, createdAt: discovery?.createdAt ?? now, revision: (discovery?.revision ?? 0) + 1, value: { space_id: space.id } }, expectedRevision: discovery?.revision ?? 0 },
         { resource: { ...invite, revision: invite.revision + 1, value: { ...invite.value, status: 'redeemed', redeemed_by: actor.id, redeemed_at: now } }, expectedRevision: invite.revision },
-      ], [observation(space)]);
+      ], [{ ...observation(space), validUntil: redemptionValidUntil }]);
     } catch (error) {
       if (error instanceof AgentsResourceConflictError) unavailable();
+      if (error instanceof AgentsApiError && error.status === 401) {
+        requireUnexpired(principal, this.now());
+        if (invite.value.expires_at * 1000 <= this.now()) unavailable();
+      }
       throw error;
     }
     return { space: summary, role: binding.role, joined: true };
   }
 }
-function usable(invite: SpaceInvite, now: number): boolean { return invite.status === 'active' && invite.expires_at > now; }
+async function listAll<T>(store: AgentsStore, ownerId: string, collection: string): Promise<Array<AgentResource<T>>> {
+  const records: Array<AgentResource<T>> = [];
+  let after: string | undefined;
+  do {
+    const page = await store.list<T>(ownerId, collection, { limit: 100, ...(after ? { after } : {}) });
+    records.push(...page.data);
+    if (!page.has_more) return records;
+    const last = page.data.at(-1);
+    if (!last) throw new Error('Storage returned an empty page with more records.');
+    after = last.id;
+  } while (after);
+  return records;
+}
 function inviteKey(token: string): string { return createHash('sha256').update(token).digest('hex'); }
 function unavailable(): never { throw new AgentsApiError(404, 'This invite link is invalid, expired or already used. Ask for a new one.', 'resource_not_found'); }
 export function excludingWrites(observations: readonly AgentObservation[], resources: readonly Pick<AgentResource<unknown>, 'ownerId' | 'collection' | 'id'>[]): AgentObservation[] {
