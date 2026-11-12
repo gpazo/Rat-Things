@@ -1,6 +1,5 @@
 export type DemoRouteDecision = { kind: 'inference' } | { kind: 'proxy' } | { kind: 'deny' };
 
-/** Classifies the router's decoded path segments without changing the path sent upstream. */
 export function classifyDemoRoute(method: string, pathname: string, sessionId: string): DemoRouteDecision {
   let parts: string[];
   try { parts = pathname.split('/').filter(Boolean).map(decodeURIComponent); }

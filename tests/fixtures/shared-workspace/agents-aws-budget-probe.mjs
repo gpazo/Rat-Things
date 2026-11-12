@@ -42,7 +42,9 @@ globalThis.fetch=async(input,init={})=>{
 await import('../../../testing/shared-workspace/agents-aws/controller.ts');
 const dirs=await readdir('profile'); const work=dirs.find(x=>x.startsWith('aws-live-')); if(!work)throw Error('AWS controller did not create its work directory.');
 const details=JSON.parse(await readFile(join('profile',work,'relay','agents-live.json'),'utf8'));
-currentActivity=mkActivity(5); // one imported + four hosted Turns: the normal relay guard is exhausted
+const importedTurnCount=1;
+const hostedTurnLimit=4;
+currentActivity=mkActivity(importedTurnCount+hostedTurnLimit);
 const headers={authorization:`Bearer ${details.participants.claude.token}`,'content-type':'application/json'};
 const capped=await nativeFetch(details.url+'/api/v1/rat/sessions/session_mock/messages',{method:'POST',headers,body:JSON.stringify({text:'cap probe'})});
 const bypass=await nativeFetch(details.url+'/api/v1/rat/sessions/session_mock/messages/',{method:'POST',headers,body:JSON.stringify({text:'trailing slash bypass probe'})});
