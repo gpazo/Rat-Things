@@ -10,7 +10,9 @@ Its declared tools support navigation, typing, clicking, snapshots and screensho
 The execution image must contain the provider and Chromium before use.
 
 The Session console displays saved messages, tool activity,
-function-result requests and artifacts; it does not provide a browser-control pane.
+function-result requests and artifacts for these providers; it does not provide a
+browser-control pane for them. The [shared live browser](collaboration.md#one-live-browser) is a
+separate, built-in grant that the console does show.
 
 Applications expose browser capabilities through declared tools and
 must implement their declared interface and preserve ownership, bounded operations,

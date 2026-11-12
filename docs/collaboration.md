@@ -46,9 +46,29 @@ content already read or remove contributions already included in model context.
 ## Connect from the desktop
 
 Use the workspace menu to connect to your team's Agents API endpoint. Sign in
-through the configured identity provider, then choose a space. Your administrator
-must grant your verified identity a role before that space becomes available.
-Sending someone the endpoint does not grant access or send an invitation email.
+through the configured identity provider, then choose a space. A space becomes
+available once your verified identity has a role in it. Sending someone the
+endpoint alone does not grant access.
+
+### Invite people with a link
+
+A manager opens **Space members**, chooses a role and selects **Create invite link**.
+Send the link privately. The person pastes it into **Invite link** and selects
+**Join with invite link**. If they are not yet signed in to that team, the desktop
+starts sign-in first, then joins. The space then appears in their list.
+
+Each link works once and expires after seven days. It grants viewer, collaborator
+or controller; add managers by verified identity instead. Whoever uses the link
+first joins with its role, so treat it like a password. Revoke unused links from
+the same panel. Joining never lowers a role the person already has, and an
+already-sufficient role leaves the link unused. Links admit people only; register
+automated clients with an explicit workload binding.
+
+The link carries the team endpoint and the secret in its fragment
+(`https://team.example/v1/rat/invites#rti_...`), so opening it in a browser does
+not send the secret anywhere. The deployment stores only a hash of the secret.
+The invite list shows each open link's role and expiry, never the link itself;
+copy a new link when it is created.
 
 Open a Session to follow its progress. Collaborators can send messages while a
 Turn is active, and the agent sees each participant's contribution. Viewer controls
@@ -232,6 +252,25 @@ manager grants another verified identity access with
 email address or display name for the identity provider's subject. Delete a
 binding using `DELETE /v1/rat/spaces/{space_id}/bindings/{actor_id}`.
 
+To admit someone whose subject you do not know yet, a manager creates an invite
+with `POST /v1/rat/spaces/{space_id}/invites`:
+
+```json
+{ "role": "collaborator", "label": "Sam", "expires_in": 86400 }
+```
+
+`role` is `viewer`, `collaborator` or `controller`. `label` is optional, and
+`expires_in` is 300 to 604,800 seconds (the default is seven days). The response
+contains the invite's `id`, `role`, `expires_at` and a one-time `token`; the token
+is never returned again. A space can have 50 open invites. List open invites with
+`GET /v1/rat/spaces/{space_id}/invites` and revoke one with
+`DELETE /v1/rat/spaces/{space_id}/invites/{invite_id}`.
+
+The invitee signs in and posts `{"token":"rti_..."}` to
+`POST /v1/rat/invites/redeem` without `X-Rat-Space`. The response names the space
+and the caller's resulting role. Only one redemption succeeds; an expired,
+revoked, used or unknown token returns `404`.
+
 Before collaborators start work, a manager defines an execution role with
 `PUT /v1/rat/spaces/{space_id}/execution-roles/{role_id}`. A conversation-only
 example is:
@@ -275,6 +314,10 @@ Rat Things extensions live under `/v1/rat`:
 | --- | --- |
 | `GET /v1/rat/me` | Verified caller identity |
 | `GET /v1/rat/spaces` | Accessible spaces |
+| `POST /v1/rat/spaces/{id}/invites` | Create a single-use invite (manager) |
+| `GET /v1/rat/spaces/{id}/invites` | List open invites without their secrets (manager) |
+| `DELETE /v1/rat/spaces/{id}/invites/{invite_id}` | Revoke an invite (manager) |
+| `POST /v1/rat/invites/redeem` | Join a space with an invite token |
 | `GET /v1/rat/sessions/{id}/activity` | Coherent Session, Turn, Item and attributed-input snapshot with cursor |
 | `GET /v1/rat/sessions/{id}/activity/events` | Saved activity and ephemeral typing over SSE |
 | `POST /v1/rat/sessions/{id}/messages` | Attributed text with an optional reply target |

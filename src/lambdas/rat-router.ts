@@ -16,11 +16,17 @@ export async function routeRatRequest(request: Request, principal: ApiPrincipal,
     if (method === 'GET') return json(200, await access.list(principal), requestId);
     if (method === 'POST') return json(201, await access.bootstrap(principal, await requestBody(request)), requestId);
   }
+  if (collection === 'invites' && id === 'redeem' && parts.length === 4 && method === 'POST') return json(200, await access.redeem(principal, await requestBody(request)), requestId);
   if (!authority) throw new AgentsApiError(403, 'Select an authorized space.', 'insufficient_permissions');
   if (collection === 'spaces' && id === authority.spaceId && child === 'bindings') {
     if (parts.length === 5 && method === 'GET') return json(200, await access.bindings(authority), requestId);
     if (parts.length === 5 && (method === 'POST' || method === 'PUT')) return json(200, await access.bind(authority, await requestBody(request)), requestId);
     if (parts.length === 6 && childId && method === 'DELETE') return json(200, await access.revoke(authority, childId), requestId);
+  }
+  if (collection === 'spaces' && id === authority.spaceId && child === 'invites') {
+    if (parts.length === 5 && method === 'GET') return json(200, await access.invites(authority), requestId);
+    if (parts.length === 5 && method === 'POST') return json(201, await access.invite(authority, await requestBody(request)), requestId);
+    if (parts.length === 6 && childId && method === 'DELETE') return json(200, await access.revokeInvite(authority, childId), requestId);
   }
   if (collection === 'spaces' && id === authority.spaceId && child === 'execution-roles' && services.admission) {
     if (parts.length === 5 && method === 'GET') return json(200, await services.admission.roles(authority), requestId);

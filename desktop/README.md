@@ -136,13 +136,16 @@ choose **Find team sign-in**, and sign in through your browser. Choose your acco
 spaces, then **Open team space**. **Reconnect** renews a saved connection with the
 same verified identity. **Sign out** removes its locally saved credentials and cancels
 pending reconnects for that connection. A late browser callback cannot sign it back in.
+If someone sent you an invite link, paste it into **Invite link** and choose **Join with
+invite link** instead; the console signs you in to that team first when needed.
 
 A viewer can follow shared progress. A collaborator can send messages, steer work,
 and start Sessions from admitted saved Agents. Controllers can cancel a Turn.
-Managers can configure resources and grant space roles to exact verified issuer and
-subject identities. Space access and the login's API permissions apply together.
+Managers can configure resources, grant space roles to exact verified issuer and
+subject identities, and create single-use invite links in **Space members**. Space access and the login's API permissions apply together.
 The console checks current access across every view, including the workspace menu.
-Role downgrades remove management controls, cached Vault credentials and member lists.
+Role downgrades remove management controls, cached Vault credentials, member lists and
+unsent invite links.
 Revoked or expired access clears cached space content. If the connection cannot
 verify access for ten seconds, the console clears that content until access returns.
 

@@ -42,6 +42,10 @@ pub(super) enum TeamOperation {
     Logout,
     Bindings,
     Grant,
+    Join,
+    Invites,
+    CreateInvite,
+    RevokeInvite,
     Share,
     Shares,
     AbortShare,
@@ -73,6 +77,12 @@ pub(super) struct TeamState {
     pub issuer: String,
     pub subject: String,
     pub grant_role: String,
+    /// A pasted invite link. Its fragment is a single-use secret.
+    pub invite: String,
+    pub invite_sign_in: bool,
+    pub invite_role: String,
+    pub invite_link: Option<(String, String)>,
+    pub invites: Option<Vec<Value>>,
     pub saved_shares_loaded: bool,
     pub saved_shares: Vec<Value>,
 }
@@ -310,7 +320,14 @@ impl ConsoleApp {
             Ok(Data::LocalRejected { status, message })
                 if self.is_team()
                     && matches!(status.as_u16(), 401 | 403)
-                    && matches!(operation, TeamOperation::Bindings | TeamOperation::Grant) =>
+                    && matches!(
+                        operation,
+                        TeamOperation::Bindings
+                            | TeamOperation::Grant
+                            | TeamOperation::Invites
+                            | TeamOperation::CreateInvite
+                            | TeamOperation::RevokeInvite
+                    ) =>
             {
                 self.clear_team_access(ctx);
                 self.team.error = Some(message);
@@ -347,6 +364,17 @@ impl ConsoleApp {
                     self.team.loaded = false;
                     self.team.login = None;
                     self.notice = Some("Team sign-in complete. Choose a space.".into());
+                    if self.team.invite_sign_in {
+                        self.team.invite_sign_in = false;
+                        if let Some(error) = value["invite_error"].as_str() {
+                            self.team.error = Some(error.into());
+                        } else if value["joined"].is_object() {
+                            self.team.invite.clear();
+                            self.notice = Some(joined_notice(&value["joined"]));
+                            let connection = string(&value["connection"], "id");
+                            self.load_team_spaces(connection, ctx);
+                        }
+                    }
                 } else {
                     if matches!(operation, TeamOperation::Login)
                         && let Some(url) = value["url"]
@@ -389,6 +417,69 @@ impl ConsoleApp {
                 self.team.bindings = None;
                 self.team.subject.clear();
                 self.notice = Some("Space role saved for the verified identity.".into());
+            }
+            TeamOperation::Join => match string(&value, "status").as_str() {
+                "joined" => {
+                    self.team.invite.clear();
+                    self.team.loaded = false;
+                    self.notice = Some(joined_notice(&value));
+                    self.load_team_spaces(string(&value, "connection_id"), ctx);
+                }
+                "waiting" => {
+                    self.team.invite_sign_in = true;
+                    if let Some(url) = value["url"]
+                        .as_str()
+                        .filter(|url| url.starts_with("https://"))
+                    {
+                        ctx.open_url(egui::OpenUrl::new_tab(url));
+                    }
+                    self.team.login = Some(value);
+                }
+                "choose_provider" => {
+                    self.team.invite_sign_in = true;
+                    self.team.endpoint = string(&value, "endpoint");
+                    self.team.providers = value["login_providers"]
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default();
+                    self.team.provider = self
+                        .team
+                        .providers
+                        .first()
+                        .map(|p| string(p, "id"))
+                        .unwrap_or_default();
+                    self.notice = Some("Choose your team sign-in to use the invite.".into());
+                }
+                _ => {
+                    self.team.error = Some(
+                        value["error"]
+                            .as_str()
+                            .unwrap_or("The invite could not be used.")
+                            .into(),
+                    )
+                }
+            },
+            TeamOperation::Invites => {
+                self.team.invites = Some(value["data"].as_array().cloned().unwrap_or_default())
+            }
+            TeamOperation::CreateInvite => {
+                self.team.invites = None;
+                match self.team_endpoint() {
+                    Some(endpoint) => {
+                        self.team.invite_link = Some((
+                            string(&value, "role"),
+                            invite_link(&endpoint, &string(&value, "token")),
+                        ))
+                    }
+                    None => {
+                        self.team.error =
+                            Some("Reconnect to this team to create invite links.".into())
+                    }
+                }
+            }
+            TeamOperation::RevokeInvite => {
+                self.team.invites = None;
+                self.notice = Some("Invite link revoked.".into());
             }
             TeamOperation::AbortShare => {
                 if value["status"] == "aborted" {
@@ -496,10 +587,17 @@ impl ConsoleApp {
             self.team.subject.clear();
             self.team.issuer.clear();
             self.team.grant_role.clear();
+            self.clear_invites();
             self.pending.retain(|_, request| {
                 !matches!(
                     request.operation,
-                    Pending::Team(TeamOperation::Bindings | TeamOperation::Grant)
+                    Pending::Team(
+                        TeamOperation::Bindings
+                            | TeamOperation::Grant
+                            | TeamOperation::Invites
+                            | TeamOperation::CreateInvite
+                            | TeamOperation::RevokeInvite
+                    )
                 )
             });
             if self
@@ -552,9 +650,10 @@ impl ConsoleApp {
         self.team.subject.clear();
         self.team.issuer.clear();
         self.team.grant_role.clear();
+        self.clear_invites();
         self.submission_keys.clear();
         self.pending.retain(|_, request| matches!(request.operation, Pending::TeamAuthority { .. } | Pending::Workspace { .. })
-            || matches!(request.operation, Pending::Team(ref operation) if !matches!(operation, TeamOperation::Bindings | TeamOperation::Grant)));
+            || matches!(request.operation, Pending::Team(ref operation) if !matches!(operation, TeamOperation::Bindings | TeamOperation::Grant | TeamOperation::Invites | TeamOperation::CreateInvite | TeamOperation::RevokeInvite)));
         if self
             .team
             .pending
@@ -612,7 +711,17 @@ impl ConsoleApp {
                     )
                     .clicked()
                 {
-                    self.team_request(TeamOperation::Login, Method::POST, "/api/v1/team/login".into(), Some(json!({"endpoint":self.team.endpoint.trim(),"provider_id":self.team.provider})), ctx);
+                    let mut body = json!({"endpoint":self.team.endpoint.trim(),"provider_id":self.team.provider});
+                    if self.team.invite_sign_in {
+                        body["invite"] = self.team.invite.trim().into();
+                    }
+                    self.team_request(
+                        TeamOperation::Login,
+                        Method::POST,
+                        "/api/v1/team/login".into(),
+                        Some(body),
+                        ctx,
+                    );
                 }
             }
             if let Some(login) = self.team.login.clone() {
@@ -639,6 +748,30 @@ impl ConsoleApp {
                         ctx,
                     );
                 }
+            }
+            let label = ui.label("Invite link");
+            ui.add(
+                TextEdit::singleline(&mut self.team.invite)
+                    .hint_text("https://team.example/v1/rat/invites#…")
+                    .desired_width(f32::INFINITY),
+            )
+            .labelled_by(label.id);
+            if ui
+                .add_enabled(
+                    self.team.pending.is_none()
+                        && self.team.login.is_none()
+                        && !self.team.invite.trim().is_empty(),
+                    egui::Button::new("Join with invite link"),
+                )
+                .clicked()
+            {
+                self.team_request(
+                    TeamOperation::Join,
+                    Method::POST,
+                    "/api/v1/team/join".into(),
+                    Some(json!({"invite":self.team.invite.trim()})),
+                    ctx,
+                );
             }
             self.team_spaces(ui, ctx, false, can_switch);
             if self.is_team() && self.can_manage() && self.permitted("manage_space") {
@@ -698,6 +831,7 @@ impl ConsoleApp {
                     .small()
                     .color(theme::MUTED),
                 );
+                self.invite_controls(ui, &space, ctx);
             }
             if ui
                 .add_enabled(
@@ -815,6 +949,156 @@ impl ConsoleApp {
     }
 }
 
+impl ConsoleApp {
+    fn invite_controls(&mut self, ui: &mut Ui, space: &str, ctx: &egui::Context) {
+        ui.separator();
+        ui.label("Invite links");
+        if self.team.invites.is_none() && self.team.pending.is_none() {
+            self.team.invites = Some(Vec::new());
+            self.team_request(
+                TeamOperation::Invites,
+                Method::GET,
+                format!("/api/v1/rat/spaces/{}/invites", path_segment(space)),
+                None,
+                ctx,
+            );
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_secs())
+            .unwrap_or_default();
+        for invite in self.team.invites.clone().unwrap_or_default() {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(format!(
+                    "{} · {}",
+                    string(&invite, "role"),
+                    expires_label(invite["expires_at"].as_u64().unwrap_or_default(), now)
+                ));
+                if ui
+                    .add_enabled(self.team.pending.is_none(), egui::Button::new("Revoke"))
+                    .clicked()
+                {
+                    self.team_request(
+                        TeamOperation::RevokeInvite,
+                        Method::DELETE,
+                        format!(
+                            "/api/v1/rat/spaces/{}/invites/{}",
+                            path_segment(space),
+                            path_segment(&string(&invite, "id"))
+                        ),
+                        None,
+                        ctx,
+                    );
+                }
+            });
+        }
+        egui::ComboBox::new("team-invite-role", "Invite role")
+            .selected_text(if self.team.invite_role.is_empty() {
+                "Choose role"
+            } else {
+                &self.team.invite_role
+            })
+            .show_ui(ui, |ui| {
+                for role in ["viewer", "collaborator", "controller"] {
+                    ui.selectable_value(&mut self.team.invite_role, role.into(), role);
+                }
+            });
+        if ui
+            .add_enabled(
+                self.team.pending.is_none() && !self.team.invite_role.is_empty(),
+                egui::Button::new("Create invite link"),
+            )
+            .clicked()
+        {
+            self.team.invite_link = None;
+            self.team_request(
+                TeamOperation::CreateInvite,
+                Method::POST,
+                format!("/api/v1/rat/spaces/{}/invites", path_segment(space)),
+                Some(json!({"role":self.team.invite_role})),
+                ctx,
+            );
+        }
+        if let Some((role, link)) = self.team.invite_link.clone() {
+            ui.label(RichText::new(&link).monospace().small());
+            if ui.button("Copy invite link").clicked() {
+                ctx.copy_text(link);
+                self.notice = Some("Invite link copied.".into());
+            }
+            ui.label(
+                RichText::new(format!(
+                    "Anyone with this link can join once as {role} within 7 days. Send it privately; it is shown only once."
+                ))
+                .small()
+                .color(theme::MUTED),
+            );
+        } else {
+            ui.label(
+                RichText::new(
+                    "Each link works once and expires after 7 days. Add managers by verified identity.",
+                )
+                .small()
+                .color(theme::MUTED),
+            );
+        }
+    }
+    fn clear_invites(&mut self) {
+        self.team.invites = None;
+        self.team.invite_link = None;
+        self.team.invite_role.clear();
+    }
+    fn team_endpoint(&self) -> Option<String> {
+        let id = string(self.workspace.as_ref()?, "connection_id");
+        self.team
+            .connections
+            .iter()
+            .find(|connection| string(connection, "id") == id)
+            .map(|connection| string(connection, "endpoint"))
+            .filter(|endpoint| endpoint.starts_with("https://"))
+    }
+    fn load_team_spaces(&mut self, connection: String, ctx: &egui::Context) {
+        if connection.is_empty() {
+            return;
+        }
+        let path = format!(
+            "/api/v1/team/connections/{}/spaces",
+            path_segment(&connection)
+        );
+        self.team_request(
+            TeamOperation::Spaces(connection),
+            Method::GET,
+            path,
+            None,
+            ctx,
+        );
+    }
+}
+/// The secret stays in the fragment, so opening the link in a browser never sends it.
+fn invite_link(endpoint: &str, token: &str) -> String {
+    format!("{}/rat/invites#{token}", endpoint.trim_end_matches('/'))
+}
+fn joined_notice(value: &Value) -> String {
+    let name = string(&value["space"], "name");
+    let role = string(value, "role");
+    if value["joined"] == true {
+        format!("Joined {name} as {role}. Choose it below to open the team space.")
+    } else {
+        format!("You already have {role} access to {name}.")
+    }
+}
+fn expires_label(expires_at: u64, now: u64) -> String {
+    let left = expires_at.saturating_sub(now);
+    let (count, unit) = match left {
+        0 => return "expired".into(),
+        86400.. => (left / 86400, "day"),
+        3600.. => (left / 3600, "hour"),
+        _ => (left.div_ceil(60), "minute"),
+    };
+    format!(
+        "expires in {count} {unit}{}",
+        if count == 1 { "" } else { "s" }
+    )
+}
 fn share_request(share: &Value) -> Value {
     json!({"id":share["id"],"session_id":share["source_session_id"],"endpoint":share["destination"]["baseURL"],"space_id":share["destination"]["space_id"],"connection_id":share["destination"]["connection_id"]})
 }
@@ -1056,6 +1340,107 @@ mod tests {
         assert_eq!(app.team.saved_shares.len(), 1);
     }
 
+    #[test]
+    fn invite_links_keep_the_secret_in_the_fragment_and_label_expiry() {
+        assert_eq!(
+            invite_link("https://team.example/v1/", "rti_secret"),
+            "https://team.example/v1/rat/invites#rti_secret"
+        );
+        assert_eq!(expires_label(100, 200), "expired");
+        assert_eq!(expires_label(60, 0), "expires in 1 minute");
+        assert_eq!(expires_label(2 * 3600 + 5, 0), "expires in 2 hours");
+        assert_eq!(expires_label(7 * 86400, 0), "expires in 7 days");
+    }
+    #[test]
+    fn created_invite_uses_the_team_endpoint_and_is_cleared_when_management_ends() {
+        let mut app = app("http://127.0.0.1:1".into());
+        let ctx = egui::Context::default();
+        app.workspace = Some(
+            json!({"kind":"team","connection_id":"connection","space_id":"space","role":"manager","permissions":["read","configure","manage_space"]}),
+        );
+        app.team.connections =
+            vec![json!({"id":"connection","endpoint":"https://team.example/v1"})];
+        app.team.invite_role = "collaborator".into();
+        app.receive_team(
+            TeamOperation::CreateInvite,
+            Ok(Data::Local(
+                json!({"id":"inv_a","role":"collaborator","token":"rti_secret"}),
+            )),
+            &ctx,
+        );
+        assert_eq!(
+            app.team.invite_link,
+            Some((
+                "collaborator".into(),
+                "https://team.example/v1/rat/invites#rti_secret".into()
+            ))
+        );
+        app.update_team_authority(
+            "collaborator",
+            Some(&["read".into(), "contribute".into()]),
+            &ctx,
+        );
+        assert!(app.team.invite_link.is_none());
+        assert!(app.team.invite_role.is_empty());
+    }
+    #[test]
+    fn joining_signs_in_with_the_chosen_provider_then_opens_the_joined_space() {
+        let mut app = app("http://127.0.0.1:1".into());
+        let ctx = egui::Context::default();
+        app.workspace = Some(json!({"kind":"local"}));
+        app.team.invite = "https://team.example/v1/rat/invites#rti_secret".into();
+        app.receive_team(
+            TeamOperation::Join,
+            Ok(Data::Local(json!({"status":"choose_provider","endpoint":"https://team.example/v1","login_providers":[{"id":"staff"},{"id":"guests"}]}))),
+            &ctx,
+        );
+        assert!(app.team.invite_sign_in);
+        assert_eq!(app.team.endpoint, "https://team.example/v1");
+        assert_eq!(app.team.provider, "staff");
+        app.receive_team(
+            TeamOperation::LoginStatus,
+            Ok(Data::Local(json!({"status":"complete","connection":{"id":"connection"},"joined":{"space":{"id":"space","name":"Design review"},"role":"collaborator","joined":true}}))),
+            &ctx,
+        );
+        assert!(!app.team.invite_sign_in);
+        assert!(app.team.invite.is_empty());
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("Joined Design review as collaborator. Choose it below to open the team space.")
+        );
+        assert!(app.team.pending.is_some());
+    }
+    #[test]
+    fn a_used_invite_keeps_the_link_and_reports_why() {
+        let mut app = app("http://127.0.0.1:1".into());
+        let ctx = egui::Context::default();
+        app.workspace = Some(json!({"kind":"local"}));
+        app.team.invite = "https://team.example/v1/rat/invites#rti_secret".into();
+        app.receive_team(
+            TeamOperation::Join,
+            Ok(Data::Local(json!({"status":"failed","error":"This invite link is invalid, expired or already used. Ask for a new one."}))),
+            &ctx,
+        );
+        assert!(
+            app.team
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("already used"))
+        );
+        assert!(!app.team.invite.is_empty());
+        app.team.error = None;
+        app.team.invite_sign_in = true;
+        app.receive_team(
+            TeamOperation::LoginStatus,
+            Ok(Data::Local(json!({"status":"complete","connection":{"id":"connection"},"invite_error":"Ask for a new one."}))),
+            &ctx,
+        );
+        assert_eq!(app.team.error.as_deref(), Some("Ask for a new one."));
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("Team sign-in complete. Choose a space.")
+        );
+    }
     #[test]
     fn ambiguous_input_reuses_the_same_request_key() {
         let mut app = app("http://127.0.0.1:1".into());

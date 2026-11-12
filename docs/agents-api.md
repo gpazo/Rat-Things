@@ -130,7 +130,7 @@ intersect the token's API scopes. Human access roles remain separate from the
 Agent's fixed execution authority.
 
 Standard Agents API resources retain their schemas. The `/v1/rat` extensions add
-spaces, role bindings, Agent execution-role assignments, coherent attributed
+spaces, role bindings, invite links, Agent execution-role assignments, coherent attributed
 activity and fenced local Share. See [shared Sessions](collaboration.md) for
 deployment setup, bootstrap and client examples. The IAM operator transport and
 the owner-bound scoped tokens below remain available for existing clients.

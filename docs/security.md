@@ -54,6 +54,9 @@ explicit environment values are user content and are copied as reviewed.
 
 An OIDC token proves an issuer/subject identity. Current space bindings and API
 scopes authorize requests; the caller cannot select an arbitrary storage owner.
+An invite link is a bearer grant: its first redeemer receives a binding for their
+own verified identity. Links are single-use, expire within seven days, cannot
+grant manager or admit workloads, and are stored only as hashes.
 Agent execution roles separately admit the workload's capabilities. Role removal
 prevents future acceptance and closes live activity access; accepted work remains
 durable and requires explicit controller cancellation to stop it.

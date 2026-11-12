@@ -57,7 +57,8 @@ export async function routeAgentsRequest(request: Request, principal: ApiPrincip
   try {
     requireUnexpired(principal);
     const parts = pathParts(new URL(request.url).pathname);
-    const noSpace = parts[1] === 'rat' && parts.length === 3 && ['me', 'spaces'].includes(parts[2] ?? '');
+    // Redeeming an invite creates the membership, so it cannot require a selected space.
+    const noSpace = parts[1] === 'rat' && (parts.length === 3 && ['me', 'spaces'].includes(parts[2] ?? '') || parts.length === 4 && parts[2] === 'invites' && parts[3] === 'redeem');
     if (noSpace) return await routeRatRequest(request, principal, parts, services, undefined, requestId);
     if (principal.authentication !== 'oidc') return dispatchAgentsRequest(request, principal, services, requestId, streaming);
     const selector = request.headers.get('x-rat-space');

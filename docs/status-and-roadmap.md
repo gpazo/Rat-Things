@@ -56,9 +56,10 @@ identity, retention, network policy, and operational limits for the environment 
 - **Channels:** Teams uses an outgoing-webhook/Workflow or reply-gateway bridge. A native
   Entra/Bot/Teams gateway remains future work. Linear provides account tools but cannot start
   conversations through native mentions, delegation, or Agent Session events.
-- **Browser scope:** an ordinary Session has no browser provider. The optional provider must be
-  installed in its execution environment. The console has no live browser viewer or takeover;
-  authenticated browser-profile restoration is not a supported continuity guarantee.
+- **Browser scope:** an ordinary Session has no browser provider. The
+  [shared live browser](collaboration.md#one-live-browser) requires its reserved tool grant; other providers must
+  be installed in the execution environment and have no console view. Authenticated
+  browser-profile restoration is not a supported continuity guarantee.
 - **Execution placement:** the harness and workspace run together locally or in managed AWS execution. Cloud Sessions cannot attach a command executor on another computer. Local work uses the configured subscription; Share transfers execution to AWS.
 - **Runtime differences:** Pi supports function tools, MCP, and durable subagents. Hosted skills
   and plugins, self-hosted environments, JSON-schema output, and built-in web search are unsupported.

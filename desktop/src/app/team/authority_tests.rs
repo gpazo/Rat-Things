@@ -346,3 +346,22 @@ fn stale_authority_expires_while_its_request_is_still_pending() {
     receive_authority(&mut ui);
     assert_eq!(ui.state().role(), Role::NoAccess);
 }
+
+#[test]
+fn only_managers_see_invite_link_controls() {
+    let mut app = authority_app("http://127.0.0.1:1".into(), Collection::Sessions, true);
+    app.team.authority_due = None;
+    app.team.bindings = Some(Vec::new());
+    app.team.invites = Some(vec![
+        json!({"id":"inv_a","role":"viewer","status":"active","expires_at":4_000_000_000_u64}),
+    ]);
+    let mut ui = harness(app);
+    assert!(ui.query_by_label("Create invite link").is_some());
+    assert!(ui.query_by_label("Revoke").is_some());
+    assert!(ui.query_by_label("Join with invite link").is_some());
+    ui.state_mut().workspace.as_mut().unwrap()["role"] = "collaborator".into();
+    ui.run_steps(2);
+    assert!(ui.query_by_label("Create invite link").is_none());
+    assert!(ui.query_by_label("Revoke").is_none());
+    assert!(ui.query_by_label("Join with invite link").is_some());
+}
