@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
+import type { AgentObservation, AgentResource } from '../../src/core/agents-ports.js';
 import { API_SCOPES, iamApiPrincipal, type ApiPrincipal } from '../../src/domain/api-permissions.js';
 import { SpaceAccessService } from '../../src/identity/space-access.js';
 import { GuardedAgentsStore } from '../../src/identity/guarded-agents-store.js';
@@ -12,12 +13,39 @@ const issuer = 'https://id.example.test';
 function principal(subject: string, kind: 'human' | 'workload' = 'human'): ApiPrincipal {
   return { ownerId: '', authentication: 'oidc', scopes: API_SCOPES, expiresAt: Date.now() + 60_000, actor: { id: oidcActorId(issuer, subject), kind, issuer, subject } };
 }
-async function setup(now = () => Date.now()) {
-  const base = new MemoryAgentsStore(); const guardedStore = new GuardedAgentsStore(base);
+function principalExpiringAt(subject: string, expiresAt: number): ApiPrincipal {
+  return { ...principal(subject), expiresAt };
+}
+async function setup(now = () => Date.now(), base = new MemoryAgentsStore()) {
+  const guardedStore = new GuardedAgentsStore(base);
   const access = new SpaceAccessService(guardedStore, now);
   const space = await access.bootstrap(iamApiPrincipal('operator'), { name: 'Design review', manager: { issuer, subject: 'alice' } });
-  const authority = await access.authorize(principal('alice'), space.id, ['manage_space']);
+  const authority = await access.authorize({ ...principal('alice'), expiresAt: now() + 3_600_000 }, space.id, ['manage_space']);
   return { base, guardedStore, access, space, authority };
+}
+
+class GatedInviteStore extends MemoryAgentsStore {
+  public holdInviteRead?: () => Promise<void>;
+  public holdRedeemCommit?: () => Promise<void>;
+  public redeemObservations?: AgentObservation[];
+
+  public override async get<T>(ownerId: string, collection: string, id: string): Promise<AgentResource<T> | undefined> {
+    const value = await super.get<T>(ownerId, collection, id);
+    if (collection === 'space_invites') await this.holdInviteRead?.();
+    return value;
+  }
+
+  public override async commit(
+    writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>,
+    observations: AgentObservation[] = [],
+  ): Promise<void> {
+    if (writes.some(write => write.resource.collection === 'space_invites'
+      && (write.resource.value as { status?: string }).status === 'redeemed')) {
+      this.redeemObservations = structuredClone(observations);
+      await this.holdRedeemCommit?.();
+    }
+    return super.commit(writes, observations);
+  }
 }
 
 describe('space invite links', () => {
@@ -90,6 +118,96 @@ describe('space invite links', () => {
     const s = await setup();
     for (let index = 0; index < 50; index++) await s.access.invite(s.authority, { role: 'viewer' });
     await expect(s.access.invite(s.authority, { role: 'viewer' })).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('keeps the active invite limit under concurrent minting', async () => {
+    const s = await setup();
+    for (let index = 0; index < 49; index++) await s.access.invite(s.authority, { role: 'viewer' });
+
+    const results = await Promise.allSettled([
+      s.access.invite(s.authority, { role: 'viewer' }),
+      s.access.invite(s.authority, { role: 'viewer' }),
+    ]);
+
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.find(result => result.status === 'rejected')).toMatchObject({ reason: { status: 409 } });
+    expect((await s.access.invites(s.authority)).data).toHaveLength(50);
+  });
+
+  it('lists and counts open invites beyond closed invite history', async () => {
+    let clock = Date.now();
+    const s = await setup(() => clock);
+    const oldestOpen = await s.access.invite(s.authority, { role: 'viewer' });
+    for (let index = 0; index < 100; index++) {
+      clock += 1_000;
+      const closed = await s.access.invite(s.authority, { role: 'viewer' });
+      await s.access.revokeInvite(s.authority, closed.id);
+    }
+    for (let index = 0; index < 49; index++) {
+      clock += 1_000;
+      await s.access.invite(s.authority, { role: 'viewer' });
+    }
+
+    const listed = await s.access.invites(s.authority);
+    expect(listed.data.map(invite => invite.id)).toHaveLength(50);
+    expect(listed.data.map(invite => invite.id)).toContain(oldestOpen.id);
+    expect(listed.has_more).toBe(false);
+    await expect(s.access.invite(s.authority, { role: 'viewer' })).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('rejects redemption when the principal expires during invite reads', async () => {
+    const originalDateNow = Date.now;
+    let clock = 1_000_000;
+    Date.now = () => clock;
+    const store = new GatedInviteStore();
+    try {
+      const s = await setup(() => clock, store);
+      const invite = await s.access.invite(s.authority, { role: 'viewer' });
+      const expiresAt = clock + 100;
+      let releaseRead!: () => void;
+      let readStarted!: () => void;
+      const readGate = new Promise<void>(resolve => { releaseRead = resolve; });
+      const readEntered = new Promise<void>(resolve => { readStarted = resolve; });
+      store.holdInviteRead = async () => { readStarted(); await readGate; };
+
+      const redemption = s.access.redeem(principalExpiringAt('sam', expiresAt), { token: invite.token });
+      await readEntered;
+      clock = expiresAt;
+      releaseRead();
+
+      await expect(redemption).rejects.toMatchObject({ status: 401 });
+      await expect(s.access.authorize(principal('sam'), s.space.id, ['read'])).rejects.toMatchObject({ status: 403 });
+    } finally {
+      Date.now = originalDateNow;
+    }
+  });
+
+  it('fences redemption commit with the principal expiry', async () => {
+    const originalDateNow = Date.now;
+    let clock = 1_000_000;
+    Date.now = () => clock;
+    const store = new GatedInviteStore();
+    try {
+      const s = await setup(() => clock, store);
+      const invite = await s.access.invite(s.authority, { role: 'viewer' });
+      const expiresAt = clock + 100;
+      let releaseCommit!: () => void;
+      let commitStarted!: () => void;
+      const commitGate = new Promise<void>(resolve => { releaseCommit = resolve; });
+      const commitEntered = new Promise<void>(resolve => { commitStarted = resolve; });
+      store.holdRedeemCommit = async () => { commitStarted(); await commitGate; };
+
+      const redemption = s.access.redeem(principalExpiringAt('sam', expiresAt), { token: invite.token });
+      await commitEntered;
+      clock = expiresAt;
+      releaseCommit();
+
+      await expect(redemption).rejects.toMatchObject({ status: 401 });
+      expect(store.redeemObservations).toEqual(expect.arrayContaining([expect.objectContaining({ validUntil: expiresAt })]));
+      await expect(s.access.authorize(principal('sam'), s.space.id, ['read'])).rejects.toMatchObject({ status: 403 });
+    } finally {
+      Date.now = originalDateNow;
+    }
   });
 });
 
