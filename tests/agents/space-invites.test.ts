@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
 import type { AgentObservation, AgentResource } from '../../src/core/agents-ports.js';
 import { API_SCOPES, iamApiPrincipal, type ApiPrincipal } from '../../src/domain/api-permissions.js';
-import { SpaceAccessService } from '../../src/identity/space-access.js';
+import { SpaceAccessService, spaceOwner, type SpaceInvite } from '../../src/identity/space-access.js';
 import { GuardedAgentsStore } from '../../src/identity/guarded-agents-store.js';
 import { oidcActorId } from '../../src/identity/principal.js';
 import { AgentService } from '../../src/core/agent-service.js';
@@ -204,6 +204,35 @@ describe('space invite links', () => {
 
       await expect(redemption).rejects.toMatchObject({ status: 401 });
       expect(store.redeemObservations).toEqual(expect.arrayContaining([expect.objectContaining({ validUntil: expiresAt })]));
+      await expect(s.access.authorize(principal('sam'), s.space.id, ['read'])).rejects.toMatchObject({ status: 403 });
+    } finally {
+      Date.now = originalDateNow;
+    }
+  });
+
+  it('keeps an invite unusable when it expires before redemption commits', async () => {
+    const originalDateNow = Date.now;
+    let clock = 1_000_000;
+    Date.now = () => clock;
+    const store = new GatedInviteStore();
+    try {
+      const s = await setup(() => clock, store);
+      const invite = await s.access.invite(s.authority, { role: 'viewer', expires_in: 300 });
+      const principalExpiry = clock + 600_000;
+      let releaseCommit!: () => void;
+      let commitStarted!: () => void;
+      const commitGate = new Promise<void>(resolve => { releaseCommit = resolve; });
+      const commitEntered = new Promise<void>(resolve => { commitStarted = resolve; });
+      store.holdRedeemCommit = async () => { commitStarted(); await commitGate; };
+
+      const redemption = s.access.redeem(principalExpiringAt('sam', principalExpiry), { token: invite.token });
+      await commitEntered;
+      clock = invite.expires_at * 1000;
+      releaseCommit();
+
+      await expect(redemption).rejects.toMatchObject({ status: 404 });
+      await expect(store.get<SpaceInvite>(spaceOwner(s.space.id), 'space_invites', invite.id))
+        .resolves.toMatchObject({ value: { status: 'active' } });
       await expect(s.access.authorize(principal('sam'), s.space.id, ['read'])).rejects.toMatchObject({ status: 403 });
     } finally {
       Date.now = originalDateNow;
