@@ -56,6 +56,8 @@ A manager opens **Space members**, chooses a role and selects **Create invite li
 Send the link privately. The person pastes it into **Invite link** and selects
 **Join with invite link**. If they are not yet signed in to that team, the desktop
 starts sign-in first, then joins. The space then appears in their list.
+If you have several saved accounts for that team, choose which account receives
+the role before joining.
 
 Each link works once and expires after seven days. It grants viewer, collaborator
 or controller; add managers by verified identity instead. Whoever uses the link

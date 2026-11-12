@@ -45,9 +45,12 @@ sleep 7200 | CODEX_BINARY=$PWD/node_modules/.bin/codex AGENTS_AWS_LIVE=true \
   node --import tsx testing/shared-workspace/agents-aws/controller.ts
 ```
 
-The relay returns `429` once there have been `AGENTS_AWS_MAX_HOSTED_TURNS` hosted
-Turns (default 4), or once the estimated hosted inference reaches $1. The
-controller stops after `AGENTS_AWS_MAX_MINUTES` (default 75). Evidence goes to
+The relay accepts contributions only for the demo Session. It does not expose
+Session creation or forks. Messages, input events and annotation feedback return
+`429` once observed usage reaches `AGENTS_AWS_MAX_HOSTED_TURNS` hosted Turns
+(default 4), or the estimated hosted inference reaches $1. These admission
+thresholds do not stop work already accepted, so final usage can exceed them.
+The controller stops after `AGENTS_AWS_MAX_MINUTES` (default 75). Evidence goes to
 `artifacts/shared-workspace/agents-aws/evidence.json`. It records:
 
 - each step with its timing;

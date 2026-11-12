@@ -22,9 +22,14 @@ sleep 7200 | CODEX_BINARY=$PWD/node_modules/.bin/codex RAT_AGENTS_LIVE=true \
   RAT_AGENTS_LIVE_MODEL=gpt-5.6-luna node --import tsx testing/shared-workspace/agents-live/server.ts
 ```
 
-The server rejects contributions after `RAT_AGENTS_LIVE_MAX_TURNS` Turns (default 6)
-and stops after `RAT_AGENTS_LIVE_MAX_MINUTES` (default 45). On shutdown it writes
-per-Turn token usage to `artifacts/shared-workspace/agents-live/cleanup.json`.
+The server accepts contributions only for the demo Session. Messages, input events
+and annotation feedback are rejected once observed usage reaches
+`RAT_AGENTS_LIVE_MAX_TURNS` Turns (default 6). Work already accepted can finish after
+that threshold. The server stops after `RAT_AGENTS_LIVE_MAX_MINUTES` (default 45).
+On shutdown it writes per-Turn token usage and cleanup outcomes to
+`artifacts/shared-workspace/agents-live/cleanup.json`. If cleanup fails, the process
+exits with an error and records which resources could not be removed. The demo
+profile and its sign-in remain available for the next run.
 
 Each participant uses the same client:
 

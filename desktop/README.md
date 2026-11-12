@@ -138,6 +138,7 @@ same verified identity. **Sign out** removes its locally saved credentials and c
 pending reconnects for that connection. A late browser callback cannot sign it back in.
 If someone sent you an invite link, paste it into **Invite link** and choose **Join with
 invite link** instead; the console signs you in to that team first when needed.
+If several saved accounts match the team, choose the account to use for the invite.
 
 A viewer can follow shared progress. A collaborator can send messages, steer work,
 and start Sessions from admitted saved Agents. Controllers can cancel a Turn.
