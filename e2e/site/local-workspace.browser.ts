@@ -8,7 +8,7 @@ for (const width of [1440, 390]) {
     await page.screenshot({ path: `test-results/site/local-overview-${width}.png` });
     await page.getByRole('link', { name: 'Start on this computer', exact: true }).click();
     await expect(page).toHaveURL(/\/docs\/local-workspace\/$/);
-    await expect(page.locator('article h1')).toContainText('A little help, right at home');
+    await expect(page.locator('article h1')).toContainText('Local workspaces');
     await expect(page.locator('article')).toContainText('npm run console:serve');
     await expect(page.locator('article')).toContainText('not offline model inference');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

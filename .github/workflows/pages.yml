@@ -26,7 +26,15 @@ jobs:
       - run: npm ci
       - run: npm run site:build
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e:site
+      - run: npm run test:e2e:site -- --reporter=list,github
+      - name: Upload browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pages-browser-results
+          path: test-results/site
+          if-no-files-found: ignore
+          retention-days: 7
       - uses: actions/configure-pages@v6.0.0
       - uses: actions/upload-pages-artifact@v5.0.0
         with:
