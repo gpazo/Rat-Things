@@ -6,6 +6,7 @@ import type { StoredEnvironment } from './environment-service.js';
 import { savedSessionObservation } from './session-observation-planning.js';
 import { planSessionStream, type SessionStreamSnapshot } from './session-stream.js';
 import { planSessionWebhooks, type SessionWebhookEvent, type StoredWebhookEndpoint } from '../domain/session-webhooks.js';
+import { emptySessionPlan, type SessionPlan } from '../domain/session-plan.js';
 import { AgentsApiError, AgentsResourceConflictError } from '../domain/agents-api-validation.js';
 
 export interface SessionEventBatch { sessionId: string; events: AgentSessionEvent[]; webhooks: SessionWebhookEvent[]; endpointIds: string[]; activity?: SessionStreamSnapshot }
@@ -61,17 +62,23 @@ export class SessionEventStore implements AgentsStore {
   private async commitObserved(writes: Array<{ resource: AgentResource<unknown>; expectedRevision: number }>, observation?: { ownerId: string; id: string; revision: number }, observations: AgentObservation[] = []): Promise<void> {
     const affected = new Map<string, { ownerId: string; id: string }>();
     for (const { resource } of writes) {
-      const id = resource.collection === 'sessions' || resource.collection === 'session_runtime' || resource.collection === 'local_runtime' ? resource.id
+      const id = resource.collection === 'sessions' || resource.collection === 'session_runtime' || resource.collection === 'local_runtime' || resource.collection === 'session_plans' ? resource.id
         : resource.collection === 'environments' ? (resource.value as StoredEnvironment).sessionId : undefined;
       if (id) affected.set(JSON.stringify([resource.ownerId, id]), { ownerId: resource.ownerId, id });
     }
     if (observation && !affected.has(JSON.stringify([observation.ownerId, observation.id]))) throw new Error('Observation guard does not match a Session write');
+    const consumedObservations = new Set<AgentObservation>();
     const additions: typeof writes = [];
     for (const { ownerId, id } of affected.values()) {
       // Read the compare-and-swap fence first. Concurrent changes to any source
       // also change this fence, so a mixed observation cannot be committed.
       const previous = await this.base.get<SessionStreamSnapshot>(ownerId, 'session_observations', id);
       if (observation?.ownerId === ownerId && observation.id === id && previous?.revision !== observation.revision) throw new AgentsResourceConflictError();
+      const observed = observations.find(entry => entry.ownerId === ownerId && entry.collection === 'session_observations' && entry.id === id);
+      if (observed) {
+        if (previous?.revision !== observed.revision) throw new AgentsResourceConflictError();
+        consumedObservations.add(observed);
+      }
       const read = async <T>(collection: string, resourceId: string) => {
         const pending = writes.find(({ resource }) => resource.ownerId === ownerId && resource.collection === collection && resource.id === resourceId);
         return pending ? pending.resource as AgentResource<T> : this.base.get<T>(ownerId, collection, resourceId);
@@ -81,8 +88,15 @@ export class SessionEventStore implements AgentsStore {
       const runtime = await read<StoredSessionRuntime>('session_runtime', id);
       const local = !runtime ? await read<import('./session-runtime-planning.js').SessionRuntimeState>('local_runtime', id) : undefined;
       const environment = state.value.session.environment.type === 'none' ? undefined : await read<StoredEnvironment>('environments', state.value.session.environment.id);
+      const pendingPlan = writes.find(({ resource }) => resource.ownerId === ownerId && resource.collection === 'session_plans' && resource.id === id)?.resource as AgentResource<SessionPlan> | undefined;
+      // Plan heads are already captured in the prior observation. Read storage
+      // only for a Plan write or the one post-upgrade backfill of an admitted
+      // Session, not on every hot-path runtime notification.
+      const plan = pendingPlan?.value ?? previous?.value.plan ?? (state.value.planToolAdmitted && previous
+        ? (await this.base.get<SessionPlan>(ownerId, 'session_plans', id))?.value
+        : state.value.planToolAdmitted ? emptySessionPlan() : undefined);
       const now = this.clock.now();
-      const snapshot = savedSessionObservation(state.value, runtime?.value ?? (local ? { snapshot: local.value } : undefined), environment?.value, now);
+      const snapshot = savedSessionObservation(state.value, runtime?.value ?? (local ? { snapshot: local.value } : undefined), environment?.value, now, plan);
       const revision = (previous?.revision ?? 0) + 1;
       // Even a non-visible source update participates in the shared fence.
       additions.push({ resource: { id, ownerId, collection: 'session_observations', createdAt: previous?.createdAt ?? now, revision, value: snapshot }, expectedRevision: previous?.revision ?? 0 });
@@ -94,6 +108,6 @@ export class SessionEventStore implements AgentsStore {
       const batch: AgentResource<SessionEventBatch> = { id: identity, ownerId, collection: 'session_event_batches', createdAt: now, revision: 1, expiresAt: now + 4 * 86400, value: { sessionId: id, events, webhooks, endpointIds, activity: snapshot } };
       additions.push({ resource: batch, expectedRevision: 0 });
     }
-    await this.base.commit([...writes, ...additions], observations);
+    await this.base.commit([...writes, ...additions], observations.filter(entry => !consumedObservations.has(entry)));
   }
 }

@@ -11,6 +11,7 @@ export interface SessionStreamSnapshot {
   environment?: AgentSessionEnvironmentState;
   environmentResetCount?: number;
   subagents?: Subagent[];
+  plan?: import('../domain/session-plan.js').SessionPlan;
 }
 type WithoutId<T> = T extends AgentSessionEvent ? Omit<T, 'event_id'> : never;
 export type PlannedSessionEvent = WithoutId<AgentSessionEvent>;

@@ -90,6 +90,7 @@ export class ConfigurationHistory {
 export function sessionConfigurationSnapshot(state: SessionState, provenance: Pick<SessionConfiguration, 'sourceAgent' | 'sourceSession'> = {}): ConfigurationSnapshot {
   return { kind: 'session', configuration: { agent: state.session.agent, environment: state.session.environment,
     vaultIds: state.session.vault_ids, runtime: state.runtime ?? { kind: 'codex' },
+    ...(state.planToolAdmitted ? { planToolAdmitted: true as const } : {}),
     ...(state.importedFrom ? { importedFrom: { sessionId: state.importedFrom.sessionId } } : {}), ...provenance } };
 }
 

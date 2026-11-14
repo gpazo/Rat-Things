@@ -6,9 +6,10 @@ import type { StoredSessionRuntime } from './session-runtime-store.js';
 import { observeSession, orderedTurnItems, terminalTurn } from './session-planning.js';
 import { runtimeSubagents } from './session-runtime-planning.js';
 import type { SessionStreamSnapshot } from './session-stream.js';
+import { SESSION_PLAN_TOOL_NAME } from '../domain/session-plan.js';
 
 /** A public observation from committed values; no live worker, clock or database reads. */
-export function savedSessionObservation(state: SessionState, runtime: Pick<StoredSessionRuntime, 'snapshot'> | undefined, environment: StoredEnvironment | undefined, now: number): SessionStreamSnapshot {
+export function savedSessionObservation(state: SessionState, runtime: Pick<StoredSessionRuntime, 'snapshot'> | undefined, environment: StoredEnvironment | undefined, now: number, plan?: import('../domain/session-plan.js').SessionPlan): SessionStreamSnapshot {
   const native = runtime?.snapshot;
   const subagents = native ? runtimeSubagents(native) : state.subagents ?? [];
   const status = environment?.retired ? 'expired' : environment?.status === 'connected' && (environment.connectedUntil ?? 0) <= now ? 'disconnected' : environment?.status;
@@ -26,8 +27,10 @@ export function savedSessionObservation(state: SessionState, runtime: Pick<Store
   const observation = observeSession(current, [...observations, ...subagents.flatMap((entry) => entry.turns.map((turn) => ({ turn, requiredActions: (entry.requiredActions ?? []).filter((action) => action.type === 'function_call' && action.turn_id === turn.id) })))]);
   return {
     inputs: sessionInputs(state),
+    ...(plan ? { plan } : {}),
     artifacts: [...state.turns.flatMap(turn => turn.savedArtifacts ?? native?.turns.find(binding => binding.turn.id === turn.turn.id)?.artifacts ?? []), ...subagents.flatMap(subagent => subagent.artifacts ?? [])].map(entry => entry.artifact).filter(artifact => !state.deletedArtifacts.includes(artifact.id)),
-    session: observation.session, turns: observation.turns.map(({ turn }) => turn),
+    session: { ...observation.session, required_actions: observation.session.required_actions.filter((action) => action.type !== 'function_call' || action.name !== SESSION_PLAN_TOOL_NAME) },
+    turns: observation.turns.map(({ turn }) => turn),
     items: [...state.importedHistory ?? [], ...state.turns.flatMap((binding) => orderedTurnItems(state, binding, binding.savedItems ?? native?.turns.find((entry) => entry.turn.id === binding.turn.id)?.items ?? [])), ...subagents.flatMap((entry) => entry.items)],
     subagents: subagents.map((entry) => entry.subagent),
     failures: Object.entries(state.receipts).flatMap(([id, receipt]) => receipt.failure ? [{ id, ...receipt.failure }] : []),

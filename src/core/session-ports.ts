@@ -21,6 +21,8 @@ export interface SessionTurnBinding {
 }
 
 export interface SessionState {
+  /** Immutable admission marker. Older Sessions without it never receive the Plan tool. */
+  planToolAdmitted?: true;
   workloadAdmission?: unknown;
   configuration?: { admitted: import('../domain/configuration-history.js').ConfigurationRevisionRef; current: import('../domain/configuration-history.js').ConfigurationRevisionRef };
   runtime?: import('../domain/session-runtime.js').RuntimePin;

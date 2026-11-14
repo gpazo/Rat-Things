@@ -16,6 +16,8 @@ export interface SessionConfiguration {
   environment: AgentSession['environment'];
   vaultIds: string[];
   runtime: RuntimePin;
+  /** Fixed at Session creation; later updates cannot add this capability. */
+  planToolAdmitted?: true;
   sourceAgent?: ConfigurationRevisionRef;
   sourceSession?: ConfigurationRevisionRef;
   /** Import provenance is descriptive, never a claim of source execution authority. */
