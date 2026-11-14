@@ -467,6 +467,7 @@ const server = createServer((request, response) => void (async () => {
             call_id: callId,
             output: JSON.stringify({ plan: saved.plan }),
             status: 'completed',
+            error: null,
           },
         ]);
         return saved.plan;
