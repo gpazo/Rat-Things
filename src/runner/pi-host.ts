@@ -138,7 +138,7 @@ export async function executePiWorker(request: RunRequest, workspace: string, ti
   const started = Date.now();
   try {
     await dependencies.lease.assertActive();
-    const childLaunch: SessionLaunch = { runtime: launch.runtime, sessionId: launch.sessionId, turnId: launch.turnId, agent: launch.agent,
+    const childLaunch: SessionLaunch = { runtime: launch.runtime, ...(launch.planTool ? { planTool: true } : {}), sessionId: launch.sessionId, turnId: launch.turnId, agent: launch.agent,
       environment: launch.environment, input: launch.input, ...(launch.turn ? { turn: launch.turn } : {}), ...(launch.piForkContext ? { piForkContext: launch.piForkContext } : {}) };
     phase = 'initialize';
     await invoke({ method: 'initialize', value: { launch: childLaunch, allowedModelIds: dependencies.allowedModelIds, tools: broker.tools, mode: control.sessionRuntime?.lifetime === 'host-managed' || sharedBrowserGranted(launch.agent.tools) ? 'persistent' : 'bounded' } });

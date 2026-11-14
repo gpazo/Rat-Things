@@ -3,11 +3,15 @@ import { canonicalJson, sha256Hex } from '../domain/json.js';
 import {
   applySessionPlanUpdate,
   emptySessionPlan,
+  parseSessionPlanTransfer,
   parseSessionPlanUpdate,
+  SESSION_PLAN_MAX_HISTORY_BYTES,
+  remapSessionPlanTransferReceipts,
   type SessionPlan,
   type SessionPlanReceiptSource,
   type SessionPlanResultLink,
   type SessionPlanRevision,
+  type SessionPlanTransfer,
 } from '../domain/session-plan.js';
 import type { AgentsClock, AgentsStore } from './agents-ports.js';
 
@@ -15,6 +19,7 @@ const PLAN_COLLECTION = 'session_plans';
 const REVISION_COLLECTION = 'session_plan_revisions';
 const CALL_COLLECTION = 'session_plan_calls';
 const MAX_PLAN_HISTORY_PAGE = 50;
+const PLAN_HISTORY_READ_BATCH = 4;
 const PLAN_CALL_RETENTION_SECONDS = 90 * 24 * 60 * 60;
 
 export interface SessionPlanAvailableResults {
@@ -43,17 +48,51 @@ export class SessionPlanService {
 
   public async history(ownerId: string, sessionId: string, after = 0, limit = 20) {
     if (!Number.isSafeInteger(after) || after < 0) invalid('after must be a non-negative Plan revision.', 'after');
-    if (!Number.isSafeInteger(limit) || limit < 1) invalid('limit must be a positive integer.', 'limit');
-    const count = Math.min(limit, MAX_PLAN_HISTORY_PAGE);
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_PLAN_HISTORY_PAGE) invalid('limit must be an integer from 1 to 50.', 'limit');
     const head = await this.head(ownerId, sessionId);
-    const end = Math.min(head.revision, after + count);
+    const end = Math.min(head.revision, after + limit);
     const revisions: SessionPlanRevision[] = [];
-    for (let revision = after + 1; revision <= end; revision++) {
-      const saved = await this.store.get<SessionPlanRevision>(ownerId, REVISION_COLLECTION, revisionId(sessionId, revision));
-      if (!saved) throw new AgentsApiError(409, 'Plan history is incomplete. Refresh the current Plan before continuing.', 'plan_history_incomplete');
-      revisions.push(saved.value);
+    const imported = await this.store.get<SessionPlanTransfer>(ownerId, 'session_plan_imports', sessionId);
+    for (let start = after + 1; start <= end; start += PLAN_HISTORY_READ_BATCH) {
+      const stop = Math.min(end, start + PLAN_HISTORY_READ_BATCH - 1);
+      const saved = await Promise.all(Array.from({ length: stop - start + 1 }, (_, index) => this.store.get<SessionPlanRevision>(ownerId, REVISION_COLLECTION, revisionId(sessionId, start + index))));
+      for (let index = 0; index < saved.length; index++) {
+        const revision = start + index;
+        const value = saved[index]?.value ?? imported?.value.revisions[revision - 1];
+        if (!value) throw new AgentsApiError(409, 'Plan history is incomplete. Refresh the current Plan before continuing.', 'plan_history_incomplete');
+        revisions.push(value);
+      }
     }
     return { session_id: sessionId, head_revision: head.revision, revisions, next_after: end < head.revision ? end : null };
+  }
+
+  public async export(ownerId: string, sessionId: string): Promise<SessionPlanTransfer> {
+    const head = await this.head(ownerId, sessionId);
+    const revisions: SessionPlanRevision[] = [];
+    for (let after = 0; after < head.revision;) {
+      const page = await this.history(ownerId, sessionId, after, MAX_PLAN_HISTORY_PAGE);
+      if (!page.revisions.length) throw new AgentsApiError(409, 'Plan history is incomplete and cannot be shared.', 'share_incompatible');
+      revisions.push(...page.revisions);
+      after = page.next_after ?? head.revision;
+      if (Buffer.byteLength(canonicalJson({ head, revisions }), 'utf8') > SESSION_PLAN_MAX_HISTORY_BYTES) {
+        throw new AgentsApiError(400, 'Plan history exceeds the Share transfer limit.', 'share_incompatible');
+      }
+    }
+    return parseSessionPlanTransfer({ head, revisions });
+  }
+
+  /** Plan history is bundled for same-Session import to stay within transaction limits. */
+  public importWrites(ownerId: string, sessionId: string, raw: unknown, createdAt: number) {
+    const transfer = parseSessionPlanTransfer(raw);
+    const writes: Array<{ resource: import('./agents-ports.js').AgentResource<unknown>; expectedRevision: number }> = [
+      { resource: { ownerId, id: sessionId, collection: PLAN_COLLECTION, createdAt, revision: 1, value: transfer.head }, expectedRevision: 0 },
+    ];
+    if (transfer.revisions.length) writes.push({ resource: { ownerId, id: sessionId, collection: 'session_plan_imports', createdAt, revision: 1, value: transfer }, expectedRevision: 0 });
+    return writes;
+  }
+
+  public remapReceipts(transfer: SessionPlanTransfer, receiptIds: ReadonlyMap<string, string>): SessionPlanTransfer {
+    return remapSessionPlanTransferReceipts(transfer, receiptIds);
   }
 
   /**
@@ -122,7 +161,7 @@ export class SessionPlanService {
     const observation = { ownerId: input.ownerId, collection: 'session_observations', id: input.sessionId, revision: input.observationRevision };
     const sessionObservation = { ownerId: input.ownerId, collection: 'sessions', id: input.sessionId, revision: input.sessionRevision };
     const writes = plan ? [
-      { resource: { ownerId: input.ownerId, id: input.sessionId, collection: PLAN_COLLECTION, createdAt: headResource?.createdAt ?? now, revision: plan.revision, value: plan }, expectedRevision: headResource?.revision ?? 0 },
+      { resource: { ownerId: input.ownerId, id: input.sessionId, collection: PLAN_COLLECTION, createdAt: headResource?.createdAt ?? now, revision: (headResource?.revision ?? 0) + 1, value: plan }, expectedRevision: headResource?.revision ?? 0 },
       { resource: { ownerId: input.ownerId, id: revisionId(input.sessionId, plan.revision), collection: REVISION_COLLECTION, createdAt: now, revision: 1, value: { revision: plan.revision, items: plan.items } satisfies SessionPlanRevision }, expectedRevision: 0 },
       { resource: call, expectedRevision: 0 },
     ] : [{ resource: call, expectedRevision: 0 }];

@@ -6,6 +6,8 @@ export const SESSION_PLAN_MAX_ITEMS = 50;
 export const SESSION_PLAN_MAX_BYTES = 64 * 1024;
 export const SESSION_PLAN_MAX_TEXT = 2_000;
 export const SESSION_PLAN_MAX_REASON = 1_000;
+export const SESSION_PLAN_MAX_HISTORY_BYTES = 2 * 1024 * 1024;
+export const SESSION_PLAN_MAX_REVISIONS = 10_000;
 
 export const SESSION_PLAN_STATES = ['next', 'working', 'addressed', 'deferred', 'reopened', 'needs_discussion'] as const;
 export type SessionPlanState = typeof SESSION_PLAN_STATES[number];
@@ -79,6 +81,11 @@ export interface SessionPlanRevision {
   items: SessionPlanItem[];
 }
 
+export interface SessionPlanTransfer {
+  head: SessionPlan;
+  revisions: SessionPlanRevision[];
+}
+
 /** Agent input intentionally names source messages only; receipt identity is host-derived. */
 export interface SessionPlanUpdateInput {
   expected_revision: number;
@@ -93,6 +100,29 @@ export interface SessionPlanUpdateInput {
 }
 
 export interface SessionPlanReceiptSource { id: string; message_ids: string[]; status: 'accepted' | 'dispatched' | 'failed' }
+
+/** Validate bounded immutable Plan snapshots embedded in a same-Session Share. */
+export function parseSessionPlanTransfer(raw: unknown): SessionPlanTransfer {
+  if (!record(raw) || !hasOnly(raw, ['head', 'revisions']) || !Array.isArray(raw.revisions) || raw.revisions.length > SESSION_PLAN_MAX_REVISIONS
+    || Buffer.byteLength(canonicalJson(raw), 'utf8') > SESSION_PLAN_MAX_HISTORY_BYTES) invalid('Plan history exceeds the Share transfer limit.');
+  const head = parseStoredPlan(raw.head, 'head');
+  const revisions = raw.revisions.map((revision, index) => parseStoredRevision(revision, index + 1));
+  if (head.revision !== revisions.length || (head.revision === 0 ? head.items.length !== 0 : canonicalJson(head.items) !== canonicalJson(revisions.at(-1)?.items))) {
+    invalid('Plan history does not match its current head.');
+  }
+  return { head, revisions };
+}
+
+/** Share imports preserve message identity but replace source receipt IDs. */
+export function remapSessionPlanTransferReceipts(transfer: SessionPlanTransfer, receiptIds: ReadonlyMap<string, string>): SessionPlanTransfer {
+  const mapItems = (items: readonly SessionPlanItem[]): SessionPlanItem[] => items.map(item => ({ ...item, source_refs: item.source_refs.map(reference => {
+    const receipt_id = receiptIds.get(reference.receipt_id);
+    if (!receipt_id) invalid('Plan history refers to an input receipt that is missing from the Share.');
+    return { ...reference, receipt_id };
+  }) }));
+  return { head: { ...transfer.head, items: mapItems(transfer.head.items) },
+    revisions: transfer.revisions.map(revision => ({ ...revision, items: mapItems(revision.items) })) };
+}
 
 export function emptySessionPlan(): SessionPlan {
   return { revision: 0, items: [] };
@@ -199,6 +229,58 @@ function parseUpdateResultLink(raw: unknown, param: string): SessionPlanUpdateRe
     return { kind: 'output', path };
   }
   invalid('Only saved artifacts and Session activity items can be linked.', param);
+}
+
+function parseStoredPlan(raw: unknown, param: string): SessionPlan {
+  if (!record(raw) || !hasOnly(raw, ['revision', 'items']) || !Number.isSafeInteger(raw.revision) || Number(raw.revision) < 0 || !Array.isArray(raw.items)) invalid('Invalid stored Plan.', param);
+  return { revision: Number(raw.revision), items: parseStoredItems(raw.items, param) };
+}
+
+function parseStoredRevision(raw: unknown, expectedRevision: number): SessionPlanRevision {
+  if (!record(raw) || !hasOnly(raw, ['revision', 'items']) || raw.revision !== expectedRevision || !Array.isArray(raw.items)) invalid('Plan revision history is not contiguous.', `revisions.${expectedRevision - 1}`);
+  return { revision: expectedRevision, items: parseStoredItems(raw.items, `revisions.${expectedRevision - 1}`) };
+}
+
+function parseStoredItems(raw: unknown[], param: string): SessionPlanItem[] {
+  if (raw.length > SESSION_PLAN_MAX_ITEMS) invalid('Plan snapshots contain at most 50 items.', param);
+  const ids = new Set<string>();
+  const items = raw.map((entry, index): SessionPlanItem => {
+    const path = `${param}.items.${index}`;
+    if (!record(entry) || !hasOnly(entry, ['id', 'text', 'state', 'reason', 'source_refs', 'result_links', 'updated_by', 'updated_at'])) invalid('Invalid stored Plan item.', path);
+    const id = string(entry.id, `${path}.id`, 128);
+    if (!/^[A-Za-z0-9_-]+$/.test(id) || ids.has(id)) invalid('Plan item IDs must be unique stable identifiers.', `${path}.id`);
+    ids.add(id);
+    const text = string(entry.text, `${path}.text`, SESSION_PLAN_MAX_TEXT).trim();
+    if (!text || !SESSION_PLAN_STATES.includes(entry.state as SessionPlanState)) invalid('Invalid stored Plan item text or state.', path);
+    const state = entry.state as SessionPlanState;
+    const reason = entry.reason === undefined ? undefined : string(entry.reason, `${path}.reason`, SESSION_PLAN_MAX_REASON).trim();
+    if (['addressed', 'deferred', 'needs_discussion'].includes(state) && !reason) invalid('Plan state requires an explanation.', `${path}.reason`);
+    if (!Array.isArray(entry.source_refs) || entry.source_refs.length > 50) invalid('Invalid stored Plan source references.', `${path}.source_refs`);
+    const source_refs = entry.source_refs.map((reference, refIndex) => {
+      if (!record(reference) || !hasOnly(reference, ['receipt_id', 'message_id'])) invalid('Invalid stored Plan source reference.', `${path}.source_refs.${refIndex}`);
+      return { receipt_id: string(reference.receipt_id, `${path}.source_refs.${refIndex}.receipt_id`, 256), message_id: string(reference.message_id, `${path}.source_refs.${refIndex}.message_id`, 256) };
+    });
+    if (new Set(source_refs.map(reference => canonicalJson(reference))).size !== source_refs.length) invalid('Duplicate Plan source references.', `${path}.source_refs`);
+    if (!Array.isArray(entry.result_links) || entry.result_links.length > 20) invalid('Invalid stored Plan result references.', `${path}.result_links`);
+    const result_links = entry.result_links.map((link, linkIndex): SessionPlanResultLink => {
+      const linkPath = `${path}.result_links.${linkIndex}`;
+      if (!record(link) || typeof link.kind !== 'string') invalid('Invalid stored Plan result reference.', linkPath);
+      if (link.kind === 'artifact' && hasOnly(link, ['kind', 'artifact_id', 'version_sha256'])) {
+        const artifact_id = string(link.artifact_id, `${linkPath}.artifact_id`, 256);
+        if (typeof link.version_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(link.version_sha256)) invalid('Invalid stored artifact version.', `${linkPath}.version_sha256`);
+        return { kind: 'artifact', artifact_id, version_sha256: link.version_sha256 };
+      }
+      if (link.kind === 'activity' && hasOnly(link, ['kind', 'turn_id', 'item_id'])) return { kind: 'activity', turn_id: string(link.turn_id, `${linkPath}.turn_id`, 256), item_id: string(link.item_id, `${linkPath}.item_id`, 256) };
+      invalid('Invalid stored Plan result reference.', linkPath);
+    });
+    if (!record(entry.updated_by) || !hasOnly(entry.updated_by, ['agent_id', 'turn_id'])) invalid('Invalid stored Plan attribution.', `${path}.updated_by`);
+    const updated_by = { ...(entry.updated_by.agent_id === undefined ? {} : { agent_id: string(entry.updated_by.agent_id, `${path}.updated_by.agent_id`, 256) }),
+      turn_id: string(entry.updated_by.turn_id, `${path}.updated_by.turn_id`, 256) };
+    if (!Number.isSafeInteger(entry.updated_at) || Number(entry.updated_at) < 0) invalid('Invalid stored Plan timestamp.', `${path}.updated_at`);
+    return { id, text, state, ...(reason ? { reason } : {}), source_refs, result_links, updated_by, updated_at: Number(entry.updated_at) };
+  });
+  if (Buffer.byteLength(canonicalJson(items), 'utf8') > SESSION_PLAN_MAX_BYTES) invalid('A Plan snapshot exceeds the 64 KiB limit.', param);
+  return items;
 }
 
 function string(value: unknown, param: string, maximum: number): string {

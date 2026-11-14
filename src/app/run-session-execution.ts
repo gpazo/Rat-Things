@@ -184,6 +184,7 @@ export class RunSessionExecution implements SessionExecution {
     const forkLaunch = savedFork ? (({ history: _history, ...fork }) => fork)(savedFork) : undefined;
     const launch: SessionLaunch = existing?.agentsSession ? await this.options.artifacts.getJson(existing.agentsSession.launch) : {
       ...(sessionState ? { configuration: sessionState.configuration.admitted } : {}),
+      ...(sessionState?.planToolAdmitted ? { planTool: true as const } : {}),
       runtime: sessionState?.runtime ?? { kind: 'codex' },
       ...(pi && sessionState ? { replay: replayCommands(sessionState) } : {}),
       ...(savedFork?.piContextId && !runtime?.value.native?.head ? { piForkContext: (await this.options.store.get(ownerId, 'session_native', savedFork.piContextId))?.value } : {}),

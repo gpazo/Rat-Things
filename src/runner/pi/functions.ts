@@ -4,6 +4,7 @@ import type { TSchema } from '@earendil-works/pi-ai';
 import { defineTool, type DocumentObserver, type DocumentReader, type Session, type SessionDocToken, type JsonObject, type ToolRegistration } from '@earendil-works/pi-durable';
 import { canonicalJson } from '../../domain/json.js';
 import { SHARED_BROWSER_TOOL_NAME } from '../../domain/shared-browser.js';
+import { SESSION_PLAN_TOOL, SESSION_PLAN_TOOL_NAME } from '../../domain/session-plan.js';
 import type { SessionLaunch } from '../../domain/session-execution.js';
 import { FunctionsDoc, PI_CONTEXT, activeTurn, json, piInput, publicCallId, type PiFunctionResult } from './protocol.js';
 
@@ -22,7 +23,11 @@ export async function waitForDocument<T extends JsonObject, R>(reader: DocumentO
 }
 
 export function functionTools(launch: SessionLaunch): ToolRegistration[] {
-  return launch.agent.tools.filter(tool => tool.type === 'function').filter(tool => tool.name !== SHARED_BROWSER_TOOL_NAME).map(tool => defineTool({
+  const functions = launch.agent.tools.filter(tool => tool.type === 'function').filter(tool => tool.name !== SHARED_BROWSER_TOOL_NAME);
+  if (launch.planTool && functions.some(tool => tool.name === SESSION_PLAN_TOOL_NAME)) throw new Error('Agent function collides with the reserved Rat Things Plan tool');
+  const tools = [...functions, ...(launch.planTool ? [{ name: SESSION_PLAN_TOOL.name, description: SESSION_PLAN_TOOL.description,
+    parameters: SESSION_PLAN_TOOL.parameters }] : [])];
+  return tools.map(tool => defineTool({
     name: tool.name, description: tool.description ?? '', parameters: tool.parameters as TSchema, replay: 'safe',
     execute: async (args, api, context) => {
       const callId = publicCallId(api.taskId);

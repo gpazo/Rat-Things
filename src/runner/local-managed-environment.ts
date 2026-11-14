@@ -49,14 +49,14 @@ export class LocalManagedEnvironment {
     if (input.files?.some(file => file.type !== 'inline') || input.skills?.some(skill => skill.type !== 'inline')) throw new AgentsApiError(400, 'Use inline files and skills for local environments.', 'unsupported_environment');
     return this.options.environments.prepare(owner, id, input);
   }
-  public async launch(owner: string, session: AgentSession, base: CodexLaunchPlan, history: AgentSessionItem[]) {
+  public async launch(owner: string, session: AgentSession, base: CodexLaunchPlan, history: AgentSessionItem[], planTool?: true) {
     const connection = await this.ensure(owner, session);
     if (session.environment.type !== 'openai_hosted') throw new Error('Expected managed environment');
     const configuration = (await this.options.environments.managedLaunch(owner, session.environment.id)).hostedConfiguration;
     const roots = [...session.environment.capability_directories,
       ...(configuration?.plugins ?? []).map(plugin => `/workspace/.capabilities/plugins/${plugin.name}`),
       ...(configuration?.skills ?? []).filter(skill => skill.type === 'inline').map(skill => `/workspace/.capabilities/skills/${skill.name}`)];
-    const result = planSessionLaunch(base, { sessionId: session.id, turnId: '', agent: session.agent, input: [], history,
+    const result = planSessionLaunch(base, { sessionId: session.id, turnId: '', agent: session.agent, input: [], history, ...(planTool ? { planTool } : {}),
       environment: { type: 'self_hosted', id: session.environment.id, workspace_directory: '/workspace', capability_directories: [...new Set(roots)], remote_url: connection.url },
     }, connection.harnessKey);
     return { ...result, permissions: 'rat_managed', binaryArguments: hostedCodexArguments(base.binaryArguments, session.environment.network),

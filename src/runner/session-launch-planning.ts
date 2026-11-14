@@ -8,6 +8,7 @@ import { hostedCodexArguments, hostedProcessEnvironment } from './hosted-environ
 import type { SessionEnvironmentCredentialsRuntime } from './session-environment-credentials.js';
 import { nativeServiceTier } from '../domain/session-model-validation.js';
 import { SHARED_BROWSER_TOOL_NAME, sharedBrowserGranted } from '../domain/shared-browser.js';
+import { SESSION_PLAN_TOOL, SESSION_PLAN_TOOL_NAME } from '../domain/session-plan.js';
 import sharedBrowserSource from './shared-browser-worker-source.json' with { type: 'json' };
 
 /** Translate public agent settings once, without changing the requested model or widening authority. */
@@ -18,6 +19,7 @@ export function planSessionLaunch(base: CodexLaunchPlan, launch: SessionLaunch, 
   const search = agent.tools.find((tool) => tool.type === 'web_search');
   if (search && base.webSearch !== search.mode) throw new Error('Session web search exceeds the admitted execution policy');
   const functions = agent.tools.filter((tool) => tool.type === 'function').filter(tool => tool.name !== SHARED_BROWSER_TOOL_NAME);
+  if (launch.planTool && functions.some((tool) => tool.name === SESSION_PLAN_TOOL_NAME)) throw new Error('Agent function collides with the reserved Rat Things Plan tool');
   const browser = sharedBrowserGranted(agent.tools);
   if (browser && launch.environment.type === 'none') throw new Error('The shared browser requires a managed environment');
   const browserCommand = ['node', '--input-type=module', '-e', sharedBrowserSource];
@@ -64,6 +66,7 @@ export function planSessionLaunch(base: CodexLaunchPlan, launch: SessionLaunch, 
     // name unchanged; the namespace only routes discovery inside the harness.
     dynamicTools: [
       ...functions.filter((tool) => !tool.defer_loading).map((tool) => ({ type: 'function', name: tool.name, description: tool.description, inputSchema: tool.parameters, deferLoading: false })),
+      ...(launch.planTool ? [{ type: 'function', name: SESSION_PLAN_TOOL.name, description: SESSION_PLAN_TOOL.description, inputSchema: SESSION_PLAN_TOOL.parameters, deferLoading: false }] : []),
       ...(functions.some((tool) => tool.defer_loading) ? [{ type: 'namespace', name: 'application', description: 'Application function tools.',
         tools: functions.filter((tool) => tool.defer_loading).map((tool) => ({ type: 'function', name: tool.name, description: tool.description, inputSchema: tool.parameters, deferLoading: true })),
       }] : []),

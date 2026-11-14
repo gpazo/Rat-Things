@@ -251,6 +251,7 @@ export class LocalSessionExecution implements SessionExecution {
   }
   private async launch(owner: string, session: AgentSession, history: AgentSessionItem[], previous: SessionRuntimeState | undefined) {
     await requireLocalExecution(this.options.store, owner, session.id);
+    const planTool = (await this.options.store.get<SessionState>(owner, 'sessions', session.id))?.value.planToolAdmitted ? true as const : undefined;
     const host = this.hostCodex();
     const workspace = join(this.options.directory, 'sessions', session.id);
     await mkdir(workspace, { recursive: true, mode: 0o700 });
@@ -259,8 +260,8 @@ export class LocalSessionExecution implements SessionExecution {
     workspace, 3_600_000, localCodexEnvironment(this.options.directory, { ...host.environment, CODEX_BINARY: host.binary }));
     base.binaryArguments = localCodexArguments(base.binaryArguments ?? ['app-server']);
     const launch = session.environment.type === 'openai_hosted' && this.options.managed
-      ? await this.options.managed.launch(owner, session, base, history)
-      : planSessionLaunch(base, { sessionId: session.id, turnId: '', agent: session.agent, environment: session.environment, input: [], history });
+      ? await this.options.managed.launch(owner, session, base, history, planTool)
+      : planSessionLaunch(base, { sessionId: session.id, turnId: '', agent: session.agent, environment: session.environment, input: [], history, ...(planTool ? { planTool } : {}) });
     const request = { ...base, ...launch, sandbox: 'read-only' as const, persistent: true };
     const runtime = new SessionRuntime({ sessionId: session.id, agentId: session.agent.id,
       client: localCodexClient,
