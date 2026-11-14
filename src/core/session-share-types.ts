@@ -5,6 +5,7 @@ import type { SessionInputReceipt } from './session-activity.js';
 import type { SessionSubagentSnapshot, SessionTurnBinding } from './session-ports.js';
 
 export interface SessionShareManifest {
+  plan?: import('../domain/session-plan.js').SessionPlanTransfer;
   version: 1;
   operation_id: string;
   release_hash: string;

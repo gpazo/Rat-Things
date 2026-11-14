@@ -1,5 +1,5 @@
-import type { SessionInputReceipt } from './session-activity.js';
-import type { SessionMessage } from './session-ports.js';
+import { sessionInputs, type SessionInputReceipt } from './session-activity.js';
+import type { SessionMessage, SessionState } from './session-ports.js';
 
 export type SessionInputProvenance =
   | { kind: 'authenticated' }
@@ -17,6 +17,22 @@ export function importedSessionReceipts(inputs: SessionInputReceipt[], operation
     sequence: index + 1,
     provenance: { kind: 'imported', operation_id: operationId, source_receipt_id: input.id, source_sequence: input.sequence },
   }));
+}
+
+export function sharedSessionReceipts(state: SessionState): SessionInputReceipt[] {
+  const attributed = sessionInputs(state);
+  const unattributed: SessionInputReceipt[] = Object.entries(state.receipts).flatMap(([id, receipt]) => {
+    if (receipt.actor) return [];
+    const messages = receipt.commands.flatMap(command => command.type === 'start' || command.type === 'steer' ? command.input : []);
+    if (!messages.length) return [];
+    return [{ id, actor: { id: 'unattributed', kind: 'operator', label: 'Unattributed input' }, provenance: { kind: 'unknown' },
+      sequence: receipt.sequence ?? 0, accepted_at: receipt.acceptedAt ?? state.session.created_at,
+      status: receipt.failure ? 'failed' : receipt.dispatched ? 'dispatched' : 'accepted',
+      message_ids: messages.map(message => message.id), turn_ids: [...new Set(receipt.commands.map(command => command.turnId))],
+      ...(receipt.workspace ? { workspace: receipt.workspace } : {}), ...(receipt.reply ? { reply: receipt.reply } : {}),
+    }];
+  });
+  return [...attributed, ...unattributed].sort((a, b) => a.sequence - b.sequence).map((receipt, index) => ({ ...receipt, sequence: index + 1 }));
 }
 
 export function participantContext(message: SessionMessage): string {

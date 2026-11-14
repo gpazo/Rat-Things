@@ -9929,6 +9929,11 @@
         "runtime": {
           "$ref": "#/definitions/RuntimePin"
         },
+        "planToolAdmitted": {
+          "type": "boolean",
+          "const": true,
+          "description": "Fixed at Session creation; later updates cannot add this capability."
+        },
         "sourceAgent": {
           "$ref": "#/definitions/ConfigurationRevisionRef"
         },

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { expect, it, vi } from 'vitest';
 import { integrationFixture } from './integration-fixtures.js';
 import { SessionShareService, shareDigest } from '../../src/core/session-share-service.js';
+import { SessionPlanService } from '../../src/core/session-plan-service.js';
 import { LocalShareService } from '../../src/app/local-share.js';
 import { EnvironmentService } from '../../src/core/environment-service.js';
 import type { SessionState } from '../../src/core/session-ports.js';
@@ -74,6 +75,32 @@ async function fixture(fault?: 'stage_reply' | 'before_release' | 'release_reply
     connection: async () => ({ baseURL: 'https://shared.example/v1', fetch: fetcher }) };
   return { ...f, source, destination, files, admit, options, staged: () => staged };
 }
+
+it('moves the full Plan history with the Session and remaps source receipts without changing message or result identity', async () => {
+  const f = await fixture();
+  const state = (await f.store.get<SessionState>('operator', 'sessions', f.source.id))!.value;
+  const source = sessionInputs(state)[0]!;
+  const plans = new SessionPlanService(f.store);
+  const item = { id: 'launch', text: 'Clarify the launch', state: 'working' as const,
+    source_refs: [{ receipt_id: source.id, message_id: source.message_ids[0]! }], result_links: [],
+    updated_by: { agent_id: f.source.agent.id, turn_id: state.turns[0]!.turn.id }, updated_at: 1 };
+  const addressed = { ...item, state: 'addressed' as const, reason: 'Updated the result', updated_at: 2,
+    result_links: [{ kind: 'activity' as const, turn_id: state.turns[0]!.turn.id, item_id: 'answer' }] };
+  await f.store.commit(plans.importWrites('operator', f.source.id, { head: { revision: 2, items: [addressed] }, revisions: [{ revision: 1, items: [item] }, { revision: 2, items: [addressed] }] }, 1));
+  const coordinator = new LocalShareService(f.options);
+  try {
+    const share = await coordinator.create({ id: randomUUID(), session_id: f.source.id, endpoint: 'https://shared.example', space_id: 'space_team', connection_id: 'connection_team' });
+    await coordinator.execute(share.id);
+    await expect.poll(async () => (await coordinator.retrieve(share.id)).status).toBe('complete');
+    const destination = (await f.store.get<SessionState>('destination', 'sessions', f.source.id))!.value;
+    expect(destination.planToolAdmitted).toBe(true);
+    const history = await f.sessions.planRevisions('destination', f.source.id);
+    expect(history.revisions.map(revision => revision.items[0]!.state)).toEqual(['working', 'addressed']);
+    expect(history.revisions[1]!.items[0]!.source_refs).toEqual([{ receipt_id: destination.archivedInputs![0]!.id, message_id: source.message_ids[0] }]);
+    expect(history.revisions[1]!.items[0]!.result_links).toEqual(addressed.result_links);
+    expect((await plans.head('operator', f.source.id)).revision).toBe(2);
+  } finally { await coordinator.close(); }
+});
 
 it.each(['stage_reply', 'before_release', 'release_reply', 'activation_reply'] as const)('recovers %s without reviving the source or replaying completed work', async fault => {
   const f = await fixture(fault);

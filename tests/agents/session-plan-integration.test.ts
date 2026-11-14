@@ -7,6 +7,7 @@ import { initialSessionRuntime, type SessionRuntimeState } from '../../src/core/
 import type { SessionState } from '../../src/core/session-ports.js';
 import { routeActions, iamApiPrincipal } from '../../src/domain/api-permissions.js';
 import { routeAgentsRequest } from '../../src/lambdas/agents-router.js';
+import type { SessionPlanUpdateInput } from '../../src/domain/session-plan.js';
 
 async function fixture() {
   const f = await integrationFixture();
@@ -19,8 +20,8 @@ async function fixture() {
   const resource = (await store.get<SessionState>('operator', 'sessions', session.id))!;
   const turn = resource.value.turns[0]!.turn;
   const source = (await sessions.activity('operator', session.id)).inputs[0]!.message_ids[0]!;
-  const item = { id: 'launch', text: 'Clarify the launch', state: 'working', source_message_ids: [source], result_links: [] };
-  async function call(callId: string, expected: number, items = [item]) {
+  const item = { id: 'launch', text: 'Clarify the launch', state: 'working' as const, source_message_ids: [source], result_links: [] };
+  async function call(callId: string, expected: number, items: SessionPlanUpdateInput['items'] = [item]) {
     const action = { type: 'function_call' as const, name: 'rat_things_plan_update', turn_id: turn.id, call_id: callId, arguments: { expected_revision: expected, items } };
     const snapshot: SessionRuntimeState = { ...initialSessionRuntime(session.id, session.agent.id, 'root'),
       turns: [{ threadId: 'root', nativeTurnId: 'native', turn: { ...turn, status: 'waiting' }, items: [] }], requiredActions: [action] };
@@ -54,6 +55,40 @@ it('publishes an agent-owned Plan with attributed sources and immutable revision
   expect(second.plan?.revision).toBe(2);
   expect(second.cursor).not.toBe(first.cursor);
   expect(JSON.stringify(vi.mocked(f.execution.start).mock.calls)).toContain(f.source);
+});
+
+it.each([false, true])('resolves the exact captured output rather than the newest same-path artifact; deleted=%s', async deleted => {
+  const f = await fixture();
+  await f.call('result', 0, [{ ...f.item, state: 'addressed', reason: 'Updated the launch copy', result_links: [{ kind: 'output', path: '/workspace/outputs/result.txt' }] }]);
+  const runtime = (await f.store.get<SessionRuntimeState>('operator', 'local_runtime', f.session.id))!;
+  const artifacts = ['old', 'new'].map((version, index) => ({ artifact: { id: `art_${version}`, object: 'agent.session.artifact' as const, session_id: f.session.id, turn_id: f.turn.id, environment_id: 'env', path: '/workspace/outputs/result.txt', created_at: index, size_bytes: 1 }, content: { bucket: 'private', key: version, sha256: String(index + 1).repeat(64) } }));
+  await f.store.put({ ...runtime, revision: runtime.revision + 1, value: { ...runtime.value, turns: runtime.value.turns.map(binding => ({ ...binding, artifacts,
+    planArtifactCalls: { result: [{ path: '/workspace/outputs/result.txt', artifact_id: 'art_old', version_sha256: '1'.repeat(64) }] },
+  })) } }, runtime.revision);
+  if (deleted) {
+    const state = (await f.store.get<SessionState>('operator', 'sessions', f.session.id))!;
+    await f.store.put({ ...state, revision: state.revision + 1, value: { ...state.value, deletedArtifacts: ['art_old'] } }, state.revision);
+  }
+  await f.sessions.resolvePlanTools('operator', f.session.id);
+  const plan = (await f.sessions.activity('operator', f.session.id)).plan!;
+  expect(plan.revision).toBe(deleted ? 0 : 1);
+  if (!deleted) expect(plan.items[0]!.result_links).toEqual([{ kind: 'artifact', artifact_id: 'art_old', version_sha256: '1'.repeat(64) }]);
+});
+
+it.each(['legacy', 'child'] as const)('does not grant Plan updates to %s execution', async kind => {
+  const f = await fixture();
+  await f.call('blocked', 0);
+  if (kind === 'legacy') {
+    const state = (await f.store.get<SessionState>('operator', 'sessions', f.session.id))!;
+    const { planToolAdmitted: _flag, ...value } = state.value;
+    await f.store.put({ ...state, revision: state.revision + 1, value }, state.revision);
+  } else {
+    const runtime = (await f.store.get<SessionRuntimeState>('operator', 'local_runtime', f.session.id))!;
+    await f.store.put({ ...runtime, revision: runtime.revision + 1, value: { ...runtime.value, turns: runtime.value.turns.map(binding => ({ ...binding, threadId: 'child' })) } }, runtime.revision);
+  }
+  await f.sessions.resolvePlanTools('operator', f.session.id);
+  expect((await f.sessions.planRevisions('operator', f.session.id)).head_revision).toBe(0);
+  expect(f.execution.toolResult).not.toHaveBeenCalled();
 });
 
 it('rejects forged human tool results and retains no Plan after invalid source references', async () => {

@@ -5,6 +5,7 @@ import type { SessionService } from './session-service.js';
 import type { SessionState, SavedSessionArtifact } from './session-ports.js';
 import { validateSessionCaller, type SessionCaller } from './session-caller.js';
 import type { SessionShareManifest, ShareStageRequest, ShareStatus } from './session-share-types.js';
+import { parseSessionPlanTransfer } from '../domain/session-plan.js';
 import { AgentsApiError, invalid, parseAgentsContract, resourceNotFound } from '../domain/agents-api-validation.js';
 import { validateRuntimeAgent, CODEX_RUNTIME } from '../domain/session-runtime.js';
 import { canonicalJson } from '../domain/json.js';
@@ -130,7 +131,7 @@ export function parseShareStage(raw: unknown): ShareStageRequest {
   if (!record(raw) || Object.keys(raw).some(key => !['manifest', 'digest', 'workspace_file_ids', 'artifact_file_ids'].includes(key)) || !record(raw.manifest)
     || typeof raw.digest !== 'string' || !Array.isArray(raw.workspace_file_ids) || raw.workspace_file_ids.some(id => typeof id !== 'string') || !record(raw.artifact_file_ids)) invalid('Invalid Share stage request');
   const value = raw.manifest;
-  if (Object.keys(value).some(key => !['version', 'operation_id', 'release_hash', 'session', 'source_agent', 'runtime', 'turns', 'subagents', 'imported_history', 'inputs', 'artifacts', 'deleted_artifacts', 'admission', 'environment', 'workspace'].includes(key))
+  if (Object.keys(value).some(key => !['version', 'operation_id', 'release_hash', 'session', 'source_agent', 'runtime', 'turns', 'subagents', 'imported_history', 'inputs', 'artifacts', 'deleted_artifacts', 'admission', 'environment', 'workspace', 'plan'].includes(key))
     || value.version !== 1 || typeof value.operation_id !== 'string' || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(value.operation_id)
     || typeof value.release_hash !== 'string' || !/^[a-f0-9]{64}$/.test(value.release_hash)
     || !record(value.runtime) || !['codex', 'pi'].includes(String(value.runtime.kind))
@@ -185,10 +186,31 @@ export function parseShareStage(raw: unknown): ShareStageRequest {
     const evidence = value.admission[name];
     if (!record(evidence) || typeof evidence.digest !== 'string' || shareDigest(evidence.snapshot) !== evidence.digest) invalid('Invalid immutable admission evidence');
   }
+  if (value.plan !== undefined) validateSharedPlan(raw as unknown as ShareStageRequest);
   if (typeof value.workspace.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(value.workspace.sha256) || value.workspace.parts.length !== raw.workspace_file_ids.length
     || value.workspace.parts.length > 50 || session.environment.type === 'openai_hosted' && !value.workspace.parts.length) invalid('Invalid workspace manifest');
   for (const part of value.workspace.parts) if (!record(part) || typeof part.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(part.sha256) || typeof part.bytes !== 'number' || part.bytes < 0 || part.bytes > 3 * 1024 * 1024) invalid('Invalid workspace part');
   if (shareDigest(value) !== raw.digest) invalid('Share manifest digest does not match');
   return raw as unknown as ShareStageRequest;
+}
+
+function validateSharedPlan(request: ShareStageRequest) {
+  const manifest = request.manifest;
+  const transfer = parseSessionPlanTransfer(manifest.plan);
+  const admission = manifest.admission.admitted.snapshot;
+  if (admission?.kind !== 'session' || !admission.configuration.planToolAdmitted) invalid('The source Session did not admit a Plan tool.');
+  const sources = new Map(manifest.inputs.map(receipt => [receipt.id, new Set(receipt.message_ids)]));
+  const items = [...manifest.turns.flatMap(turn => turn.savedItems ?? []), ...manifest.imported_history, ...manifest.subagents.flatMap(child => child.items)];
+  const messages = new Set([...manifest.turns.flatMap(turn => turn.input.map(message => message.id)), ...items.filter(item => item.type === 'message' && item.role === 'user').map(item => item.id)]);
+  const activity = new Set(items.map(item => `${item.turn_id}:${item.id}`));
+  const artifacts = new Set(manifest.artifacts.map(entry => `${entry.artifact.id}:${entry.sha256}`));
+  const roots = new Map(manifest.turns.map(binding => [binding.turn.id, binding.turn.agent_id]));
+  for (const revision of transfer.revisions) for (const item of revision.items) {
+    if (!roots.has(item.updated_by.turn_id) || item.updated_by.agent_id !== roots.get(item.updated_by.turn_id)) invalid('Plan attribution must refer to a source Session root Turn.');
+    for (const source of item.source_refs) if (!sources.get(source.receipt_id)?.has(source.message_id) || !messages.has(source.message_id)) invalid('Plan sources must exist in the shared Session history.');
+    for (const link of item.result_links) {
+      if (link.kind === 'artifact' ? !artifacts.has(`${link.artifact_id}:${link.version_sha256}`) && !manifest.deleted_artifacts.includes(link.artifact_id) : !activity.has(`${link.turn_id}:${link.item_id}`)) invalid('Plan results must exist in the shared Session history.');
+    }
+  }
 }
 function record(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === 'object' && !Array.isArray(value); }

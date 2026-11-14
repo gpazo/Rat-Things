@@ -231,7 +231,8 @@ export class SessionService {
       if (error instanceof AgentsApiError && error.status === 404) return undefined;
       throw error;
     });
-    return { state: { ...state, session: observation.session }, admission: { admitted, current, ...(state.workloadAdmission !== undefined ? { workload: state.workloadAdmission } : {}) }, sourceAgent, workspace: await readWorkspace(observation.session) };
+    return { state: { ...state, session: observation.session }, admission: { admitted, current, ...(state.workloadAdmission !== undefined ? { workload: state.workloadAdmission } : {}) }, sourceAgent,
+      ...(state.planToolAdmitted ? { plan: await this.plans.export(ownerId, id) } : {}), workspace: await readWorkspace(observation.session) };
   }
 
   public async beginAbortShare(ownerId: string, id: string, operationId: string, companion: { resource: AgentResource<unknown>; expectedRevision: number }) {
@@ -274,16 +275,22 @@ export class SessionService {
     const environment = await this.options.execution.prepare(ownerId, id, environmentInput, manifest.session.agent, [], manifest.session.agent.tools, true, placement, manifest.runtime.kind);
     const session = { ...manifest.session, environment, status: 'idle' as const, required_actions: [], vault_ids: [] };
     const admitted = configurationRef({ kind: 'session', id }, 1);
+    const sourceAdmission = manifest.admission.admitted.snapshot;
+    const planToolAdmitted = sourceAdmission?.kind === 'session' && sourceAdmission.configuration.planToolAdmitted;
+    const archivedInputs = importedSessionReceipts(manifest.inputs, manifest.operation_id);
+    const importedPlan = manifest.plan ? this.plans.remapReceipts(manifest.plan, new Map(manifest.inputs.map((receipt, index) => [receipt.id, archivedInputs[index]!.id]))) : undefined;
     const value: SessionState = {
+      ...(planToolAdmitted ? { planToolAdmitted: true } : {}),
       configuration: { admitted, current: admitted }, sharedFrom: { operationId: manifest.operation_id, digest, admission: { source: { provenance: { kind: 'imported', operation_id: manifest.operation_id }, evidence: manifest.admission }, destination: evidence } },
       session, runtime: manifest.runtime, placement, workloadAdmission: evidence,
       turns: manifest.turns.map(turn => ({ ...turn, input: turn.input.map(message => importedSessionMessage(message, manifest.operation_id)), savedArtifacts: artifacts.filter(artifact => artifact.artifact.turn_id === turn.turn.id) })),
       subagents: manifest.subagents.map(subagent => ({ ...subagent, artifacts: artifacts.filter(artifact => subagent.turns.some(turn => turn.id === artifact.artifact.turn_id)) })),
       importedHistory: manifest.imported_history, receipts: {}, deletedArtifacts: manifest.deleted_artifacts,
-      archivedInputs: importedSessionReceipts(manifest.inputs, manifest.operation_id), inputSequence: manifest.inputs.length,
+      archivedInputs, inputSequence: manifest.inputs.length,
     };
     const revision = planConfigurationRevision(ownerId, admitted, sessionConfigurationSnapshot(value), null, this.clock.now(), 'created');
-    await commitConfiguration(this.options.store, [{ resource: { ownerId, id, collection: 'sessions', createdAt: session.created_at, revision: 1, value }, expectedRevision: 0 }, revision], [revision]);
+    await commitConfiguration(this.options.store, [{ resource: { ownerId, id, collection: 'sessions', createdAt: session.created_at, revision: 1, value }, expectedRevision: 0 }, revision,
+      ...(importedPlan ? this.plans.importWrites(ownerId, id, importedPlan, session.created_at) : [])], [revision]);
     return session;
   }
 
@@ -360,7 +367,7 @@ export class SessionService {
       const session: AgentSession = { id, object: 'agent.session', agent, created_at: now, last_active_at: now,
         environment: prepared.environment, error: null, metadata: input.metadata, status: 'idle', required_actions: [], usage: null, vault_ids: input.vaultIds };
       const admitted = configurationRef({ kind: 'session', id }, 1);
-      const empty: SessionState = { workloadAdmission, configuration: { admitted, current: admitted }, session, runtime, placement, fork, turns: [], receipts: {}, deletedArtifacts: [] };
+      const empty: SessionState = { planToolAdmitted: true, workloadAdmission, configuration: { admitted, current: admitted }, session, runtime, placement, fork, turns: [], receipts: {}, deletedArtifacts: [] };
       const messages = initialMessages(input.input);
       const state = messages.length ? this.plan(empty, { session, turns: [] }, [{ type: 'agent.session.input.message', input: messages }], 'initial', undefined, caller) : empty;
       const current = await this.required(ownerId, sourceId);
@@ -412,7 +419,7 @@ export class SessionService {
   public async resolvePlanTools(ownerId: string, id: string): Promise<void> {
     const fence = await this.options.store.get<SessionStreamSnapshot>(ownerId, 'session_observations', id);
     const resource = await this.options.store.get<SessionState>(ownerId, 'sessions', id);
-    if (!fence || !resource?.value.planToolAdmitted || resource.value.closing || resource.value.share || resource.value.forkLock) return;
+    if (!fence || !resource?.value.planToolAdmitted || resource.value.closing || resource.value.share && resource.value.share.phase !== 'quiescing' || resource.value.forkLock) return;
     const runtime = await this.options.store.get<import('./session-runtime-store.js').StoredSessionRuntime>(ownerId, 'session_runtime', id);
     const snapshot = runtime?.value.snapshot ?? (await this.options.store.get<SessionRuntimeState>(ownerId, 'local_runtime', id))?.value;
     if (!snapshot) return;
@@ -421,7 +428,7 @@ export class SessionService {
       const binding = snapshot.turns.find(turn => turn.turn.id === action.turn_id && turn.threadId === snapshot.rootThreadId);
       if (!binding || terminalTurn(binding.turn) || !resource.value.turns.some(turn => turn.turn.id === action.turn_id && !terminalTurn(turn.turn))) continue;
       const state = resource.value;
-      const saved = (await this.allArtifacts(ownerId, state)).filter(entry => !state.deletedArtifacts.includes(entry.artifact.id));
+      const saved = [...new Map([...(await this.allArtifacts(ownerId, state)), ...snapshot.turns.flatMap(turn => turn.artifacts ?? [])].map(entry => [entry.artifact.id, entry])).values()].filter(entry => !state.deletedArtifacts.includes(entry.artifact.id));
       const items = await this.allItems(ownerId, state);
       const available = {
         artifacts: saved.map(entry => ({ kind: 'artifact' as const, artifact_id: entry.artifact.id, version_sha256: entry.content.sha256, turn_id: entry.artifact.turn_id })),
@@ -434,7 +441,7 @@ export class SessionService {
       const output = await this.plans.resolveCall({ ownerId, sessionId: id, turnId: action.turn_id, callId: action.call_id,
         agentId: state.session.agent.id, rawArguments: action.arguments, sessionRevision: resource.revision,
         observationRevision: fence.revision, sources, available,
-        capturedOutputs: binding.planArtifactCalls?.[action.call_id] ?? [],
+        capturedOutputs: (binding.planArtifactCalls?.[action.call_id] ?? []).filter(output => saved.some(entry => entry.artifact.id === output.artifact_id && entry.artifact.path === output.path && entry.content.sha256 === output.version_sha256)),
         validArtifactVersions: new Set(available.artifacts.map(entry => `${entry.artifact_id}:${entry.version_sha256}`)),
         validActivityItems: new Set(available.activity.map(entry => `${entry.turn_id}:${entry.item_id}`)),
       });

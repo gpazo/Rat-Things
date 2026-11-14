@@ -5,7 +5,7 @@ import type { SessionService } from '../core/session-service.js';
 import type { EnvironmentService } from '../core/environment-service.js';
 import type { SessionShareManifest, ShareStageRequest, ShareStatus } from '../core/session-share-types.js';
 import { releaseDigest, shareDigest } from '../core/session-share-service.js';
-import { sessionInputs } from '../core/session-activity.js';
+import { sharedSessionReceipts } from '../core/session-attribution.js';
 import { archiveWorkspace, type PortableFile } from '../domain/workspace-transfer.js';
 import { AgentsApiError, resourceNotFound } from '../domain/agents-api-validation.js';
 import { orderedTurnItems } from '../core/session-planning.js';
@@ -232,8 +232,9 @@ export class LocalShareService {
       session: state.session, ...(snapshot.sourceAgent ? { source_agent: snapshot.sourceAgent } : {}), runtime: state.runtime ?? CODEX_RUNTIME,
       turns: state.turns.map(({ savedArtifacts: _artifacts, cancelRequested: _cancel, ...turn }) => ({ ...turn, savedItems: orderedTurnItems(state, turn, turn.savedItems ?? []) })),
       subagents: (state.subagents ?? []).map(({ artifacts: _artifacts, ...subagent }) => subagent),
-      imported_history: [...state.fork?.history ?? [], ...state.importedHistory ?? []], inputs: sessionInputs(state),
+      imported_history: [...state.fork?.history ?? [], ...state.importedHistory ?? []], inputs: sharedSessionReceipts(state),
       artifacts: artifactManifest, deleted_artifacts: state.deletedArtifacts, admission: snapshot.admission,
+      ...(snapshot.plan ? { plan: snapshot.plan } : {}),
       environment: snapshot.workspace.environment,
       workspace: { sha256: snapshot.workspace.sha256, files: snapshot.workspace.files, bytes: snapshot.workspace.bytes, parts },
     };
