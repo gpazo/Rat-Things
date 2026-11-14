@@ -79,14 +79,20 @@ impl Fixture {
             .build_eframe(|_| ConsoleApp::new(self.proxy.url.clone(), self.token.clone()).unwrap())
     }
 
-    fn control(&self, path: &str, body: Value) {
-        self.client
+    fn control(&self, path: &str, body: Value) -> Value {
+        let response = self
+            .client
             .post(format!("{}{path}", self.upstream.url))
             .json(&body)
             .send()
-            .unwrap()
-            .error_for_status()
             .unwrap();
+        let status = response.status();
+        let text = response.text().unwrap();
+        assert!(
+            status.is_success(),
+            "Fixture control POST {path}: {status}: {text}"
+        );
+        serde_json::from_str(&text).unwrap()
     }
 
     fn state(&self) -> Value {
@@ -2678,109 +2684,7 @@ fn held_reply_completion_preserves_draft_after_retargeting() {
 }
 
 #[test]
-fn artifact_feedback_is_shared_durable_and_keeps_unsent_text() {
-    let f = Fixture::new();
-    let session = f.post("/v1/agents/sessions", json!({"agent":{"model":"fixture-model"},"environment":{"type":"none"},"input":"Make a product direction.","metadata":{"name":"Workspace review"}}));
-    let id = session["id"].as_str().unwrap();
-    f.control("/__test/advance", json!({"mode":"complete"}));
-    let artifact = f.get(&format!("/v1/agents/sessions/{id}/artifacts"))["data"][0]["id"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    let label = format!(
-        "report.txt · {}",
-        &artifact[artifact.len().saturating_sub(6)..]
-    );
-    let mut app = f.app();
-    click(&mut app, "Workspace review");
-    click(&mut app, "Shared workspace");
-    f.control("/__test/reads", json!({"fail":true}));
-    click(&mut app, &label);
-    visible(&mut app, "Retry preview");
-    f.control("/__test/reads", json!({"fail":false}));
-    click(&mut app, "Retry preview");
-    visible(&mut app, "Native console artifact");
-    click(&mut app, "Add comment");
-    fill(
-        &mut app,
-        "Artifact feedback",
-        "Define the audience before choosing features.",
-    );
-    click(&mut app, "Share feedback");
-    until(&mut app, "shared annotation", |_| {
-        f.get(&format!("/v1/rat/sessions/{id}/activity"))["workspace_threads"]
-            .as_array()
-            .is_some_and(|threads| threads.len() == 1)
-    });
-    visible(&mut app, "Resolve");
-    fill(
-        &mut app,
-        "Artifact feedback",
-        "Keep this draft while I check the discussion.",
-    );
-    click(&mut app, "← Conversation");
-    click(&mut app, "Shared workspace");
-    assert_eq!(
-        app.get_by_label("Artifact feedback").value().as_deref(),
-        Some("Keep this draft while I check the discussion.")
-    );
-    click(&mut app, "Conversation");
-    fill(
-        &mut app,
-        "Message",
-        "A separate direction for the same agent.",
-    );
-    click(&mut app, "Feedback");
-    assert_eq!(
-        app.get_by_label("Artifact feedback").value().as_deref(),
-        Some("Keep this draft while I check the discussion.")
-    );
-    f.screenshot(&mut app, "shared-artifact-feedback-1280x850.png");
-    app.set_size(Vec2::new(900.0, 650.0));
-    click(&mut app, "Discussion");
-    visible(&mut app, "Share feedback");
-    click(&mut app, "Conversation");
-    assert_eq!(
-        app.get_by_label("Message").value().as_deref(),
-        Some("A separate direction for the same agent.")
-    );
-    click(&mut app, "Work");
-    visible(&mut app, "Native console artifact");
-    click(&mut app, "Discussion");
-    click(&mut app, "Feedback");
-    assert_eq!(
-        app.get_by_label("Artifact feedback").value().as_deref(),
-        Some("Keep this draft while I check the discussion.")
-    );
-    f.screenshot(&mut app, "shared-artifact-feedback-900x650.png");
-    app.set_size(Vec2::new(1280.0, 850.0));
-
-    click(&mut app, "Resolve");
-    until(&mut app, "resolved annotation", |_| {
-        f.get(&format!("/v1/rat/sessions/{id}/activity"))["workspace_threads"][0]["resolved"]
-            == true
-    });
-    app.get_by_label("Show resolved").click();
-    tick(&mut app);
-    visible(&mut app, "Reopen");
-    click(&mut app, "Reopen");
-    until(&mut app, "reopened annotation", |_| {
-        f.get(&format!("/v1/rat/sessions/{id}/activity"))["workspace_threads"][0]["resolved"]
-            == false
-    });
-    drop(app);
-    let mut reopened = f.app();
-    click(&mut reopened, "Workspace review");
-    click(&mut reopened, "Shared workspace");
-    click(&mut reopened, &label);
-    visible(
-        &mut reopened,
-        "Define the audience before choosing features.",
-    );
-}
-
-#[test]
-fn browser_annotation_navigation_rejects_a_late_live_frame() {
+fn captured_source_context_uses_chat_send_and_reopens_the_saved_page_after_navigation() {
     use base64::Engine;
     let f = Fixture::new();
     let image = image::RgbImage::from_pixel(1280, 800, image::Rgb([37, 37, 39]));
@@ -2788,47 +2692,164 @@ fn browser_annotation_navigation_rejects_a_late_live_frame() {
     image
         .write_to(&mut encoded, image::ImageFormat::Jpeg)
         .unwrap();
-    let mut frame = json!({"epoch":"fixture","revision":1,"frame_id":"a".repeat(64),"width":1280,"height":800,"image":base64::engine::general_purpose::STANDARD.encode(encoded.into_inner()),"url":"https://rat-artifacts.invalid/direction.html","title":"Product direction","text":"Product direction"});
+    let frame = json!({
+        "epoch":"saved-page",
+        "revision":1,
+        "frame_id":"a".repeat(64),
+        "width":1280,
+        "height":800,
+        "image":base64::engine::general_purpose::STANDARD.encode(encoded.into_inner()),
+        "url":"https://rat-artifacts.invalid/direction.html",
+        "title":"Product direction",
+        "text":"Product direction",
+        "elements":[{"id":"element_1","text":"Product direction","x":0.1,"y":0.1,"width":0.8,"height":0.8}]
+    });
     f.control("/__test/workspace", json!({"frame":frame}));
-    f.post("/v1/agents/sessions", json!({"agent":{"model":"fixture-model","tools":[{"type":"function","name":"rat_things_browser","description":"Use the shared browser.","parameters":{"type":"object","properties":{}}}]},"environment":{"type":"openai_hosted"},"input":"Review together.","metadata":{"name":"Shared browser review"}}));
+    let session = f.post("/v1/agents/sessions", json!({
+        "agent":{"model":"fixture-model","tools":[{"type":"function","name":"rat_things_browser","description":"Use the shared browser.","parameters":{"type":"object","properties":{}}}]},
+        "environment":{"type":"openai_hosted"},
+        "input":"Review the product direction.",
+        "metadata":{"name":"Shared browser review"}
+    }));
+    let id = session["id"].as_str().unwrap();
     let mut app = f.app();
     click(&mut app, "Shared browser review");
-    click(&mut app, "Shared workspace");
-    click(&mut app, "Live browser");
     visible(&mut app, "https://rat-artifacts.invalid/direction.html");
-    click(&mut app, "Add comment");
+    let original_message = f.get(&format!("/v1/rat/sessions/{id}/activity"))["items"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    until(&mut app, "reply action on original message", |app| {
+        app.query_all_by_role_and_label(Role::Button, "Reply")
+            .next()
+            .is_some()
+    });
+    app.query_all_by_role_and_label(Role::Button, "Reply")
+        .next()
+        .unwrap()
+        .click();
+    tick(&mut app);
+
+    click(&mut app, "Annotate");
+    visible(&mut app, "Click an element or drag a region.");
+    app.query_all_by_role(Role::Image)
+        .max_by(|a, b| a.rect().area().total_cmp(&b.rect().area()))
+        .expect("captured browser image")
+        .click();
+    visible(&mut app, "Page selection · Product direction");
     fill(
         &mut app,
-        "Artifact feedback",
+        "Message",
         "Keep the original direction visible while we discuss it.",
     );
-    click(&mut app, "Share feedback");
-    visible(&mut app, "Resolve");
-    frame["url"] = json!("https://rat-artifacts.invalid/late-response.html");
-    frame["revision"] = json!(2);
-    frame["frame_id"] = json!("b".repeat(64));
-    f.control("/__test/workspace", json!({"frame":frame,"hold":true}));
-    click(&mut app, "Return to live view");
-    until(&mut app, "held live browser request", |_| {
-        f.client
-            .get(format!("{}/__test/workspace", f.upstream.url))
-            .send()
-            .unwrap()
-            .json::<Value>()
-            .unwrap()["waiting"]
-            .as_u64()
-            .unwrap()
-            >= 1
+    click(&mut app, "Remove context");
+    assert_eq!(
+        app.get_by_label("Message").value().as_deref(),
+        Some("Keep the original direction visible while we discuss it."),
+        "removing a capture leaves the ordinary chat draft intact"
+    );
+    assert!(
+        app.query_by_role_and_label(Role::Button, "Open captured source")
+            .is_none()
+    );
+
+    click(&mut app, "Annotate");
+    visible(&mut app, "Click an element or drag a region.");
+    app.query_all_by_role(Role::Image)
+        .max_by(|a, b| a.rect().area().total_cmp(&b.rect().area()))
+        .expect("captured browser image")
+        .click();
+    visible(&mut app, "Page selection · Product direction");
+    f.control(
+        "/__test/workspace",
+        json!({"frame":{
+            "epoch":"new-page",
+            "revision":2,
+            "frame_id":"b".repeat(64),
+            "width":1280,
+            "height":800,
+            "image":frame["image"],
+            "url":"https://rat-artifacts.invalid/new-page.html",
+            "title":"New page",
+            "text":"New page",
+            "elements":[]
+        }}),
+    );
+    visible(&mut app, "https://rat-artifacts.invalid/new-page.html");
+    click(&mut app, "Open captured source");
+    visible(&mut app, "Capture · live browser moved");
+    contains(&mut app, "Page selection · Product direction");
+
+    f.screenshot(&mut app, "shared-browser-captured-context-1280x850.png");
+    app.set_size(Vec2::new(900.0, 650.0));
+    click(&mut app, "Conversation");
+    f.control("/__test/workspace-feedback", json!({"fail":true}));
+    let send_label = if app.query_by_role_and_label(Role::Button, "Send").is_some() {
+        "Send"
+    } else {
+        "Steer"
+    };
+    click(&mut app, send_label);
+    contains(
+        &mut app,
+        "Workspace feedback could not be saved. Try again.",
+    );
+    assert_eq!(
+        app.get_by_label("Message").value().as_deref(),
+        Some("Keep the original direction visible while we discuss it.")
+    );
+    assert!(
+        app.query_by_role_and_label(Role::Button, "Open captured source")
+            .is_some()
+    );
+    f.screenshot(&mut app, "shared-browser-capture-retry-900x650.png");
+
+    f.control("/__test/workspace-feedback", json!({"fail":false}));
+    click(&mut app, send_label);
+    until(&mut app, "persisted browser annotation", |_| {
+        f.get(&format!("/v1/rat/sessions/{id}/activity"))["workspace_threads"]
+            .as_array()
+            .is_some_and(|threads| threads.len() == 1)
     });
-    // Navigation remains usable while the browser lane has an older request in flight.
-    app.get_by_label("1 · Open").click();
-    tick(&mut app);
-    visible(&mut app, "Saved capture · live page may differ");
-    f.control("/__test/workspace", json!({"hold":false}));
-    until(&mut app, "saved image loaded separately", |app| {
-        app.query_all_by_role(Role::Image)
-            .any(|node| node.rect().width() > 200.0)
-            && f.state()["received"]
+    let feedback = f.state()["received"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|request| {
+            request["method"] == "POST"
+                && request["path"]
+                    .as_str()
+                    .is_some_and(|path| path.ends_with("/workspace/feedback"))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    assert_eq!(feedback.len(), 2);
+    assert_eq!(feedback[0]["body"]["target"]["kind"], "browser");
+    assert_eq!(feedback[0]["body"]["target"]["anchor"]["type"], "element");
+    assert_eq!(feedback[0]["body"]["target"]["anchor"]["id"], "element_1");
+    assert_eq!(feedback[0]["body"]["reply_to"], original_message);
+    assert_eq!(feedback[0]["body"], feedback[1]["body"]);
+    assert_eq!(feedback[0]["key"], feedback[1]["key"]);
+    assert_eq!(
+        feedback[1]["body"]["text"],
+        "Keep the original direction visible while we discuss it."
+    );
+    let activity = f.get(&format!("/v1/rat/sessions/{id}/activity"));
+    let attributed = activity["inputs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|input| input["workspace"]["target"]["anchor"]["id"] == "element_1")
+        .expect("one accepted receipt carries both reply and workspace context");
+    assert_eq!(attributed["reply"]["message_id"], original_message);
+
+    contains(&mut app, "Source · Product direction · “Product direction”");
+    click(&mut app, "Source · Product direction · “Product direction”");
+    until(
+        &mut app,
+        "source link loads its original captured annotation",
+        |_| {
+            f.state()["received"]
                 .as_array()
                 .unwrap()
                 .iter()
@@ -2838,25 +2859,300 @@ fn browser_annotation_navigation_rejects_a_late_live_frame() {
                             path.contains("/workspace/threads/") && path.ends_with("/image")
                         })
                 })
-    });
-    for _ in 0..30 {
-        tick(&mut app);
-    }
-    assert!(
-        app.query_all_by_label("https://rat-artifacts.invalid/late-response.html")
-            .next()
-            .is_none()
+        },
     );
+    app.set_size(Vec2::new(900.0, 650.0));
+    click(&mut app, "Workspace");
+    visible(&mut app, "Return to live");
+    f.screenshot(&mut app, "shared-browser-capture-open-source-900x650.png");
+}
+
+#[test]
+fn uncertain_workspace_send_keeps_its_idempotency_key_across_session_navigation() {
+    use base64::Engine;
+    let f = Fixture::new();
+    let image = image::RgbImage::from_pixel(1280, 800, image::Rgb([37, 37, 39]));
+    let mut encoded = std::io::Cursor::new(Vec::new());
+    image
+        .write_to(&mut encoded, image::ImageFormat::Jpeg)
+        .unwrap();
+    let frame = json!({
+        "epoch":"retry-page",
+        "revision":1,
+        "frame_id":"c".repeat(64),
+        "width":1280,
+        "height":800,
+        "image":base64::engine::general_purpose::STANDARD.encode(encoded.into_inner()),
+        "url":"https://rat-artifacts.invalid/retry.html",
+        "title":"Retry direction",
+        "text":"Retry direction",
+        "elements":[{"id":"element_1","text":"Retry direction","x":0.1,"y":0.1,"width":0.8,"height":0.8}]
+    });
+    f.control("/__test/workspace", json!({"frame":frame}));
+    let session = f.post("/v1/agents/sessions", json!({
+        "agent":{"model":"fixture-model","tools":[{"type":"function","name":"rat_things_browser","description":"Use the shared browser.","parameters":{"type":"object","properties":{}}}]},
+        "environment":{"type":"openai_hosted"},
+        "input":"Keep the direction available for retry.",
+        "metadata":{"name":"Retry browser conversation"}
+    }));
+    let id = session["id"].as_str().unwrap();
+    f.post(
+        "/v1/agents/sessions",
+        json!({
+            "agent":{"model":"fixture-model"},
+            "environment":{"type":"none"},
+            "input":"A different conversation.",
+            "metadata":{"name":"Other conversation"}
+        }),
+    );
+    let mut app = f.app();
+    click(&mut app, "Retry browser conversation");
+    app.set_size(Vec2::new(900.0, 650.0));
+    click(&mut app, "Workspace");
+    visible(&mut app, "https://rat-artifacts.invalid/retry.html");
+    click(&mut app, "Annotate");
+    visible(&mut app, "Click an element or drag a region.");
+    app.query_all_by_role(Role::Image)
+        .max_by(|a, b| a.rect().area().total_cmp(&b.rect().area()))
+        .expect("captured browser image")
+        .click();
+    visible(&mut app, "Page selection · Retry direction");
+    visible(&mut app, "Message");
     fill(
         &mut app,
-        "Artifact feedback",
-        "This reply belongs to the captured page.",
+        "Message",
+        "Keep the captured direction in the retry.",
     );
-    f.screenshot(&mut app, "shared-browser-annotation-1280x850.png");
+
+    f.control(
+        "/__test/workspace-feedback",
+        json!({"hold":true,"drop_after_release":true}),
+    );
+    let send = if app.query_by_role_and_label(Role::Button, "Send").is_some() {
+        "Send"
+    } else {
+        "Steer"
+    };
+    click(&mut app, send);
+    until(
+        &mut app,
+        "accepted workspace input before its response is lost",
+        |_| {
+            f.state()["workspaceFeedbackWaiting"] == 1
+                && f.get(&format!("/v1/rat/sessions/{id}/activity"))["workspace_threads"]
+                    .as_array()
+                    .is_some_and(|threads| threads.len() == 1)
+        },
+    );
+
+    click(&mut app, "Other conversation");
+    f.control("/__test/workspace-feedback", json!({"hold":false}));
+    until(&mut app, "lost response released", |_| {
+        f.state()["workspaceFeedbackWaiting"] == 0
+    });
+    click(&mut app, "Retry browser conversation");
+    contains(&mut app, "Page selection · Retry direction");
+    assert_eq!(
+        app.get_by_label("Message").value().as_deref(),
+        Some("Keep the captured direction in the retry.")
+    );
+    let retry_send = if app.query_by_role_and_label(Role::Button, "Send").is_some() {
+        "Send"
+    } else {
+        "Steer"
+    };
+    click(&mut app, retry_send);
+    until(&mut app, "the retry reaches the feedback service", |_| {
+        f.state()["workspaceFeedbackCompleted"]
+            .as_u64()
+            .unwrap_or_default()
+            == 2
+    });
+    let activity = f.get(&format!("/v1/rat/sessions/{id}/activity"));
+    assert_eq!(
+        activity["workspace_threads"].as_array().unwrap().len(),
+        1,
+        "An uncertain send retry must not create another annotation thread."
+    );
+    assert_eq!(
+        activity["workspace_threads"][0]["comments"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1,
+        "An uncertain send retry must not duplicate the annotation."
+    );
+    let state = f.state();
+    let requests = state["received"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|request| {
+            request["method"] == "POST"
+                && request["path"]
+                    .as_str()
+                    .is_some_and(|path| path.ends_with("/workspace/feedback"))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    assert_eq!(requests[0]["key"], requests[1]["key"]);
+    assert_eq!(requests[0]["body"], requests[1]["body"]);
+}
+
+#[test]
+fn cancelling_page_capture_fences_a_late_capture_response() {
+    use base64::Engine;
+    let f = Fixture::new();
+    let image = image::RgbImage::from_pixel(1280, 800, image::Rgb([37, 37, 39]));
+    let mut encoded = std::io::Cursor::new(Vec::new());
+    image
+        .write_to(&mut encoded, image::ImageFormat::Jpeg)
+        .unwrap();
+    let frame = json!({
+        "epoch":"cancel-page",
+        "revision":1,
+        "frame_id":"d".repeat(64),
+        "width":1280,
+        "height":800,
+        "image":base64::engine::general_purpose::STANDARD.encode(encoded.into_inner()),
+        "url":"https://rat-artifacts.invalid/cancel.html",
+        "title":"Cancel page",
+        "text":"Cancel page",
+        "elements":[]
+    });
+    f.control("/__test/workspace", json!({"frame":frame}));
+    f.post("/v1/agents/sessions", json!({
+        "agent":{"model":"fixture-model","tools":[{"type":"function","name":"rat_things_browser","description":"Use the shared browser.","parameters":{"type":"object","properties":{}}}]},
+        "environment":{"type":"openai_hosted"},
+        "input":"Review the page.",
+        "metadata":{"name":"Cancel capture"}
+    }));
+    let mut app = f.app();
+    click(&mut app, "Cancel capture");
+    visible(&mut app, "https://rat-artifacts.invalid/cancel.html");
+    f.control("/__test/workspace", json!({"capture_hold":true}));
+    click(&mut app, "Annotate");
+    visible(&mut app, "Capturing page…");
+    until(&mut app, "capture request held", |_| {
+        f.state()["browserCaptureWaiting"]
+            .as_u64()
+            .unwrap_or_default()
+            > 0
+    });
+    click(&mut app, "Cancel selection");
+    f.control("/__test/workspace", json!({"capture_hold":false}));
+    until(&mut app, "late capture response completed", |_| {
+        f.state()["browserCaptureCompleted"]
+            .as_u64()
+            .unwrap_or_default()
+            > 0
+    });
+    visible(&mut app, "Annotate");
+    assert!(app.query_by_label("Capturing page…").is_none());
+    assert!(
+        app.query_by_role_and_label(Role::Button, "Open captured source")
+            .is_none()
+    );
+}
+
+#[test]
+fn plan_is_agent_owned_navigable_and_has_read_only_revision_history() {
+    let f = Fixture::new();
+    let session = f.post(
+        "/v1/agents/sessions",
+        json!({
+            "agent":{"model":"fixture-model"},
+            "environment":{"type":"none"},
+            "input":"Make the launch clearer.",
+            "metadata":{"name":"Plan review"}
+        }),
+    );
+    let id = session["id"].as_str().unwrap();
+    let mut app = f.app();
+    click(&mut app, "Plan review");
+    fill(
+        &mut app,
+        "Message",
+        "Focus the launch on its strongest benefit.",
+    );
+    let send = if app.query_by_role_and_label(Role::Button, "Send").is_some() {
+        "Send"
+    } else {
+        "Steer"
+    };
+    click(&mut app, send);
+    until(&mut app, "accepted Plan source message", |_| {
+        f.get(&format!("/v1/rat/sessions/{id}/activity"))["inputs"]
+            .as_array()
+            .is_some_and(|inputs| {
+                inputs.iter().any(|input| {
+                    input["message_ids"]
+                        .as_array()
+                        .is_some_and(|messages| !messages.is_empty())
+                })
+            })
+    });
+    let published = f.control("/__test/plan", json!({"session_id":id}));
+    assert_eq!(published["plan"]["revision"], 2);
+    assert_eq!(published["plan"]["items"].as_array().unwrap().len(), 3);
+    assert_eq!(published["plan"]["items"][0]["state"], "addressed");
+    assert_eq!(
+        published["plan"]["items"][0]["result_links"][0]["artifact_id"],
+        format!(
+            "artifact-{}",
+            published["plan"]["items"][0]["updated_by"]["turn_id"]
+                .as_str()
+                .unwrap()
+        )
+    );
+    contains(&mut app, "Updated Plan · revision 1");
+    contains(&mut app, "Updated Plan · revision 2");
+    click(&mut app, "Plan");
+    visible(&mut app, "Revision 2 · 1 of 3 addressed");
+    visible(&mut app, "Clarify the product direction");
+    app.get_by_label("Clarify the product direction").click();
+    visible(&mut app, "Agent addressed");
+    visible(&mut app, "The revised direction is saved in report.txt.");
+    visible(&mut app, "Sources");
+    visible(&mut app, "Result");
+    assert!(app.query_all_by_role(Role::CheckBox).next().is_none());
+    f.screenshot(&mut app, "session-plan-1280x850.png");
+
+    click(
+        &mut app,
+        "console-owner · “Focus the launch on its strongest benefit.” · open message",
+    );
     app.set_size(Vec2::new(900.0, 650.0));
-    click(&mut app, "Discussion");
-    visible(&mut app, "Share feedback");
-    f.screenshot(&mut app, "shared-browser-annotation-900x650.png");
+    visible(&mut app, "Focus the launch on its strongest benefit.");
+    app.set_size(Vec2::new(1280.0, 850.0));
+    click(&mut app, "Plan");
+    app.get_by_label("Clarify the product direction").click();
+    visible(&mut app, "Open report.txt");
+    click(&mut app, "Open report.txt");
+    visible(&mut app, "Native console artifact");
+    f.screenshot(&mut app, "session-plan-result-1280x850.png");
+    click(&mut app, "Plan");
+
+    click(&mut app, "History");
+    visible(&mut app, "Revision 1");
+    click(&mut app, "Revision 1");
+    visible(&mut app, "Revision 1 items");
+    app.get_by_label("Clarify the product direction").click();
+    visible(&mut app, "Revision 1 · 0 of 3 addressed");
+    visible(&mut app, "Sources");
+    assert!(
+        app.query_by_role_and_label(Role::Button, "Mark addressed")
+            .is_none()
+    );
+    f.screenshot(&mut app, "session-plan-history-1280x850.png");
+    click(&mut app, "Current Plan");
+    visible(&mut app, "Revision 2 · 1 of 3 addressed");
+    click(&mut app, "History");
+    click(&mut app, "Revision 1");
+    visible(&mut app, "Revision 1 · 0 of 3 addressed");
+    app.set_size(Vec2::new(900.0, 650.0));
+    visible(&mut app, "Revision 1 items");
+    f.screenshot(&mut app, "session-plan-history-900x650.png");
 }
 
 #[test]
@@ -2872,8 +3168,6 @@ fn explicit_browser_click_preempts_an_inflight_refresh_with_original_revision() 
     f.post("/v1/agents/sessions", json!({"agent":{"model":"fixture-model","tools":[{"type":"function","name":"rat_things_browser","description":"Use the shared browser.","parameters":{"type":"object","properties":{}}}]},"environment":{"type":"openai_hosted"},"input":"Review together.","metadata":{"name":"Click during refresh"}}));
     let mut app = f.app();
     click(&mut app, "Click during refresh");
-    click(&mut app, "Shared workspace");
-    click(&mut app, "Live browser");
     visible(&mut app, "https://rat-artifacts.invalid/click.html");
     f.control("/__test/workspace", json!({"hold":true}));
     until(&mut app, "held refresh", |_| {

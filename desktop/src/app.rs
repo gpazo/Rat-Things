@@ -16,8 +16,11 @@ use crate::{
     },
     theme,
 };
-use artifacts::{ArtifactOperation, ArtifactWorkspace};
-use collaboration::{CollaborationUi, ReplyDraft, message_text};
+use artifacts::{ArtifactOperation, ArtifactWorkspace, NarrowSessionPane};
+use collaboration::{
+    CapturedAnchor, CapturedContext, CapturedSource, CapturedSourceKind, CollaborationUi,
+    ReplyDraft, message_text,
+};
 use egui::{Color32, RichText, TextEdit, Ui};
 use egui_commonmark::CommonMarkCache;
 use reqwest::Method;
@@ -384,6 +387,9 @@ enum Pending {
         generation: u64,
         operation: ArtifactOperation,
     },
+    PlanHistory {
+        session_generation: u64,
+    },
     Typing,
     TeamAuthority {
         generation: u64,
@@ -667,12 +673,17 @@ impl ConsoleApp {
             .frame(egui::Frame::new().fill(theme::BACKGROUND).inner_margin(24))
             .show(ui, |ui| {
                 let area = ui.available_rect_before_wrap();
-                let width =
-                    if self.collection == Collection::Sessions && self.artifact_workspace.open {
-                        1240.0
-                    } else {
-                        780.0
-                    };
+                let width = if self.collection == Collection::Sessions
+                    && (self
+                        .snapshot
+                        .as_ref()
+                        .is_some_and(SessionSnapshot::has_shared_workspace)
+                        || self.artifact_workspace.plan_selected())
+                {
+                    1240.0
+                } else {
+                    780.0
+                };
                 let gutter = ((area.width() - width) / 2.0).max(0.0);
                 let column = egui::Rect::from_min_max(
                     area.min + egui::vec2(gutter, 0.0),
@@ -974,6 +985,9 @@ impl ConsoleApp {
                     *session_generation == self.selection_generation
                         && *generation == self.artifact_workspace.generation
                 }
+                Pending::PlanHistory { session_generation } => {
+                    *session_generation == self.selection_generation
+                }
                 Pending::TeamAuthority {
                     generation,
                     revision,
@@ -1033,6 +1047,10 @@ impl ConsoleApp {
             }
             if let Pending::Artifact { operation, .. } = pending {
                 self.receive_artifact(operation, completion.result, ctx);
+                continue;
+            }
+            if matches!(pending, Pending::PlanHistory { .. }) {
+                self.receive_plan_history(completion.id, completion.result);
                 continue;
             }
             if let Pending::Local { operation, .. } = pending {
@@ -1886,20 +1904,6 @@ impl ConsoleApp {
                     {
                         self.team.share_request = None;
                         self.team.share = None;
-                    }
-                }
-                if self.collection == Collection::Sessions
-                    && self.snapshot.as_ref().is_some_and(|snapshot| {
-                        !snapshot.artifacts.is_empty() || snapshot.browser_available
-                    })
-                {
-                    let label = if self.artifact_workspace.open {
-                        "← Conversation"
-                    } else {
-                        "Shared workspace"
-                    };
-                    if ui.button(label).clicked() {
-                        self.artifact_workspace.open = !self.artifact_workspace.open;
                     }
                 }
                 self.files_menu(ui);
@@ -3121,11 +3125,47 @@ impl ConsoleApp {
     }
 
     fn session(&mut self, ui: &mut Ui, snapshot: &SessionSnapshot) {
-        if self.artifact_workspace.open {
-            self.artifact_workspace(ui, snapshot);
+        if !snapshot.has_shared_workspace() && !self.artifact_workspace.plan_selected() {
+            self.session_conversation(ui, snapshot);
             return;
         }
-        self.session_conversation(ui, snapshot);
+        if ui.available_width() < 900.0 {
+            ui.horizontal(|ui| {
+                ui.selectable_value(
+                    &mut self.artifact_workspace.narrow_pane,
+                    NarrowSessionPane::Conversation,
+                    "Conversation",
+                );
+                ui.selectable_value(
+                    &mut self.artifact_workspace.narrow_pane,
+                    NarrowSessionPane::Workspace,
+                    "Workspace",
+                );
+            });
+            ui.add_space(8.0);
+            match self.artifact_workspace.narrow_pane {
+                NarrowSessionPane::Conversation => self.session_conversation(ui, snapshot),
+                NarrowSessionPane::Workspace => self.artifact_workspace(ui, snapshot),
+            }
+            return;
+        }
+        let area = ui.available_rect_before_wrap();
+        let gap = 18.0;
+        let conversation_width = ((area.width() - gap) * 0.44).clamp(390.0, 560.0);
+        let split = area.left() + conversation_width;
+        let conversation = egui::Rect::from_min_max(area.min, egui::pos2(split, area.bottom()));
+        let workspace = egui::Rect::from_min_max(egui::pos2(split + gap, area.top()), area.max);
+        ui.scope_builder(egui::UiBuilder::new().max_rect(conversation), |ui| {
+            self.session_conversation(ui, snapshot);
+        });
+        ui.painter().vline(
+            split + gap / 2.0,
+            area.y_range(),
+            egui::Stroke::new(1.0, theme::BORDER),
+        );
+        ui.scope_builder(egui::UiBuilder::new().max_rect(workspace), |ui| {
+            self.artifact_workspace(ui, snapshot);
+        });
     }
 
     fn files_menu(&mut self, ui: &mut Ui) {

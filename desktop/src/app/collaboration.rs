@@ -8,6 +8,110 @@ pub(super) struct ReplyDraft {
     pub color: Color32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum CapturedSourceKind {
+    Browser,
+    Artifact,
+}
+
+#[derive(Clone)]
+pub(super) struct CapturedSource {
+    pub kind: CapturedSourceKind,
+    pub id: String,
+    pub title: String,
+    pub url: Option<String>,
+    pub version: Option<String>,
+    pub frame: Option<serde_json::Value>,
+    pub preview: Option<egui::TextureHandle>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum CapturedAnchor {
+    Item,
+    Point {
+        x: f32,
+        y: f32,
+    },
+    Region {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    },
+    Text {
+        start: usize,
+        end: usize,
+        quote: String,
+    },
+    BrowserElement {
+        id: String,
+        bounds: Option<egui::Rect>,
+    },
+}
+
+#[derive(Clone)]
+pub(super) struct CapturedContext {
+    pub id: String,
+    pub source: CapturedSource,
+    pub anchor: CapturedAnchor,
+}
+
+impl CapturedContext {
+    pub fn new(source: CapturedSource, anchor: CapturedAnchor) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            source,
+            anchor,
+        }
+    }
+
+    pub fn feedback_target(&self) -> serde_json::Value {
+        use CapturedAnchor as Anchor;
+        let anchor = match &self.anchor {
+            Anchor::Item => json!({"type":"item"}),
+            Anchor::Point { x, y } => json!({"type":"point","x":x,"y":y}),
+            Anchor::Region {
+                x,
+                y,
+                width,
+                height,
+            } => {
+                json!({"type":"region","x":x,"y":y,"width":width,"height":height})
+            }
+            Anchor::Text { start, end, quote } => {
+                json!({"type":"text","start":start,"end":end,"quote":quote})
+            }
+            Anchor::BrowserElement { id, .. } => json!({"type":"element","id":id}),
+        };
+        json!({
+            "kind": match self.source.kind {
+                CapturedSourceKind::Browser => "browser",
+                CapturedSourceKind::Artifact => "artifact",
+            },
+            "id": self.source.id,
+            "anchor": anchor,
+        })
+    }
+
+    pub fn label(&self) -> String {
+        let source = match self.source.kind {
+            CapturedSourceKind::Browser => self.source.title.clone(),
+            CapturedSourceKind::Artifact => crate::api::safe_filename(&self.source.title),
+        };
+        let (kind, detail) = match &self.anchor {
+            CapturedAnchor::Item => ("File", source),
+            CapturedAnchor::Point { .. } => ("Page point", source),
+            CapturedAnchor::Region { .. } => ("Image region", source),
+            CapturedAnchor::Text { quote, .. } => (
+                "Selected text",
+                format!("“{}”", quote.chars().take(52).collect::<String>()),
+            ),
+            CapturedAnchor::BrowserElement { .. } => ("Page selection", source),
+        };
+        format!("{kind} · {detail}")
+    }
+}
+
 pub(super) struct RemoteTypist {
     pub label: String,
     pub color: Color32,
@@ -16,6 +120,8 @@ pub(super) struct RemoteTypist {
 
 pub(super) struct CollaborationUi {
     pub replies: HashMap<String, ReplyDraft>,
+    pub contexts: HashMap<String, CapturedContext>,
+    pub feedback_errors: HashMap<String, String>,
     pub remote: Vec<RemoteTypist>,
     pub scroll_target: Option<String>,
     pub focus_composer: bool,
@@ -30,6 +136,8 @@ impl Default for CollaborationUi {
     fn default() -> Self {
         Self {
             replies: HashMap::new(),
+            contexts: HashMap::new(),
+            feedback_errors: HashMap::new(),
             remote: Vec::new(),
             scroll_target: None,
             focus_composer: false,

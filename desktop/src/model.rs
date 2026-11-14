@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Collection {
@@ -78,6 +79,84 @@ pub(crate) struct Resource {
     pub id: String,
     #[serde(flatten)]
     pub fields: Map<String, Value>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PlanUpdateStatus {
+    Updating,
+    Updated,
+    Failed,
+}
+
+pub(crate) struct ConversationItem<'a> {
+    pub item: &'a Resource,
+    pub plan_update: Option<PlanUpdateStatus>,
+}
+
+pub(crate) fn conversation_items(items: &[Resource]) -> Vec<ConversationItem<'_>> {
+    fn key(item: &Resource) -> (&str, &str) {
+        (item.text("turn_id"), item.text("call_id"))
+    }
+    let plan_calls: HashSet<_> = items
+        .iter()
+        .filter(|item| {
+            item.text("type") == "function_call" && item.text("name") == "rat_things_plan_update"
+        })
+        .map(key)
+        .collect();
+    let outputs: HashSet<_> = items
+        .iter()
+        .filter(|item| item.text("type") == "function_call_output")
+        .map(key)
+        .collect();
+    items
+        .iter()
+        .filter_map(|item| {
+            let call = key(item);
+            let is_call = item.text("type") == "function_call" && plan_calls.contains(&call);
+            let is_output = item.text("type") == "function_call_output"
+                && (plan_calls.contains(&call) || item.text("name") == "rat_things_plan_update");
+            if is_call && outputs.contains(&call) {
+                return None;
+            }
+            let plan_update = (is_call || is_output).then(|| {
+                if matches!(item.text("status"), "failed" | "cancelled")
+                    || item
+                        .fields
+                        .get("error")
+                        .is_some_and(|error| !error.is_null())
+                    || item.fields.get("success").and_then(Value::as_bool) == Some(false)
+                {
+                    PlanUpdateStatus::Failed
+                } else if is_output && item.text("status") == "completed" {
+                    PlanUpdateStatus::Updated
+                } else {
+                    PlanUpdateStatus::Updating
+                }
+            });
+            Some(ConversationItem { item, plan_update })
+        })
+        .collect()
+}
+
+fn saved_plan_revision(item: &Resource) -> Option<u64> {
+    fn from_text(text: &str) -> Option<u64> {
+        let output: Value = serde_json::from_str(text).ok()?;
+        output["plan"]["revision"]
+            .as_u64()
+            .filter(|revision| *revision > 0)
+    }
+    if item.text("type") != "function_call_output" {
+        return None;
+    }
+    let output = item.fields.get("output")?;
+    output.as_str().and_then(from_text).or_else(|| {
+        output.as_array()?.iter().find_map(|part| {
+            matches!(part["type"].as_str(), Some("input_text" | "output_text"))
+                .then(|| part["text"].as_str().and_then(from_text))
+                .flatten()
+        })
+    })
 }
 
 pub(crate) const SESSION_ARCHIVED_KEY: &str = "rat_things_archived";
@@ -274,12 +353,14 @@ pub(crate) struct Page {
 pub(crate) struct SessionSnapshot {
     pub workspace_threads: Vec<Value>,
     pub browser_available: bool,
+    pub plan: Option<SessionPlan>,
     pub cursor: Option<String>,
     pub role: Option<String>,
     pub permissions: Option<Vec<String>>,
     pub actor_colors: std::collections::HashMap<String, String>,
     pub replies: std::collections::HashMap<String, Value>,
     pub actor_labels: std::collections::HashMap<String, String>,
+    pub workspace_sources: HashMap<String, Value>,
     pub runtime: Result<RuntimeInfo, String>,
     pub session: Resource,
     pub items: Vec<Resource>,
@@ -287,7 +368,89 @@ pub(crate) struct SessionSnapshot {
     pub artifacts: Vec<Resource>,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+pub(crate) struct SessionPlan {
+    pub revision: u64,
+    #[serde(default)]
+    pub items: Vec<SessionPlanItem>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+pub(crate) struct SessionPlanItem {
+    pub id: String,
+    pub text: String,
+    pub state: SessionPlanState,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub source_refs: Vec<PlanSourceRef>,
+    #[serde(default)]
+    pub result_links: Vec<PlanResultLink>,
+    pub updated_by: PlanUpdatedBy,
+    pub updated_at: u64,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SessionPlanState {
+    Next,
+    Working,
+    Addressed,
+    Deferred,
+    Reopened,
+    NeedsDiscussion,
+}
+
+impl SessionPlanState {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Next => "Next",
+            Self::Working => "Working",
+            Self::Addressed => "Addressed",
+            Self::Deferred => "Deferred",
+            Self::Reopened => "Reopened",
+            Self::NeedsDiscussion => "Needs discussion",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+pub(crate) struct PlanSourceRef {
+    pub receipt_id: String,
+    pub message_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub(crate) enum PlanResultLink {
+    Artifact {
+        artifact_id: String,
+        version_sha256: String,
+    },
+    Activity {
+        turn_id: String,
+        item_id: String,
+    },
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+pub(crate) struct PlanUpdatedBy {
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    #[serde(default)]
+    pub turn_id: Option<String>,
+}
+
 impl SessionSnapshot {
+    pub fn has_shared_workspace(&self) -> bool {
+        self.browser_available
+            || !self.artifacts.is_empty()
+            || self
+                .plan
+                .as_ref()
+                .is_some_and(|plan| plan.revision > 0 || !plan.items.is_empty())
+    }
+
     pub fn from_activity(value: Value) -> Result<Self, String> {
         let parse = |name: &str| {
             serde_json::from_value(value[name].clone())
@@ -296,6 +459,7 @@ impl SessionSnapshot {
         let mut actor_colors = std::collections::HashMap::new();
         let mut replies = std::collections::HashMap::new();
         let mut actor_labels = std::collections::HashMap::new();
+        let mut workspace_sources = HashMap::new();
         for input in value["inputs"].as_array().into_iter().flatten() {
             let actor = &input["actor"];
             let label = actor["label"]
@@ -321,9 +485,26 @@ impl SessionSnapshot {
                 if input["reply"].is_object() {
                     replies.insert(id.to_owned(), input["reply"].clone());
                 }
+                if input["workspace"].is_object() {
+                    workspace_sources.insert(id.to_owned(), input["workspace"].clone());
+                }
             }
         }
         let mut items: Vec<Resource> = parse("items")?;
+        let saved_revisions: HashMap<_, _> = conversation_items(&items)
+            .into_iter()
+            .filter(|row| row.plan_update == Some(PlanUpdateStatus::Updated))
+            .filter_map(|row| {
+                saved_plan_revision(row.item).map(|revision| (row.item.id.clone(), revision))
+            })
+            .collect();
+        for item in &mut items {
+            item.fields.remove("saved_plan_revision");
+            if let Some(revision) = saved_revisions.get(&item.id) {
+                item.fields
+                    .insert("saved_plan_revision".into(), (*revision).into());
+            }
+        }
         for receipt in value["pending_inputs"].as_array().into_iter().flatten() {
             let actor = &receipt["actor"];
             let label = actor["label"]
@@ -339,6 +520,9 @@ impl SessionSnapshot {
                 actor_labels
                     .entry(id.to_owned())
                     .or_insert_with(|| label.clone());
+                if receipt["workspace"].is_object() {
+                    workspace_sources.insert(id.to_owned(), receipt["workspace"].clone());
+                }
                 if items.iter().any(|item| item.id == id) {
                     continue;
                 }
@@ -360,12 +544,18 @@ impl SessionSnapshot {
                     .unwrap_or_default(),
             )
         });
+        let plan = value
+            .get("plan")
+            .filter(|plan| !plan.is_null())
+            .map(|plan| serde_json::from_value(plan.clone()).map_err(|_| "Invalid activity Plan"))
+            .transpose()?;
         Ok(Self {
             workspace_threads: value["workspace_threads"]
                 .as_array()
                 .cloned()
                 .unwrap_or_default(),
             browser_available: value["browser_available"].as_bool().unwrap_or(false),
+            plan,
             session: serde_json::from_value(value["session"].clone())
                 .map_err(|_| "Invalid activity Session")?,
             items,
@@ -388,6 +578,7 @@ impl SessionSnapshot {
             actor_labels,
             actor_colors,
             replies,
+            workspace_sources,
         })
     }
 
@@ -428,6 +619,90 @@ pub(crate) fn string(value: &Value, key: &str) -> String {
 mod activity_tests {
     use super::*;
     use serde_json::json;
+
+    fn plan_call() -> Resource {
+        serde_json::from_value(json!({
+            "id":"call-item", "type":"function_call", "name":"rat_things_plan_update",
+            "turn_id":"turn_1", "call_id":"call_1", "status":"completed"
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn saved_plan_revision_reads_host_results_and_ignores_conflict_heads() {
+        for output in [
+            json!("{\"plan\":{\"revision\":2,\"items\":[]}}"),
+            json!([{"type":"input_text","text":"{\"plan\":{\"revision\":2,\"items\":[]}}"}]),
+        ] {
+            let item = serde_json::from_value(json!({
+                "id":"result", "type":"function_call_output", "output":output
+            }))
+            .unwrap();
+            assert_eq!(saved_plan_revision(&item), Some(2));
+        }
+        let failed = serde_json::from_value(json!({
+            "id":"failed", "type":"function_call_output",
+            "output":"{\"error\":{\"current_plan\":{\"revision\":3}}}"
+        }))
+        .unwrap();
+        assert_eq!(saved_plan_revision(&failed), None);
+    }
+
+    #[test]
+    fn a_generated_plan_call_does_not_claim_an_update_was_saved() {
+        let items = [plan_call()];
+        let rows = conversation_items(&items);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].plan_update, Some(PlanUpdateStatus::Updating));
+    }
+
+    #[test]
+    fn plan_output_status_controls_the_single_visible_update() {
+        for (status, expected) in [
+            ("completed", PlanUpdateStatus::Updated),
+            ("failed", PlanUpdateStatus::Failed),
+            ("cancelled", PlanUpdateStatus::Failed),
+            ("in_progress", PlanUpdateStatus::Updating),
+        ] {
+            let output = serde_json::from_value(json!({
+                "id":"output-item", "type":"function_call_output",
+                "turn_id":"turn_1", "call_id":"call_1", "status":status
+            }))
+            .unwrap();
+            let items = [plan_call(), output];
+            let rows = conversation_items(&items);
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].item.id, "output-item");
+            assert_eq!(rows[0].plan_update, Some(expected));
+        }
+    }
+
+    #[test]
+    fn plan_output_error_cannot_claim_success_even_with_completed_status() {
+        let output = serde_json::from_value(json!({
+            "id":"output-item", "type":"function_call_output", "name":"rat_things_plan_update",
+            "turn_id":"turn_1", "call_id":"call_1", "status":"completed",
+            "error":{"message":"Plan changed. Use the current revision."}
+        }))
+        .unwrap();
+        let items = [output];
+        let rows = conversation_items(&items);
+        assert_eq!(rows[0].plan_update, Some(PlanUpdateStatus::Failed));
+    }
+
+    #[test]
+    fn a_different_turns_tool_result_does_not_complete_a_plan_call() {
+        let output = serde_json::from_value(json!({
+            "id":"other-output", "type":"function_call_output",
+            "turn_id":"turn_2", "call_id":"call_1", "status":"completed"
+        }))
+        .unwrap();
+        let items = [plan_call(), output];
+        let rows = conversation_items(&items);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].plan_update, Some(PlanUpdateStatus::Updating));
+        assert_eq!(rows[1].plan_update, None);
+    }
 
     #[test]
     fn pending_activity_messages_render_once_then_dedupe_after_materialization() {

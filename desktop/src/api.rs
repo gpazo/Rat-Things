@@ -24,6 +24,9 @@ pub(crate) enum Task {
     ArtifactPreview {
         path: String,
     },
+    PlanRevisions {
+        path: String,
+    },
     Browser {
         path: String,
         body: Option<Value>,
@@ -107,6 +110,7 @@ pub(crate) enum Data {
         image: Option<egui::ColorImage>,
         text: Option<String>,
     },
+    PlanRevisions(Value),
     Browser {
         value: Value,
         image: egui::ColorImage,
@@ -575,6 +579,9 @@ impl Api {
     ) -> Result<Data, String> {
         let deadline = Instant::now() + REQUEST_DEADLINE;
         match task {
+            Task::PlanRevisions { path } => self
+                .request(&path, Method::GET, None, None, false, deadline)
+                .map(Data::PlanRevisions),
             Task::TeamAuthority { space_id } => {
                 let value = self.request(
                     "/api/v1/rat/spaces",

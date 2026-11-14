@@ -14,8 +14,8 @@ pub(crate) const ERROR: Color32 = Color32::from_rgb(236, 159, 155);
 const PRIMARY_TEXT: Color32 = Color32::from_rgb(24, 24, 25);
 const SELECTED: Color32 = Color32::from_rgb(48, 48, 51);
 const HOVERED: Color32 = Color32::from_rgb(51, 51, 54);
-const WARNING: Color32 = Color32::from_rgb(223, 191, 132);
-const SUCCESS: Color32 = Color32::from_rgb(161, 191, 162);
+pub(crate) const WARNING: Color32 = Color32::from_rgb(223, 191, 132);
+pub(crate) const SUCCESS: Color32 = Color32::from_rgb(161, 191, 162);
 
 pub(crate) fn apply(ctx: &egui::Context) {
     apply_fonts(ctx);

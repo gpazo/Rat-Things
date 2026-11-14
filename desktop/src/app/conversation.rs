@@ -1,4 +1,5 @@
 use super::*;
+use crate::model::{PlanUpdateStatus, conversation_items};
 
 impl ConsoleApp {
     pub(super) fn session_conversation(&mut self, ui: &mut Ui, snapshot: &SessionSnapshot) {
@@ -13,11 +14,50 @@ impl ConsoleApp {
         let active = snapshot.turn_active();
         egui::Panel::bottom("composer").show_separator_line(false).resizable(false).min_size(0.0).frame(egui::Frame::NONE).show(ui, |ui| {
             ui.add_space(12.0);
+            self.plan_summary(ui, snapshot);
             self.conversation_progress(ui, snapshot);
+            if let Some(error) = self.collaboration.feedback_errors.get(&session_id) {
+                ui.colored_label(theme::ERROR, error);
+            }
             ui.add_space(8.0);
             self.typing_label(ui);
             if self.can_contribute() { egui::Frame::new().fill(theme::SURFACE).stroke(egui::Stroke::new(1.0, theme::BORDER)).corner_radius(8).inner_margin(12).show(ui, |ui| {
                 self.reply_composer(ui, &session_id);
+                if let Some(context) = self.collaboration.contexts.get(&session_id).cloned() {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(
+                            RichText::new(context.label())
+                                .small()
+                                .color(theme::MUTED),
+                        );
+                        let source_tooltip = context
+                            .source
+                            .version
+                            .as_deref()
+                            .map(|version| format!("Open captured source · {version}"))
+                            .unwrap_or_else(|| "Open captured source".to_owned());
+                        if ui
+                            .small_button("Open captured source")
+                            .on_hover_text(source_tooltip)
+                            .clicked()
+                        {
+                            self.open_captured_context(&session_id, &context, ui.ctx());
+                        }
+                        let remove = ui
+                            .small_button("×")
+                            .on_hover_text("Remove context");
+                        remove.widget_info(|| {
+                            egui::WidgetInfo::labeled(
+                                egui::Role::Button,
+                                true,
+                                "Remove context",
+                            )
+                        });
+                        if remove.clicked() {
+                            self.collaboration.contexts.remove(&session_id);
+                        }
+                    });
+                }
                 let message = self.messages.entry(session_id.clone()).or_default();
                 let response = egui::ScrollArea::vertical().id_salt(("composer-scroll", &session_id)).max_height(160.0).show(ui, |ui| {
                     ui.add(TextEdit::multiline(message).id_salt(("message", &session_id)).frame(egui::Frame::NONE).desired_rows(1).desired_width(f32::INFINITY).hint_text(if active { "Add a direction…" } else { "Message the agent…" }))
@@ -33,9 +73,16 @@ impl ConsoleApp {
                     ui.label(RichText::new("⌘ / Ctrl + Enter").small().color(theme::MUTED));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let label = if active { "Steer" } else { "Send" };
-                        let enabled = self.mutation_pending.is_none() && !message.trim().is_empty();
+                        let has_context = self.collaboration.contexts.contains_key(&session_id);
+                        let enabled = self.mutation_pending.is_none()
+                            && (!has_context || self.artifact_workspace.pending.is_none())
+                            && !message.trim().is_empty();
                         if ui.add_enabled(enabled, theme::primary_button(label)).clicked() || (enabled && shortcut) {
-                            self.send_events(&session_id, vec![json!({"type": "agent.session.input.message", "input": [{"role": "user", "content": [{"type": "input_text", "text": message}]}]})], Some(message), None, ui.ctx());
+                            if has_context {
+                                self.send_context_message(&session_id, message, ui.ctx());
+                            } else {
+                                self.send_events(&session_id, vec![json!({"type": "agent.session.input.message", "input": [{"role": "user", "content": [{"type": "input_text", "text": message}]}]})], Some(message), None, ui.ctx());
+                            }
                         }
                     });
                 });
@@ -60,7 +107,8 @@ impl ConsoleApp {
                     ui.add_space(22.0);
                     ui.label(RichText::new("No saved items yet.").color(theme::MUTED));
                 }
-                for item in &snapshot.items {
+                for row in conversation_items(&snapshot.items) {
+                    let item = row.item;
                     let mut attributed = item.clone();
                     if let Some(label) = snapshot.actor_labels.get(&item.id) { attributed.fields.insert("participant_label".into(), label.clone().into()); }
                     if let Some(color) = snapshot.actor_colors.get(&item.id) { attributed.fields.insert("participant_color".into(), color.clone().into()); }
@@ -68,10 +116,16 @@ impl ConsoleApp {
                         attributed.fields.insert("reply".into(), reply.clone());
                         if let Some(color) = reply["message_id"].as_str().and_then(|id| snapshot.actor_colors.get(id)) { attributed.fields.insert("reply_color".into(), color.clone().into()); }
                     }
-                    self.transcript_item(ui, &attributed);
+                    if let Some(source) = snapshot.workspace_sources.get(&item.id) {
+                        attributed.fields.insert("workspace_source".into(), source.clone());
+                    }
+                    self.transcript_item(ui, &attributed, snapshot, row.plan_update);
                 }
                 for action in snapshot.actions() {
-                    if action.get("type").and_then(Value::as_str) == Some("function_call") {
+                    if action.get("type").and_then(Value::as_str) == Some("function_call")
+                        && action.get("name").and_then(Value::as_str)
+                            != Some("rat_things_plan_update")
+                    {
                         self.tool_result(ui, &session_id, &action);
                     }
                 }
@@ -114,14 +168,13 @@ impl ConsoleApp {
                         egui::ScrollArea::vertical()
                             .max_height(320.0)
                             .show(ui, |ui| {
-                                for item in snapshot
-                                    .items
-                                    .iter()
+                                for row in conversation_items(&snapshot.items)
+                                    .into_iter()
                                     .rev()
-                                    .filter(|item| item.text("type") != "message")
+                                    .filter(|row| row.item.text("type") != "message")
                                     .take(20)
                                 {
-                                    self.transcript_item(ui, item);
+                                    self.transcript_item(ui, row.item, snapshot, row.plan_update);
                                 }
                             });
                     });
@@ -146,7 +199,35 @@ impl ConsoleApp {
             });
         });
     }
-    fn transcript_item(&mut self, ui: &mut Ui, item: &Resource) {
+    fn transcript_item(
+        &mut self,
+        ui: &mut Ui,
+        item: &Resource,
+        snapshot: &SessionSnapshot,
+        plan_update: Option<PlanUpdateStatus>,
+    ) {
+        if let Some(status) = plan_update {
+            let label = match status {
+                PlanUpdateStatus::Updating => "Updating Plan".to_owned(),
+                PlanUpdateStatus::Updated => item
+                    .fields
+                    .get("saved_plan_revision")
+                    .and_then(Value::as_u64)
+                    .map(|revision| format!("Updated Plan · revision {revision}"))
+                    .unwrap_or_else(|| "Updated Plan".to_owned()),
+                PlanUpdateStatus::Failed => "Plan update failed".to_owned(),
+            };
+            if ui
+                .small_button(label)
+                .on_hover_text("Open this Session’s Plan")
+                .clicked()
+            {
+                self.artifact_workspace.selected = Some("__rat_things_plan".into());
+                self.artifact_workspace.narrow_pane = NarrowSessionPane::Workspace;
+                self.artifact_workspace.selected_plan_item = None;
+            }
+            return;
+        }
         if item.text("type") != "message" {
             let kind = match item.text("type") {
                 "function_call_output" => "Tool result".into(),
@@ -327,6 +408,51 @@ impl ConsoleApp {
                                     {
                                         self.collaboration.scroll_target =
                                             reply["message_id"].as_str().map(ToOwned::to_owned);
+                                    }
+                                }
+                                if let Some(source) = item.fields.get("workspace_source") {
+                                    let thread_id =
+                                        source["thread_id"].as_str().unwrap_or_default();
+                                    let thread_target = snapshot
+                                        .workspace_threads
+                                        .iter()
+                                        .find(|thread| thread["id"].as_str() == Some(thread_id))
+                                        .map(|thread| &thread["target"]);
+                                    let target = thread_target.unwrap_or(&source["target"]);
+                                    if !target.is_null() {
+                                        let title = target["title"]
+                                            .as_str()
+                                            .or(target["url"].as_str())
+                                            .unwrap_or("saved source");
+                                        let anchor = &target["anchor"];
+                                        let anchor_label = anchor["quote"]
+                                            .as_str()
+                                            .map(|quote| {
+                                                format!(
+                                                    "“{}”",
+                                                    quote.chars().take(38).collect::<String>()
+                                                )
+                                            })
+                                            .or_else(|| {
+                                                anchor["type"].as_str().map(|kind| kind.to_owned())
+                                            })
+                                            .unwrap_or_else(|| "source".into());
+                                        let source_link =
+                                            json!({"thread_id":thread_id,"target":target});
+                                        if ui
+                                            .small_button(format!(
+                                                "Source · {title} · {anchor_label}"
+                                            ))
+                                            .on_hover_text("Open the captured annotation source")
+                                            .clicked()
+                                            && let Some(session) = self.selected_id.clone()
+                                        {
+                                            self.open_workspace_source(
+                                                &session,
+                                                &source_link,
+                                                ui.ctx(),
+                                            );
+                                        }
                                     }
                                 }
                                 if item.text("type") == "message" {

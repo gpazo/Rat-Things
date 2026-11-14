@@ -19,6 +19,7 @@ import { VaultService } from '../../src/core/vault-service.js';
 import { EnvironmentService } from '../../src/core/environment-service.js';
 import { EnvironmentTemplateService } from '../../src/core/environment-template-service.js';
 import type { SessionExecution, SessionTurnObservation } from '../../src/core/session-ports.js';
+import { initialSessionRuntime, type SessionRuntimeState } from '../../src/core/session-runtime-planning.js';
 import type { AgentSessionItem } from '../../src/domain/agents-api.js';
 import { routeAgentsRequest } from '../../src/lambdas/agents-router.js';
 import { MemoryAgentsStore } from '../../tests/agents/fixtures.js';
@@ -35,6 +36,14 @@ let workspaceFrame: BrowserFrame | undefined;
 let workspaceGate: ReturnType<typeof gate> | undefined;
 let workspaceRequests = 0;
 let workspaceWaiting = 0;
+let browserCaptureGate: ReturnType<typeof gate> | undefined;
+let browserCaptureWaiting = 0;
+let browserCaptureCompleted = 0;
+let failWorkspaceFeedback = false;
+let workspaceFeedbackGate: ReturnType<typeof gate> | undefined;
+let workspaceFeedbackWaiting = 0;
+let workspaceFeedbackCompleted = 0;
+let dropWorkspaceFeedbackResponse = false;
 const browser = process.env.RAT_THINGS_BROWSER_FIXTURE === '1' ? await (await import('./browser-fixture.js')).createBrowserFixture() : undefined;
 const execution: SessionExecution = browser?.execution ?? {
   prepare: async (ownerId, sessionId, environment) => {
@@ -322,14 +331,16 @@ const server = createServer((request, response) => void (async () => {
   }
   if (url.pathname === '/__test/state') {
     response.setHeader('content-type', 'application/json');
-    response.end(JSON.stringify({ received, executionStarts, copies: { requests: copyRequests, models: copyModelRequests, snapshots: copySnapshots, plans: (await transfers.list()).data, destinationSessions: (await sessions.list('copy-destination')).data }, runtimeChanges: [...runtimeChanges.values()], loginFlow: loginFlow ?? null, secretCount: secrets.size, sessionCount: (await sessions.list(owner)).data.length }));
+    response.end(JSON.stringify({ received, executionStarts, browserCaptureWaiting, browserCaptureCompleted, workspaceFeedbackWaiting, workspaceFeedbackCompleted, copies: { requests: copyRequests, models: copyModelRequests, snapshots: copySnapshots, plans: (await transfers.list()).data, destinationSessions: (await sessions.list('copy-destination')).data }, runtimeChanges: [...runtimeChanges.values()], loginFlow: loginFlow ?? null, secretCount: secrets.size, sessionCount: (await sessions.list(owner)).data.length }));
     return;
   }
   if (url.pathname === '/__test/workspace') {
-    const control = body ? JSON.parse(body) as { frame?: BrowserFrame; hold?: boolean } : {};
+    const control = body ? JSON.parse(body) as { frame?: BrowserFrame; hold?: boolean; capture_hold?: boolean } : {};
     if (control.frame) workspaceFrame = control.frame;
     if (control.hold === true) workspaceGate ??= gate();
     if (control.hold === false) { workspaceGate?.release(); workspaceGate = undefined; }
+    if (control.capture_hold === true) browserCaptureGate ??= gate();
+    if (control.capture_hold === false) { browserCaptureGate?.release(); browserCaptureGate = undefined; }
     response.setHeader('content-type', 'application/json');
     response.end(JSON.stringify({ requests: workspaceRequests, waiting: workspaceWaiting }));
     return;
@@ -340,6 +351,15 @@ const server = createServer((request, response) => void (async () => {
     readGate = control.hold ? readGate ?? new Promise<void>(resolve => { releaseReads = resolve; }) : undefined;
     failReads = control.fail ?? false;
     response.end('{}');
+    return;
+  }
+  if (url.pathname === '/__test/workspace-feedback') {
+    const control = JSON.parse(body) as { fail?: boolean; hold?: boolean; drop_after_release?: boolean };
+    failWorkspaceFeedback = control.fail === true;
+    if (control.hold === true) workspaceFeedbackGate ??= gate();
+    if (control.hold === false) { workspaceFeedbackGate?.release(); workspaceFeedbackGate = undefined; }
+    if (control.drop_after_release !== undefined) dropWorkspaceFeedbackResponse = control.drop_after_release;
+    response.end(JSON.stringify({ waiting: workspaceFeedbackWaiting }));
     return;
   }
   if (url.pathname === '/__test/models') {
@@ -374,6 +394,115 @@ const server = createServer((request, response) => void (async () => {
     response.end('{}');
     return;
   }
+  if (url.pathname === '/__test/plan') {
+    const input = JSON.parse(body) as { session_id: string };
+    try {
+      await sessions.dispatch(owner, input.session_id);
+      const currentSession = await store.get<SessionState>(owner, 'sessions', input.session_id);
+      if (!currentSession) throw new Error('Plan fixture Session was not found.');
+      const activity = await sessions.activity(owner, input.session_id);
+      const source = activity.inputs.flatMap(receipt => receipt.message_ids)[0];
+      if (!source) throw new Error('Plan fixture needs an accepted source message.');
+      const binding = currentSession.value.turns.find(turn => turn.turn.subagent_id === null);
+      if (!binding) throw new Error('Plan fixture needs a root Turn.');
+      const updatePlan = async (expectedRevision: number, items: unknown[]) => {
+        const callId = 'plan-' + crypto.randomUUID();
+        const arguments_ = { expected_revision: expectedRevision, items };
+        const action = {
+          type: 'function_call' as const,
+          name: 'rat_things_plan_update',
+          turn_id: binding.turn.id,
+          call_id: callId,
+          arguments: arguments_,
+        };
+        const currentTurn = (await sessions.turns(owner, input.session_id)).data
+          .find(turn => turn.id === binding.turn.id);
+        if (!currentTurn) throw new Error('Plan fixture root Turn disappeared.');
+        const waitingTurn = { ...currentTurn, status: 'waiting' as const };
+        observations.set(binding.turn.id, { turn: waitingTurn, requiredActions: [action] });
+
+        const runtimeResource = await store.get<import('../../src/core/session-runtime-store.js').StoredSessionRuntime>(owner, 'session_runtime', input.session_id);
+        const runtimeSnapshot = runtimeResource?.value.snapshot
+          ? structuredClone(runtimeResource.value.snapshot)
+          : initialSessionRuntime(input.session_id, currentSession.value.session.agent.id, 'fixture');
+        const runtimeBinding = runtimeSnapshot.turns.find(turn => turn.turn.id === binding.turn.id);
+        if (runtimeBinding) runtimeBinding.turn = waitingTurn;
+        else runtimeSnapshot.turns.push({ threadId: runtimeSnapshot.rootThreadId, nativeTurnId: binding.turn.id, turn: waitingTurn, items: [] });
+        runtimeSnapshot.requiredActions = [action];
+        await store.put({
+          ownerId: owner,
+          id: input.session_id,
+          collection: 'session_runtime',
+          createdAt: runtimeResource?.createdAt ?? Date.now(),
+          revision: (runtimeResource?.revision ?? 0) + 1,
+          value: { ...(runtimeResource?.value ?? { runId: 'fixture' }), snapshot: runtimeSnapshot },
+        }, runtimeResource?.revision ?? 0);
+        const localRuntime = await store.get<SessionRuntimeState>(owner, 'local_runtime', input.session_id);
+        await store.put({
+          ownerId: owner,
+          id: input.session_id,
+          collection: 'local_runtime',
+          createdAt: localRuntime?.createdAt ?? Date.now(),
+          revision: (localRuntime?.revision ?? 0) + 1,
+          value: runtimeSnapshot,
+        }, localRuntime?.revision ?? 0);
+
+        await sessions.resolvePlanTools(owner, input.session_id);
+        const saved = await sessions.activity(owner, input.session_id);
+        output.set(binding.turn.id, [
+          ...(output.get(binding.turn.id) ?? []),
+          {
+            id: 'plan-call-' + callId,
+            type: 'function_call',
+            turn_id: binding.turn.id,
+            call_id: callId,
+            name: 'rat_things_plan_update',
+            arguments: arguments_,
+            status: 'completed',
+          },
+          {
+            id: 'plan-output-' + callId,
+            type: 'function_call_output',
+            turn_id: binding.turn.id,
+            call_id: callId,
+            name: 'rat_things_plan_update',
+            output: JSON.stringify({ plan: saved.plan }),
+            status: 'completed',
+          },
+        ]);
+        return saved.plan;
+      };
+      const firstItems = [
+        { id: 'review-direction', text: 'Clarify the product direction', state: 'working', source_message_ids: [source], result_links: [] },
+        { id: 'keep-evidence', text: 'Keep the source evidence visible', state: 'next', source_message_ids: [source], result_links: [] },
+        { id: 'check-small-screen', text: 'Check the call to action on narrow screens', state: 'next', source_message_ids: [source], result_links: [] },
+      ];
+      await updatePlan(0, firstItems);
+      const secondItems = [
+        {
+          id: 'review-direction',
+          text: 'Clarify the product direction',
+          state: 'addressed',
+          reason: 'The revised direction is saved in report.txt.',
+          source_message_ids: [source],
+          result_links: [{
+            kind: 'artifact',
+            artifact_id: 'artifact-' + binding.turn.id,
+            version_sha256: '0'.repeat(64),
+          }],
+        },
+        { id: 'keep-evidence', text: 'Keep the source evidence visible', state: 'working', source_message_ids: [source], result_links: [] },
+        { id: 'check-small-screen', text: 'Check the call to action on narrow screens', state: 'next', source_message_ids: [source], result_links: [] },
+      ];
+      const plan = await updatePlan(1, secondItems);
+      response.setHeader('content-type', 'application/json');
+      response.end(JSON.stringify({ plan }));
+    } catch (error) {
+      response.writeHead(409, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ error: error instanceof Error ? error.message : 'Plan fixture failed.' }));
+    }
+    return;
+  }
   if (workspaceFixture && url.pathname === '/api/v1/workspace') {
     if (request.method === 'POST') {
       await readGate;
@@ -394,6 +523,11 @@ const server = createServer((request, response) => void (async () => {
   const path = workspaceFixture ? request.url?.replace(/^\/api\/v1\//, '/v1/') : request.url;
   const input = new Request(`http://127.0.0.1${path}`, { method: request.method ?? 'GET', headers: request.headers as Record<string, string>, ...(body ? { body } : {}), signal: abort.signal });
   received.push({ path: url.pathname, method: input.method, ...(body ? { body: JSON.parse(body) } : {}), key: input.headers.get('idempotency-key') });
+  if (input.method === 'POST' && url.pathname.endsWith('/workspace/feedback') && failWorkspaceFeedback) {
+    response.writeHead(503, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ error: { message: 'Workspace feedback could not be saved. Try again.' } }));
+    return;
+  }
   if (input.method === 'GET') {
     await readGate;
     if (failReads) {
@@ -402,12 +536,31 @@ const server = createServer((request, response) => void (async () => {
       return;
     }
   }
+  const heldCapture = input.method === 'POST' && url.pathname.endsWith('/workspace/browser/capture')
+    ? browserCaptureGate : undefined;
+  if (heldCapture) {
+    browserCaptureWaiting++;
+    try { await heldCapture.promise; } finally { browserCaptureWaiting--; }
+  }
   const routed = await routeAgentsRequest(input, iamApiPrincipal(workspaceFixture || request.headers['x-runtime-owner'] === owner ? owner : ''), {
     agents, sessions, vaults, templates, models: fixtureModels(), piModels: createPiModelCatalog(piModels, piModels[0]!.id),
   });
+  if (input.method === 'POST' && url.pathname.endsWith('/workspace/browser/capture')) browserCaptureCompleted++;
+  if (input.method === 'POST' && url.pathname.endsWith('/workspace/feedback')) workspaceFeedbackCompleted++;
   // An adverse wire response exercises the desktop's empty-state handling after real authentication/routing.
   const result = modelMode === 'empty-response' && input.method === 'GET' && url.pathname === '/v1/models' && routed.ok
     ? Response.json({ object: 'list', data: [] }) : routed;
+  const heldFeedback = input.method === 'POST' && url.pathname.endsWith('/workspace/feedback')
+    ? workspaceFeedbackGate : undefined;
+  if (heldFeedback) {
+    workspaceFeedbackWaiting++;
+    try { await heldFeedback.promise; } finally { workspaceFeedbackWaiting--; }
+    if (dropWorkspaceFeedbackResponse) {
+      dropWorkspaceFeedbackResponse = false;
+      response.destroy();
+      return;
+    }
+  }
   const headers: Record<string, string> = {};
   result.headers.forEach((value, key) => { headers[key] = value; });
   response.writeHead(result.status, headers);
