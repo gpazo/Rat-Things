@@ -4,10 +4,10 @@ import type { DynamoDBStreamEvent, SQSEvent } from 'aws-lambda';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentsResourceConflictError } from '../../src/domain/agents-api-validation.js';
 
-const f = vi.hoisted(() => ({ send: vi.fn(), reconcile: vi.fn(), reconcilePreparation: vi.fn(), dispatch: vi.fn(), completeReadyTurns: vi.fn(), resolveTools: vi.fn() }));
+const f = vi.hoisted(() => ({ send: vi.fn(), reconcile: vi.fn(), reconcilePreparation: vi.fn(), dispatch: vi.fn(), completeReadyTurns: vi.fn(), resolveTools: vi.fn(), resolvePlanTools: vi.fn() }));
 vi.mock('../../src/adapters/aws-runtime.js', () => ({ createAwsClients: () => ({ sqs: { send: f.send } }) }));
 vi.mock('../../src/app/composition.js', () => ({
-  getAgentsApiServices: () => ({ tools: { reconcile: f.reconcile, reconcilePreparation: f.reconcilePreparation }, sessions: { dispatch: f.dispatch, completeReadyTurns: f.completeReadyTurns } }),
+  getAgentsApiServices: () => ({ tools: { reconcile: f.reconcile, reconcilePreparation: f.reconcilePreparation }, sessions: { dispatch: f.dispatch, completeReadyTurns: f.completeReadyTurns, resolvePlanTools: f.resolvePlanTools } }),
   getSessionIntegrationService: () => ({ resolveTools: f.resolveTools }), getScheduleService: vi.fn(),
 }));
 const { handler } = await import('../../src/lambdas/agents-outbox.js');
@@ -29,6 +29,7 @@ it('releases a Session FIFO promptly after a rejected write and acknowledges suc
   expect(f.dispatch).toHaveBeenCalledTimes(2);
   expect(f.completeReadyTurns).toHaveBeenCalledOnce();
   expect(f.resolveTools).toHaveBeenCalledWith('alice', 'session');
+  expect(f.resolvePlanTools).toHaveBeenCalledWith('alice', 'session');
   expect(f.send).toHaveBeenCalledOnce();
 });
 

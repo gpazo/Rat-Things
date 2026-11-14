@@ -264,6 +264,7 @@ export class LocalSessionExecution implements SessionExecution {
       : planSessionLaunch(base, { sessionId: session.id, turnId: '', agent: session.agent, environment: session.environment, input: [], history, ...(planTool ? { planTool } : {}) });
     const request = { ...base, ...launch, sandbox: 'read-only' as const, persistent: true };
     const runtime = new SessionRuntime({ sessionId: session.id, agentId: session.agent.id,
+      ...(planTool ? { planTool } : {}),
       client: localCodexClient,
       request: this.options.request?.(request) ?? request, ...(sharedBrowserGranted(session.agent.tools) ? { lifetime: 'host-managed' as const } : { idleTimeoutMs: 30_000 }), ...(previous ? { previous } : {}),
       changed: snapshot => {

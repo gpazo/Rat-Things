@@ -16,7 +16,7 @@ import type { CodexTurnController } from '../../src/runner/codex-app-server.js';
 import { providerModelId } from '../../src/domain/session-model-validation.js';
 import type { StartupPhase, StartupTraceObserver } from '../../src/runner/startup-observer.js';
 
-function fixture(lifetime?: 'bounded' | 'host-managed', modelProvider = 'openai', model = 'fixture', previous?: ReturnType<SessionRuntime['snapshot']>, startupTrace?: StartupTraceObserver) {
+function fixture(lifetime?: 'bounded' | 'host-managed', modelProvider = 'openai', model = 'fixture', previous?: ReturnType<SessionRuntime['snapshot']>, startupTrace?: StartupTraceObserver, planControl?: { admitted: boolean; callback?: () => unknown }) {
   let handlers: ConstructorParameters<typeof CodexRpcClient>[0];
   let counter = 0;
   let closed = false;
@@ -24,10 +24,11 @@ function fixture(lifetime?: 'bounded' | 'host-managed', modelProvider = 'openai'
   let rpc: Pick<CodexRpcClient, 'initialize' | 'call' | 'close'>;
   const calls: Array<{ method: string; params: unknown }> = [];
   const runtime = new SessionRuntime({ sessionId: 'sess', agentId: 'agent', now: () => 100,
+    ...(planControl?.admitted ? { planTool: true } : {}),
     ...(lifetime ? { lifetime } : {}),
     ...(previous ? { previous } : {}),
     ...(startupTrace ? { startupTrace } : {}),
-    request: { binary: 'unused', workspace: '/workspace', environment: {}, timeoutMs: 10_000, prompt: '', sandbox: 'read-only', persistent: true, modelProvider, model, networkAccess: false, environments: [], dynamicTools: [{ type: 'function', name: 'lookup', description: 'Lookup', inputSchema: { type: 'object', properties: {} } }], onTurnStarted: (value) => { controller = value; } },
+    request: { binary: 'unused', workspace: '/workspace', environment: {}, timeoutMs: 10_000, prompt: '', sandbox: 'read-only', persistent: true, modelProvider, model, networkAccess: false, environments: [], dynamicTools: [{ type: 'function', name: 'lookup', description: 'Lookup', inputSchema: { type: 'object', properties: {} } }, ...(planControl?.admitted ? [{ type: 'function' as const, name: 'rat_things_plan_update', description: 'Plan', inputSchema: { type: 'object', properties: {} } }] : [])], ...(planControl?.callback ? { onServerRequest: planControl.callback } : {}), onTurnStarted: (value) => { controller = value; } },
     client: (options) => {
       handlers = options;
       rpc = {
@@ -448,6 +449,31 @@ describe('persistent native session runtime', () => {
     await f.runtime.close();
     await f.runtime.finished;
     expect(f.runtime.snapshot().turns.find((binding) => binding.turn.id === 'root-two')?.turn.status).toBe('failed');
+  });
+
+  it.each([false, true])('keeps an admitted Plan call pending for durable host resolution with generic callback=%s', async withCallback => {
+    const callback = vi.fn(() => { throw new Error('Generic callback must not resolve the Plan'); });
+    const f = fixture(undefined, 'openai', 'fixture', undefined, undefined, { admitted: true, ...(withCallback ? { callback } : {}) });
+    try {
+      await f.runtime.initialize();
+      await f.runtime.start(rootTurn('root-one'), message);
+      const request = { method: 'item/tool/call', requestId: 'plan-rpc', params: { threadId: 'root', turnId: 'native-1', callId: 'plan-call', tool: 'rat_things_plan_update', arguments: { expected_revision: 0, items: [] } } };
+      f.emit(request);
+      const pending = f.request(request);
+      expect(f.runtime.snapshot().requiredActions).toMatchObject([{ type: 'function_call', name: 'rat_things_plan_update', turn_id: 'root-one', call_id: 'plan-call' }]);
+      expect(callback).not.toHaveBeenCalled();
+      await f.runtime.toolResult({ type: 'agent.session.input.tool_result', turn_id: 'root-one', call_id: 'plan-call', success: true, output: '{"plan":{"revision":1,"items":[]}}' });
+      expect(await pending).toEqual({ success: true, contentItems: [{ type: 'inputText', text: '{"plan":{"revision":1,"items":[]}}' }] });
+      expect(f.runtime.snapshot().requiredActions).toEqual([]);
+    } finally { await f.runtime.close(); }
+  });
+
+  it('rejects the reserved Plan call when it was not admitted', async () => {
+    const f = fixture();
+    await f.runtime.initialize();
+    await f.runtime.start(rootTurn('root-one'), message);
+    await expect(f.request({ method: 'item/tool/call', requestId: 'plan-rpc', params: { threadId: 'root', turnId: 'native-1', callId: 'plan-call', tool: 'rat_things_plan_update', arguments: {} } })).rejects.toThrow('undeclared host interaction');
+    await f.runtime.finished;
   });
 
   it('resolves root functions with empty output and rejects child functions and approval requests', async () => {

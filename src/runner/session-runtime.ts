@@ -1,4 +1,5 @@
 import { SessionSteerRejectedError } from '../domain/session-errors.js';
+import { SESSION_PLAN_TOOL_NAME } from '../domain/session-plan.js';
 import { verifyManagedCodexPolicy } from '../adapters/codex-managed-policy.js';
 import { admitNativeServiceTier, nativeServiceTier, providerModelId } from '../domain/session-model-validation.js';
 import { nativeHostJournalDigest, planNativeCheckpoint } from '../core/native-checkpoint-planning.js';
@@ -47,6 +48,7 @@ export class SessionRuntime {
 
   public constructor(private readonly options: {
     sessionId: string; agentId: string; request: CodexAppServerRequest;
+    planTool?: true;
     now?: () => number; changed?: (state: SessionRuntimeState) => void;
     startupTrace?: StartupTraceObserver;
     previous?: SessionRuntimeState;
@@ -481,7 +483,7 @@ export class SessionRuntime {
     }
     const { threadId, turnId, callId } = event.params;
     if (typeof threadId !== 'string' || typeof turnId !== 'string' || typeof callId !== 'string') throw new Error('Invalid native function request');
-    if (this.options.request.onServerRequest) {
+    if (this.options.request.onServerRequest && !(this.options.planTool && event.params.tool === SESSION_PLAN_TOOL_NAME)) {
       const result = await this.options.request.onServerRequest(event);
       const binding = this.state!.turns.find((binding) => binding.threadId === threadId && binding.nativeTurnId === turnId);
       if (binding) { this.state = resolveSessionFunction(this.state!, binding.turn.id, callId); this.publish(); }

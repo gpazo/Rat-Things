@@ -90,6 +90,7 @@ export class CodexDriver implements AgentDriver {
     };
     if (control?.sessionRuntime && control.session) {
       const runtime = new SessionRuntime({ sessionId: control.session.sessionId, agentId: control.session.agent.id,
+        ...(control.session.planTool ? { planTool: true } : {}),
         ...(control.session.fork ? { fork: control.session.fork.checkpoint } : {}),
         request: launch, changed: control.sessionRuntime.changed,
         ...(control.sessionRuntime.startupTrace ? { startupTrace: control.sessionRuntime.startupTrace } : {}),
