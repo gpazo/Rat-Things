@@ -26,7 +26,7 @@ export function savedSessionObservation(state: SessionState, runtime: Pick<Store
   const observation = observeSession(current, [...observations, ...subagents.flatMap((entry) => entry.turns.map((turn) => ({ turn, requiredActions: (entry.requiredActions ?? []).filter((action) => action.type === 'function_call' && action.turn_id === turn.id) })))]);
   return {
     inputs: sessionInputs(state),
-    artifacts: [...state.turns.flatMap(turn => turn.savedArtifacts ?? []), ...subagents.flatMap(subagent => subagent.artifacts ?? [])].map(entry => entry.artifact).filter(artifact => !state.deletedArtifacts.includes(artifact.id)),
+    artifacts: [...state.turns.flatMap(turn => turn.savedArtifacts ?? native?.turns.find(binding => binding.turn.id === turn.turn.id)?.artifacts ?? []), ...subagents.flatMap(subagent => subagent.artifacts ?? [])].map(entry => entry.artifact).filter(artifact => !state.deletedArtifacts.includes(artifact.id)),
     session: observation.session, turns: observation.turns.map(({ turn }) => turn),
     items: [...state.importedHistory ?? [], ...state.turns.flatMap((binding) => orderedTurnItems(state, binding, binding.savedItems ?? native?.turns.find((entry) => entry.turn.id === binding.turn.id)?.items ?? [])), ...subagents.flatMap((entry) => entry.items)],
     subagents: subagents.map((entry) => entry.subagent),

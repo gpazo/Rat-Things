@@ -14,6 +14,8 @@ export interface NativeTurnBinding {
   turn: Turn;
   items: AgentSessionItem[];
   artifacts?: SavedSessionArtifact[];
+  planArtifactCalls?: Record<string, Array<{ path: string; artifact_id: string; version_sha256: string }>>;
+  artifactsFinal?: boolean;
   /** Exact response accounting survives journal recovery and native Turn binding. */
   usageResponseIds?: string[];
   traceParentTurnId?: string | undefined;

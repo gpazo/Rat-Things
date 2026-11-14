@@ -9,7 +9,7 @@ import { workspacePath, decodeBase64 } from '../domain/environment-planning.js';
 
 /** Copy output bytes before publishing terminal turns. Saved objects never follow live files. */
 export class SessionArtifactCapture {
-  private readonly saved = new Map<string, SavedSessionArtifact[]>();
+  private readonly saved = new Map<string, Pick<NativeTurnBinding, 'artifacts' | 'planArtifactCalls' | 'artifactsFinal'>>();
   public constructor(private readonly options: {
     ownerId: string; launch: SessionLaunch; files?: EnvironmentFileOperations;
     artifacts: Pick<ArtifactStore, 'putBytes'>;
@@ -18,20 +18,37 @@ export class SessionArtifactCapture {
   public async capture(state: SessionRuntimeState): Promise<SessionRuntimeState> {
     const turns: NativeTurnBinding[] = [];
     for (const binding of state.turns) {
-      if (!terminalTurn(binding.turn)) { turns.push(binding); continue; }
-      const artifacts = binding.artifacts ?? this.saved.get(binding.turn.id) ?? await this.outputs(binding);
-      this.saved.set(binding.turn.id, artifacts);
-      turns.push({ ...binding, artifacts });
+      let captured = { ...binding, ...this.saved.get(binding.turn.id) };
+      if (binding.threadId === state.rootThreadId && this.options.launch.agent.tools.some(tool => tool.type === 'function' && tool.name === 'rat_things_plan_update')) {
+        for (const request of planOutputRequests(state, binding.turn.id)) {
+          if (captured.planArtifactCalls?.[request.callId]) continue;
+          // A failed preview is a tool validation error, not a failed agent Turn.
+          const outputs = await this.outputs(binding, request.paths).catch(() => []);
+          captured = { ...captured, artifacts: uniqueArtifacts([...(captured.artifacts ?? []), ...outputs]),
+            planArtifactCalls: { ...captured.planArtifactCalls, [request.callId]: outputs.map(({ artifact, content }) => ({
+              path: artifact.path, artifact_id: artifact.id, version_sha256: content.sha256,
+            })) } };
+        }
+      }
+      const complete = captured.artifactsFinal || captured.artifacts !== undefined && !captured.planArtifactCalls;
+      if (terminalTurn(binding.turn) && !complete) {
+        captured = { ...captured, artifacts: uniqueArtifacts([...(captured.artifacts ?? []), ...await this.outputs(binding)]), artifactsFinal: true };
+      }
+      const { artifacts, planArtifactCalls, artifactsFinal } = captured;
+      this.saved.set(binding.turn.id, { ...(artifacts ? { artifacts } : {}), ...(planArtifactCalls ? { planArtifactCalls } : {}), ...(artifactsFinal ? { artifactsFinal } : {}) });
+      turns.push(captured);
     }
     return { ...state, turns };
   }
 
-  private async outputs(binding: NativeTurnBinding): Promise<SavedSessionArtifact[]> {
+  private async outputs(binding: NativeTurnBinding, paths?: readonly string[]): Promise<SavedSessionArtifact[]> {
     const { launch, files } = this.options;
     if (launch.environment.type !== 'openai_hosted') return [];
     if (!files) throw new Error('Environment output capture is not configured');
-    const entries = await files.execute({ operation: 'list', path: '/workspace/outputs', missingOk: true });
-    if (!Array.isArray(entries)) throw new Error('Invalid output directory');
+    const listed = await files.execute({ operation: 'list', path: '/workspace/outputs', missingOk: true });
+    if (!Array.isArray(listed)) throw new Error('Invalid output directory');
+    const entries = paths ? listed.filter(entry => record(entry) && paths.includes(String(entry.path))) : listed;
+    if (paths && entries.length !== paths.length) throw new Error('Requested output does not exist');
     if (entries.reduce((total, entry) => total + (record(entry) ? Number(entry.size_bytes) : Infinity), 0) > 500 * 1024 * 1024) throw new Error('Published outputs exceed 500 MiB');
     const saved: SavedSessionArtifact[] = [];
     for (const entry of entries) {
@@ -58,6 +75,28 @@ export class SessionArtifactCapture {
     }
     return saved;
   }
+}
+
+function uniqueArtifacts(values: SavedSessionArtifact[]): SavedSessionArtifact[] {
+  return [...new Map(values.map(value => [value.artifact.id, value])).values()];
+}
+
+function planOutputRequests(state: SessionRuntimeState, turnId: string): Array<{ callId: string; paths: string[] }> {
+  return state.requiredActions.flatMap(action => {
+    if (action.type !== 'function_call' || action.turn_id !== turnId || action.name !== 'rat_things_plan_update'
+      || !record(action.arguments) || !Array.isArray(action.arguments.items) || action.arguments.items.length > 50) return [];
+    const paths = new Set<string>();
+    for (const item of action.arguments.items) {
+      if (!record(item) || !Array.isArray(item.result_links) || item.result_links.length > 20) return [];
+      for (const link of item.result_links) {
+        if (!record(link) || link.kind !== 'output') continue;
+        if (typeof link.path !== 'string' || !link.path.startsWith('/workspace/outputs/')) return [];
+        try { workspacePath(link.path, 'path'); } catch { return []; }
+        paths.add(link.path);
+      }
+    }
+    return paths.size ? [{ callId: action.call_id, paths: [...paths] }] : [];
+  });
 }
 
 function record(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
