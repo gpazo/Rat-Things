@@ -2,10 +2,13 @@ import { invalid } from '../domain/agents-api-validation.js';
 import type { SessionInputReceipt } from './session-activity.js';
 import type { SessionActor } from './session-caller.js';
 import type { Participant } from './session-collaboration-planning.js';
+import type { BrowserFrame } from '../domain/shared-browser.js';
 
 export type WorkspaceAnchor = { type: 'item' } | { type: 'point'; x: number; y: number }
   | { type: 'region'; x: number; y: number; width: number; height: number }
+  | { type: 'element'; id: string; x: number; y: number; width: number; height: number; quote: string }
   | { type: 'text'; start: number; end: number; quote: string };
+export type WorkspaceSelection = Exclude<WorkspaceAnchor, { type: 'element' }> | { type: 'element'; id: string };
 export interface WorkspaceTarget {
   kind: 'artifact' | 'browser'; id: string; version: string; title: string;
   anchor: WorkspaceAnchor; url?: string; image?: string;
@@ -23,12 +26,16 @@ export interface WorkspaceComment {
 export interface WorkspaceThread { id: string; target: WorkspaceTarget; resolved: boolean; comments: WorkspaceComment[] }
 
 /** Coordinates belong to a specific immutable image/page state, independent of viewer zoom. */
-export function workspaceAnchor(raw: unknown): WorkspaceAnchor {
+export function workspaceAnchor(raw: unknown): WorkspaceSelection {
   if (!record(raw) || typeof raw.type !== 'string') invalid('Choose an annotation location.');
   const allowed = raw.type === 'item' ? ['type'] : raw.type === 'point' ? ['type', 'x', 'y']
-    : raw.type === 'region' ? ['type', 'x', 'y', 'width', 'height'] : raw.type === 'text' ? ['type', 'start', 'end', 'quote'] : [];
+    : raw.type === 'region' ? ['type', 'x', 'y', 'width', 'height'] : raw.type === 'element' ? ['type', 'id'] : raw.type === 'text' ? ['type', 'start', 'end', 'quote'] : [];
   if (!allowed.length || Object.keys(raw).some(key => !allowed.includes(key))) invalid('Invalid annotation location.');
   if (raw.type === 'item') return { type: 'item' };
+  if (raw.type === 'element') {
+    if (typeof raw.id !== 'string' || !/^element_[0-9]{1,4}$/.test(raw.id)) invalid('Choose an element from the captured page.');
+    return { type: 'element', id: raw.id };
+  }
   if (raw.type === 'text') {
     if (!Number.isSafeInteger(raw.start) || !Number.isSafeInteger(raw.end) || Number(raw.start) < 0 || Number(raw.end) <= Number(raw.start) || Number(raw.end) - Number(raw.start) > 2000 || typeof raw.quote !== 'string') invalid('Invalid text selection.');
     return { type: 'text', start: Number(raw.start), end: Number(raw.end), quote: raw.quote };
@@ -37,6 +44,13 @@ export function workspaceAnchor(raw: unknown): WorkspaceAnchor {
   if (raw.type === 'point') return { type: 'point', x: raw.x, y: raw.y };
   if (!unit(raw.width) || !unit(raw.height) || raw.width === 0 || raw.height === 0 || raw.x + raw.width > 1 || raw.y + raw.height > 1) invalid('Annotation region must be within the image.');
   return { type: 'region', x: raw.x, y: raw.y, width: raw.width, height: raw.height };
+}
+
+export function capturedWorkspaceAnchor(selection: WorkspaceSelection, frame?: BrowserFrame): WorkspaceAnchor {
+  if (selection.type !== 'element') return selection;
+  const element = frame?.elements?.find(element => element.id === selection.id);
+  if (!element) invalid('This element is not part of the captured page.');
+  return { type: 'element', id: element.id, x: element.x, y: element.y, width: element.width, height: element.height, quote: element.text };
 }
 
 /** Accepted input receipts are the feedback log; no second write can lose its agent notification. */

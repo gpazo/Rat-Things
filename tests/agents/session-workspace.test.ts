@@ -31,7 +31,45 @@ async function fixture() {
 
 it('validates normalized anchors without accepting arbitrary target fields', () => {
   expect(workspaceAnchor({ type: 'point', x: 0, y: 1 })).toEqual({ type: 'point', x: 0, y: 1 });
-  for (const anchor of [{ type: 'point', x: NaN, y: 0 }, { type: 'region', x: .8, y: .5, width: .4, height: .2 }, { type: 'text', start: 4, end: 2, quote: 'no' }, { type: 'item', image: 'forged' }]) expect(() => workspaceAnchor(anchor)).toThrow();
+  expect(workspaceAnchor({ type: 'element', id: 'element_4' })).toEqual({ type: 'element', id: 'element_4' });
+  for (const anchor of [{ type: 'point', x: NaN, y: 0 }, { type: 'region', x: .8, y: .5, width: .4, height: .2 }, { type: 'text', start: 4, end: 2, quote: 'no' }, { type: 'item', image: 'forged' }, { type: 'element', id: 'element_4', quote: 'forged' }]) expect(() => workspaceAnchor(anchor)).toThrow();
+});
+
+it('resolves an element from the frozen capture after another collaborator navigates', async () => {
+  const f = await fixture();
+  const element = { id: 'element_4', text: 'It works on my machine.', x: .1, y: .2, width: .5, height: .1 };
+  vi.mocked(f.execution.browser!).mockResolvedValue({ ...frame, elements: [element] });
+  const capture = await f.sessions.captureBrowser('operator', f.session.id, { frame_id: frame.frame_id }, caller('designer'));
+  vi.mocked(f.execution.browser!).mockResolvedValue({ ...frame, revision: 2, frame_id: 'b'.repeat(64), elements: [{ ...element, text: 'A different page' }] });
+  await f.sessions.browserAction('operator', f.session.id, { epoch: frame.epoch, revision: frame.revision, operation: { action: 'navigate', url: 'https://rat-artifacts.invalid/report.html' } }, caller('engineer'), 'navigate');
+  const request = { text: 'Lead with shared evidence.', target: { kind: 'browser', id: capture.id, anchor: { type: 'element', id: element.id } } };
+  await f.sessions.workspaceFeedback('operator', f.session.id, request, caller('designer'), 'element-feedback');
+  await f.sessions.workspaceFeedback('operator', f.session.id, request, caller('designer'), 'element-feedback');
+  const activity = await f.sessions.activity('operator', f.session.id, caller('qa', ['read']));
+  expect(activity.workspace_threads).toHaveLength(1);
+  expect(activity.workspace_threads[0]!.target.anchor).toEqual({ type: 'element', id: element.id, quote: element.text, x: element.x, y: element.y, width: element.width, height: element.height });
+  expect(activity.workspace_threads[0]!.comments).toHaveLength(1);
+  await expect(f.sessions.workspaceFeedback('operator', f.session.id, { ...request, target: { ...request.target, anchor: { type: 'element', id: 'element_99' } } }, caller('designer'), 'missing-element')).rejects.toThrow('not part of the captured page');
+  await f.sessions.dispatch('operator', f.session.id);
+  expect(JSON.stringify(vi.mocked(f.execution.steer).mock.calls)).toContain(element.text);
+  expect(JSON.stringify(vi.mocked(f.execution.steer).mock.calls)).not.toContain('A different page');
+});
+
+it('publishes a reply and artifact context together without duplicating the message', async () => {
+  const f = await fixture();
+  const original = (await f.sessions.activity('operator', f.session.id)).inputs[0]!.message_ids[0]!;
+  const capture = await f.sessions.captureBrowser('operator', f.session.id, { frame_id: frame.frame_id }, caller('qa'));
+  const request = { text: 'This is the evidence for my reply.', reply_to: original, target: { kind: 'browser', id: capture.id, anchor: { type: 'region', x: .2, y: .2, width: .4, height: .3 } } };
+  await f.sessions.workspaceFeedback('operator', f.session.id, request, caller('qa'), 'reply-context');
+  await f.sessions.workspaceFeedback('operator', f.session.id, request, caller('qa'), 'reply-context');
+  const activity = await f.sessions.activity('operator', f.session.id);
+  const input = activity.inputs.find(input => input.workspace);
+  expect(input).toMatchObject({ actor: { id: 'qa' }, reply: { message_id: original, text: 'Plan the product' }, workspace: { target: { id: capture.id } } });
+  expect(input!.message_ids).toHaveLength(1);
+  expect(activity.workspace_threads[0]!.comments).toHaveLength(1);
+  await expect(f.sessions.workspaceFeedback('operator', f.session.id, { ...request, reply_to: 'other-message' }, caller('qa'), 'reply-context')).rejects.toMatchObject({ code: 'idempotency_conflict' });
+  await expect(f.sessions.workspaceFeedback('operator', f.session.id, { ...request, reply_to: 'other-message' }, caller('qa'), 'unknown-reply')).rejects.toThrow('message in this Session');
+  expect((await f.sessions.activity('operator', f.session.id)).workspace_threads[0]!.comments).toHaveLength(1);
 });
 
 it('shares one durable annotated page with attributed feedback, agent input, resolve/reopen and idempotency', async () => {

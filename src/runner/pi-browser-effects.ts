@@ -12,7 +12,7 @@ export function withBrowserEffects(effects: PiEffects, browser: (command: Browse
       if (request.kind !== 'managed' || request.name !== SHARED_BROWSER_TOOL_NAME) return effects.execute(request, signal);
       signal.throwIfAborted();
       try {
-        const { image, ...frame } = await browser(browserCommand(request.arguments));
+        const { image, elements: _elements, ...frame } = await browser(browserCommand(request.arguments));
         return { output: [{ type: 'text', text: JSON.stringify(frame) }, { type: 'image', data: image, mimeType: 'image/jpeg' }], isError: false };
       } catch (error) { return { output: [{ type: 'text', text: error instanceof Error ? error.message : 'Browser action failed.' }], isError: true }; }
     },

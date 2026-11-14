@@ -19,6 +19,15 @@ it('rejects commands that could smuggle navigation, code execution or stale coor
   expect(() => browserFrame({ image: 'not a real frame' })).toThrow();
 });
 
+it('validates bounded browser elements at the worker boundary', () => {
+  const frame = { epoch: 'epoch', revision: 1, frame_id: 'a'.repeat(64), width: 1280, height: 800, image: 'aW1hZ2U=', url: 'about:blank', title: 'Page', text: 'Heading' };
+  const element = { id: 'element_0', text: 'Heading', x: 0, y: 0, width: .5, height: .1 };
+  expect(browserFrame({ ...frame, elements: [element] }).elements).toEqual([element]);
+  for (const elements of [[{ ...element, x: .9 }], [{ ...element, width: 0 }], [{ ...element, text: 'x'.repeat(501) }], [element, element], Array.from({ length: 257 }, (_, i) => ({ ...element, id: `element_${i}` }))]) {
+    expect(() => browserFrame({ ...frame, elements })).toThrow();
+  }
+});
+
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const close of cleanups.splice(0).reverse()) await close(); });
 
@@ -100,6 +109,7 @@ it.skipIf(!process.env.RAT_BROWSER_TEST_BINARY)('shares one real browser, fences
   let page = await snapshot();
   for (let i = 0; i < 20 && !page.text.includes('Vote'); i++) { await new Promise(resolve => setTimeout(resolve, 50)); page = await snapshot(); }
   expect(browserFrame(page).text).toContain('Vote');
+  expect(page.elements).toContainEqual(expect.objectContaining({ text: 'Vote', x: 0, y: 0, width: 300 / 1280, height: 200 / 800 }));
   const command = { command_id: 'designer_click', epoch: page.epoch, revision: page.revision, operation: { action: 'click', x: .1, y: .1 } };
   const [designer, engineer] = await Promise.allSettled([browser.execute(command), browser.execute({ ...command, command_id: 'engineer_click' })]);
   expect(designer.status).toBe('fulfilled'); expect(engineer.status).toBe('rejected');
@@ -107,6 +117,7 @@ it.skipIf(!process.env.RAT_BROWSER_TEST_BINARY)('shares one real browser, fences
   const after = await snapshot(); expect(after.text).toMatch(/Vote\s+1/);
   const captured = await browser.execute({ command_id: 'qa_capture', operation: { action: 'capture', frame_id: page.frame_id } });
   expect(captured.image).toBe(page.image); expect(captured.text).toMatch(/Vote\s+0/);
+  expect(captured.elements).toEqual(page.elements);
   await expect(browser.execute({ command_id: 'external', epoch: after.epoch, revision: after.revision, operation: { action: 'navigate', url: 'https://example.com' } })).rejects.toThrow('network policy');
   const current = await snapshot();
   await browser.execute({ command_id: 'symlink', epoch: current.epoch, revision: current.revision, operation: { action: 'navigate', url: 'https://rat-artifacts.invalid/link.txt' } }).catch(error => { throw new Error(`Symlink navigation: ${error.message}`); });
@@ -137,5 +148,7 @@ it.skipIf(!process.env.RAT_BROWSER_TEST_BINARY)('keeps a worker-owned browser ac
   const effects = withBrowserEffects({ tools: [], execute: async () => { throw new Error('Unexpected effect'); }, close: async () => {} }, owner.execute);
   const result = await effects.execute({ kind: 'managed', name: 'rat_things_browser', arguments: { command_id: 'pi', operation: { action: 'snapshot' } }, callId: 'pi_1', taskId: 1, conversationId: 1 }, new AbortController().signal);
   expect(result.isError).toBe(false); expect(result.output).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'image' })]));
-  expect(JSON.parse(result.output?.[0]?.type === 'text' ? result.output[0].text : '{}').epoch).toBe(first.epoch);
+  const modelFrame = JSON.parse(result.output?.[0]?.type === 'text' ? result.output[0].text : '{}');
+  expect(modelFrame.epoch).toBe(first.epoch);
+  expect(modelFrame).not.toHaveProperty('elements');
 }, 30000);

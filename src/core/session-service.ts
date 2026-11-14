@@ -1,5 +1,5 @@
 import { SessionCollaborationService } from './session-collaboration-service.js';
-import { projectWorkspaceFeedback, projectWorkspaceMessage, projectWorkspaceTarget, workspaceAnchor, workspaceFeedbackContext, workspaceThreads, type WorkspaceFeedback, type WorkspaceTarget } from './session-workspace-planning.js';
+import { capturedWorkspaceAnchor, projectWorkspaceFeedback, projectWorkspaceMessage, projectWorkspaceTarget, workspaceAnchor, workspaceFeedbackContext, workspaceThreads, type WorkspaceFeedback, type WorkspaceTarget } from './session-workspace-planning.js';
 import { SharedBrowserFrames } from './shared-browser-frames.js';
 import { browserCommand, requireSharedBrowser, sharedBrowserGranted, type BrowserFrame } from '../domain/shared-browser.js';
 import { participantKey, collaborationRecord, requireContribution, type MessageReply } from './session-collaboration-planning.js';
@@ -594,31 +594,33 @@ export class SessionService {
     requireContribution(caller.permissions);
     const input = collaborationRecord(raw, ['text', 'reply_to']);
     if (typeof input.text !== 'string' || !input.text.trim()) invalid('Supply message text.', 'text');
-    if (input.reply_to !== undefined && (typeof input.reply_to !== 'string' || !input.reply_to || input.reply_to.length > 256)) invalid('Invalid reply target.', 'reply_to');
-    let reply: MessageReply | undefined;
-    if (typeof input.reply_to === 'string') {
-      await validateSessionCaller(caller);
-      const snapshot = await this.activity(ownerId, id, caller);
-      const target = [...snapshot.items, ...snapshot.pending_inputs.flatMap(entry => entry.messages)].find(item => item.id === input.reply_to);
-      if (!target || !('role' in target) || !['user', 'assistant'].includes(target.role) || !('content' in target)) invalid('Reply target must be a message in this Session.', 'reply_to');
-      const source = snapshot.inputs.find(receipt => receipt.message_ids.includes(input.reply_to as string));
-      const text = target.content.flatMap(part => 'text' in part ? [part.text] : []).join('\n');
-      reply = { message_id: input.reply_to, role: target.role as 'user' | 'assistant', ...(source ? { actor: source.actor, provenance: source.provenance } : {}), text: text.slice(0, 2000), truncated: text.length > 2000 };
-    }
+    const reply = await this.messageReply(ownerId, id, input.reply_to, caller);
     await this.events(ownerId, id, { events: [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text: input.text }] }] }] }, idempotencyKey, { caller, ...(reply ? { reply } : {}) });
+  }
+
+  private async messageReply(ownerId: string, id: string, replyTo: unknown, caller: SessionCaller): Promise<MessageReply | undefined> {
+    if (replyTo === undefined) return undefined;
+    if (typeof replyTo !== 'string' || !replyTo || replyTo.length > 256) invalid('Invalid reply target.', 'reply_to');
+    await validateSessionCaller(caller);
+    const snapshot = await this.activity(ownerId, id, caller);
+    const target = [...snapshot.items, ...snapshot.pending_inputs.flatMap(entry => entry.messages)].find(item => item.id === replyTo);
+    if (!target || !('role' in target) || !['user', 'assistant'].includes(target.role) || !('content' in target)) invalid('Reply target must be a message in this Session.', 'reply_to');
+    const source = snapshot.inputs.find(receipt => receipt.message_ids.includes(replyTo));
+    const text = target.content.flatMap(part => 'text' in part ? [part.text] : []).join('\n');
+    return { message_id: replyTo, role: target.role as 'user' | 'assistant', ...(source ? { actor: source.actor, provenance: source.provenance } : {}), text: text.slice(0, 2000), truncated: text.length > 2000 };
   }
 
   public async workspaceFeedback(owner: string, id: string, raw: unknown, caller: SessionCaller, key?: string): Promise<void> {
     requireContribution(caller.permissions);
-    const input = collaborationRecord(raw, ['text', 'thread_id', 'target', 'action']);
+    const input = collaborationRecord(raw, ['text', 'thread_id', 'target', 'action', 'reply_to']);
     if (!key || key.length > 256) invalid('Keep an Idempotency-Key for this feedback.');
     const action = input.action ?? 'comment';
     if (!['comment', 'resolve', 'reopen'].includes(String(action))) invalid('Invalid feedback action.');
     if (typeof input.text !== 'string' || !input.text.trim() || input.text.length > 16000) invalid('Supply feedback of at most 16,000 characters.');
     await validateSessionCaller(caller);
-    let selected: { kind: 'artifact' | 'browser'; id: string; anchor: import('./session-workspace-planning.js').WorkspaceAnchor } | undefined;
+    let selected: { kind: 'artifact' | 'browser'; id: string; anchor: import('./session-workspace-planning.js').WorkspaceSelection } | undefined;
     let threadId: string;
-    let request: unknown;
+    let request: Record<string, unknown>;
     if (input.thread_id !== undefined) {
       if (typeof input.thread_id !== 'string' || input.target !== undefined) invalid('Reply to one existing annotation thread.');
       threadId = input.thread_id;
@@ -631,6 +633,7 @@ export class SessionService {
       threadId = `annotation_${hash(canonicalJson([caller.actor.id, key]))}`;
       request = { action, text: input.text, target: selected };
     }
+    if (input.reply_to !== undefined) request = { ...request, reply_to: input.reply_to };
     const digest = `workspace:${feedbackDigest(request)}`;
     const receiptKey = hash(canonicalJson([caller.actor.id, key]));
     if (await this.replayWorkspaceFeedback(owner, id, receiptKey, digest, caller)) return;
@@ -646,7 +649,7 @@ export class SessionService {
       if (!selected) invalid('Choose an artifact or captured browser page.');
       if (selected.kind === 'artifact') {
         const saved = await this.savedArtifact(owner, id, selected.id);
-        target = { kind: 'artifact', id: saved.artifact.id, version: saved.content.sha256, title: saved.artifact.path, anchor: selected.anchor };
+        target = { kind: 'artifact', id: saved.artifact.id, version: saved.content.sha256, title: saved.artifact.path, anchor: capturedWorkspaceAnchor(selected.anchor) };
         if (selected.anchor.type === 'text') {
           if (saved.artifact.size_bytes > 1024 * 1024) invalid('Select text from a file smaller than 1 MiB.');
           const text = new TextDecoder('utf-8', { fatal: true }).decode(await this.workspaceArtifactBytes(owner, id, selected.id, 1024 * 1024));
@@ -665,13 +668,14 @@ export class SessionService {
         }
         const frame = saved.value;
         target = { kind: 'browser', id: selected.id, version: `${frame.epoch}:${frame.revision}`, title: frame.title, url: frame.url,
-          anchor: selected.anchor, image: `data:image/jpeg;base64,${frame.image}` };
+          anchor: capturedWorkspaceAnchor(selected.anchor, frame), image: `data:image/jpeg;base64,${frame.image}` };
         if (selected.anchor.type === 'text' && frame.text.slice(selected.anchor.start, selected.anchor.end) !== selected.anchor.quote) invalid('The selected text does not match this page.');
       }
     }
     const workspace: WorkspaceFeedback = { thread_id: threadId, action: action as WorkspaceFeedback['action'], target };
+    const reply = await this.messageReply(owner, id, input.reply_to, caller);
     const events: FeedbackEvent[] = [{ type: 'agent.session.input.message', input: [{ role: 'user', content: [{ type: 'input_text', text: input.text }] }] }];
-    await this.acceptFeedback(owner, id, events, receiptKey, digest, caller, undefined, workspace, acceptedAfterMs);
+    await this.acceptFeedback(owner, id, events, receiptKey, digest, caller, reply, workspace, acceptedAfterMs);
   }
 
   public async workspaceThreadImage(owner: string, id: string, threadId: string, caller?: SessionCaller): Promise<{ bytes: Uint8Array; contentType: string }> {

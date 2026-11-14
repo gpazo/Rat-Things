@@ -16,6 +16,10 @@ export const sharedBrowserTool = {
 export interface BrowserFrame {
   epoch: string; revision: number; url: string; title: string; width: number; height: number;
   image: string; text: string; frame_id: string;
+  elements?: BrowserElement[];
+}
+export interface BrowserElement {
+  id: string; text: string; x: number; y: number; width: number; height: number;
 }
 export type BrowserAction = { action: 'snapshot' } | { action: 'capture'; frame_id: string } | { action: 'navigate'; url: string }
   | { action: 'click'; x: number; y: number } | { action: 'type'; text: string }
@@ -61,5 +65,21 @@ export function browserFrame(raw: unknown): BrowserFrame {
     || typeof raw.url !== 'string' || raw.url.length > 4096 || typeof raw.title !== 'string' || raw.title.length > 1000
     || typeof raw.text !== 'string' || raw.text.length > 12000) throw new Error('Invalid shared browser frame.');
   return { epoch: raw.epoch, revision: Number(raw.revision), width: 1280, height: 800, frame_id: raw.frame_id,
-    image: raw.image, url: raw.url, title: raw.title, text: raw.text };
+    image: raw.image, url: raw.url, title: raw.title, text: raw.text, elements: browserElements(raw.elements) };
 }
+
+function browserElements(raw: unknown): BrowserElement[] {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw) || raw.length > 256) throw new Error('Invalid shared browser elements.');
+  const ids = new Set<string>();
+  return raw.map(element => {
+    if (!record(element) || typeof element.id !== 'string' || !/^element_[0-9]{1,4}$/.test(element.id)
+      || ids.has(element.id) || typeof element.text !== 'string' || element.text.length > 500
+      || ![element.x, element.y, element.width, element.height].every(unit)
+      || Number(element.width) === 0 || Number(element.height) === 0
+      || Number(element.x) + Number(element.width) > 1.000001 || Number(element.y) + Number(element.height) > 1.000001) throw new Error('Invalid shared browser element.');
+    ids.add(element.id);
+    return { id: element.id, text: element.text, x: Number(element.x), y: Number(element.y), width: Number(element.width), height: Number(element.height) };
+  });
+}
+function unit(value: unknown): value is number { return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1; }
