@@ -95,6 +95,7 @@ export function createLocalServices(options: {
             && (await environments.retrieve(LOCAL_OWNER, resource.value.session.environment.id)).status === 'pending') {
           await sessions.dispatch(LOCAL_OWNER, resource.id).catch(() => undefined);
         }
+        if (resource.value.planToolAdmitted && resource.value.turns.some(binding => !['completed', 'failed', 'cancelled'].includes(binding.turn.status))) await sessions.resolvePlanTools(LOCAL_OWNER, resource.id).catch(() => undefined);
       }
       after = page.has_more ? page.data.at(-1)?.id : undefined;
     } while (after);

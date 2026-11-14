@@ -6,6 +6,7 @@ import type { SavedSessionArtifact } from './session-ports.js';
 import type { NativeTurnBinding, SessionRuntimeState } from './session-runtime-planning.js';
 import { terminalTurn } from './session-planning.js';
 import { workspacePath, decodeBase64 } from '../domain/environment-planning.js';
+import { parseSessionPlanUpdate, SESSION_PLAN_TOOL_NAME } from '../domain/session-plan.js';
 
 /** Copy output bytes before publishing terminal turns. Saved objects never follow live files. */
 export class SessionArtifactCapture {
@@ -19,7 +20,7 @@ export class SessionArtifactCapture {
     const turns: NativeTurnBinding[] = [];
     for (const binding of state.turns) {
       let captured = { ...binding, ...this.saved.get(binding.turn.id) };
-      if (binding.threadId === state.rootThreadId && this.options.launch.agent.tools.some(tool => tool.type === 'function' && tool.name === 'rat_things_plan_update')) {
+      if (binding.threadId === state.rootThreadId && this.options.launch.planTool) {
         for (const request of planOutputRequests(state, binding.turn.id)) {
           if (captured.planArtifactCalls?.[request.callId]) continue;
           // A failed preview is a tool validation error, not a failed agent Turn.
@@ -83,19 +84,12 @@ function uniqueArtifacts(values: SavedSessionArtifact[]): SavedSessionArtifact[]
 
 function planOutputRequests(state: SessionRuntimeState, turnId: string): Array<{ callId: string; paths: string[] }> {
   return state.requiredActions.flatMap(action => {
-    if (action.type !== 'function_call' || action.turn_id !== turnId || action.name !== 'rat_things_plan_update'
-      || !record(action.arguments) || !Array.isArray(action.arguments.items) || action.arguments.items.length > 50) return [];
-    const paths = new Set<string>();
-    for (const item of action.arguments.items) {
-      if (!record(item) || !Array.isArray(item.result_links) || item.result_links.length > 20) return [];
-      for (const link of item.result_links) {
-        if (!record(link) || link.kind !== 'output') continue;
-        if (typeof link.path !== 'string' || !link.path.startsWith('/workspace/outputs/')) return [];
-        try { workspacePath(link.path, 'path'); } catch { return []; }
-        paths.add(link.path);
-      }
-    }
-    return paths.size ? [{ callId: action.call_id, paths: [...paths] }] : [];
+    if (action.type !== 'function_call' || action.turn_id !== turnId || action.name !== SESSION_PLAN_TOOL_NAME) return [];
+    try {
+      const input = parseSessionPlanUpdate(action.arguments);
+      const paths = [...new Set(input.items.flatMap(item => item.result_links.flatMap(link => link.kind === 'output' ? [workspacePath(link.path, 'path')] : [])))];
+      return paths.length ? [{ callId: action.call_id, paths }] : [];
+    } catch { return []; }
   });
 }
 

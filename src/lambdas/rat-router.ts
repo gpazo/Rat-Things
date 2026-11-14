@@ -56,6 +56,9 @@ export async function routeRatRequest(request: Request, principal: ApiPrincipal,
   if (collection === 'sessions' && id && child === 'workspace' && services.sessions) {
     return workspaceRoute(request, authority.ownerId, id, parts.slice(5), services.sessions, authority, requestId);
   }
+  if (collection === 'sessions' && id && child === 'plan' && childId === 'revisions' && parts.length === 6 && method === 'GET' && services.sessions) {
+    return planHistoryRoute(request, authority.ownerId, id, services.sessions, authority, requestId);
+  }
   if (collection === 'shares' && services.shares) {
     if (parts.length === 3 && method === 'POST') return json(201, await services.shares.stage(authority.ownerId, await requestBody(request), authority), requestId);
     if (parts.length === 4 && id && method === 'GET') return json(200, await services.shares.retrieve(authority.ownerId, id), requestId);
@@ -63,6 +66,15 @@ export async function routeRatRequest(request: Request, principal: ApiPrincipal,
     if (parts.length === 5 && id && child === 'activate' && method === 'POST') return json(200, await services.shares.activate(authority.ownerId, id, await requestBody(request), authority), requestId);
   }
   throw new AgentsApiError(404, 'Route not found.', 'resource_not_found');
+}
+
+export async function planHistoryRoute(request: Request, owner: string, id: string, sessions: import('../core/session-service.js').SessionService, caller: import('../core/session-caller.js').SessionCaller, requestId?: string): Promise<Response> {
+  const query = new URL(request.url).searchParams;
+  if ([...query.keys()].some(key => !['after', 'limit'].includes(key)) || ['after', 'limit'].some(key => query.getAll(key).length > 1)) throw new AgentsApiError(400, 'Invalid Plan history query.', 'invalid_request');
+  return json(200, await sessions.planRevisions(owner, id, {
+    ...(query.has('after') ? { after: Number(query.get('after')) } : {}),
+    ...(query.has('limit') ? { limit: Number(query.get('limit')) } : {}),
+  }, caller), requestId);
 }
 
 export async function workspaceRoute(request: Request, owner: string, id: string, parts: string[], sessions: import('../core/session-service.js').SessionService, caller: import('../core/session-caller.js').SessionCaller, requestId?: string): Promise<Response> {

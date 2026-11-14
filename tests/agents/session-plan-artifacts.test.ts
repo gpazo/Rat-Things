@@ -13,7 +13,7 @@ function fixture(admitted = true) {
   const writes: string[] = [];
   const options = {
     ownerId: 'owner',
-    launch: { sessionId: 'session', turnId: 'turn', input: [],
+    launch: { sessionId: 'session', turnId: 'turn', input: [], ...(admitted ? { planTool: true as const } : {}),
       agent: sessionAgent({ model: 'fixture', tools: admitted ? [{ type: 'function', name: 'rat_things_plan_update', description: '', parameters: {} }] : [] }, 'agent', 1),
       environment: { type: 'openai_hosted' as const, id: 'env', capability_directories: [], files: [], plugins: [], skills: [], network: { access: 'disabled' as const, allowed_domains: [] }, packages: { npm: [], python: [], system: [] } },
     },

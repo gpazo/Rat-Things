@@ -2,7 +2,7 @@ import type { SpaceAccessService, SpaceAuthority } from '../identity/space-acces
 import type { WorkloadAdmissionService } from '../identity/workload-admission.js';
 import type { GuardedAgentsStore } from '../identity/guarded-agents-store.js';
 import { principalActor, requireUnexpired } from '../identity/principal.js';
-import { routeRatRequest, workspaceRoute } from './rat-router.js';
+import { routeRatRequest, workspaceRoute, planHistoryRoute } from './rat-router.js';
 import { requireRoutePermission, requireInferencePermission, routeActions, type ApiPrincipal } from '../domain/api-permissions.js';
 import type { AgentService } from '../core/agent-service.js';
 import type { SessionService } from '../core/session-service.js';
@@ -91,6 +91,10 @@ async function dispatchAgentsRequest(request: Request, principal: ApiPrincipal, 
     const parts = pathParts(url.pathname);
     requireRoutePermission(principal, request.method, parts);
     if (parts[0] !== 'v1') throw new AgentsApiError(404, 'Route not found.', 'resource_not_found');
+    if (principal.authentication !== 'oidc' && request.method === 'GET' && parts[1] === 'rat' && parts[2] === 'sessions' && parts[3] && parts[4] === 'plan' && parts[5] === 'revisions' && parts.length === 6 && services.sessions) {
+      requireRoutePermission(principal, 'GET', ['v1', 'agents', 'sessions', parts[3]]);
+      return await planHistoryRoute(request, ownerId, parts[3], services.sessions, { actor: principalActor(principal), ...(principal.expiresAt !== undefined ? { expiresAt: principal.expiresAt } : {}) }, requestId);
+    }
     if (principal.authentication !== 'oidc' && parts[1] === 'rat' && parts[2] === 'sessions' && parts[3] && parts[4] === 'workspace' && services.sessions) {
       requireRoutePermission(principal, request.method, ['v1', 'agents', 'sessions', parts[3], 'events']);
       if (request.method === 'POST') requireInferencePermission(principal, { input: 'message' }, 'create');
