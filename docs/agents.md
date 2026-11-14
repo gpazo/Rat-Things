@@ -36,3 +36,7 @@ not automatically expose that provider's operations as model tools.
 Use Agents and Sessions for execution workflows. Publish selected saved artifacts
 through [Session publications](sharing-work.md). Private worker execution records
 are managed by the service beneath the Session API.
+
+Sessions created with Plan admission have an agent-owned, revisioned work list.
+See [Session Plans](session-plan.md) for how Plan updates, evidence links, history
+and Session transfer work.

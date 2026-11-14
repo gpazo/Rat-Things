@@ -5,7 +5,12 @@ import type { SessionPlanUpdateInput } from '../../src/domain/session-plan.js';
 import { applySessionPlanUpdate, parseSessionPlanUpdate } from '../../src/domain/session-plan.js';
 import type { SessionState } from '../../src/core/session-ports.js';
 import { sessionAgent } from '../../src/core/session-planning.js';
+import { sessionConfigurationSnapshot } from '../../src/core/configuration-history.js';
 import { MemoryAgentsStore } from './fixtures.js';
+import { planSessionLaunch } from '../../src/runner/session-launch-planning.js';
+import { planCodexLaunch } from '../../src/runner/agent-planning.js';
+import { functionTools } from '../../src/runner/pi/functions.js';
+import { SESSION_PLAN_TOOL, SESSION_PLAN_TOOL_NAME } from '../../src/domain/session-plan.js';
 
 const sha = 'a'.repeat(64);
 
@@ -40,6 +45,20 @@ it('parses the agent boundary and stamps receipt, agent, turn, and time from the
     .toThrow(/require an explanation/);
   const plan = applySessionPlanUpdate(update(0), context());
   expect(plan).toMatchObject({ revision: 1, items: [{ id: 'item_1', state: 'addressed', source_refs: [{ receipt_id: 'receipt_1', message_id: 'message_1' }], updated_by: { agent_id: 'agent_1', turn_id: 'turn_1' }, updated_at: 100 }] });
+});
+
+it('audits Plan admission and registers the private function only for admitted Codex and Pi launches', () => {
+  const base = planCodexLaunch({ version: '1', prompt: '', agent: { sandbox: 'read-only' } }, '/workspace', 10_000, {});
+  const agent = sessionAgent({ model: 'test' }, 'agent_1', 100);
+  const common = { sessionId: 'sess_plan', turnId: 'turn_1', agent, environment: { type: 'none' as const }, input: [] };
+  const admittedCodex = planSessionLaunch(base, { ...common, planTool: true });
+  const existingCodex = planSessionLaunch(base, common);
+  expect(admittedCodex.dynamicTools).toContainEqual({ type: 'function', name: SESSION_PLAN_TOOL_NAME,
+    description: SESSION_PLAN_TOOL.description, inputSchema: SESSION_PLAN_TOOL.parameters, deferLoading: false });
+  expect(existingCodex.dynamicTools).not.toContainEqual(expect.objectContaining({ name: SESSION_PLAN_TOOL_NAME }));
+  expect(functionTools({ ...common, planTool: true }).map(tool => tool.name)).toContain(SESSION_PLAN_TOOL_NAME);
+  expect(functionTools(common).map(tool => tool.name)).not.toContain(SESSION_PLAN_TOOL_NAME);
+  expect(sessionConfigurationSnapshot(sessionState())).toMatchObject({ kind: 'session', configuration: { planToolAdmitted: true } });
 });
 
 it('commits Plan head, immutable revision, idempotency record, and activity observation without duplicate transaction keys', async () => {
@@ -82,4 +101,31 @@ it('replays a call across service restarts, rejects changed arguments, and leave
   expect(broken).toMatchObject({ error: { code: 'invalid_request' } });
   expect(await restarted.head('owner', 'sess_plan')).toMatchObject({ revision: 1, items: [{ id: 'item_1' }] });
   expect(await restarted.history('owner', 'sess_plan')).toMatchObject({ revisions: [{ revision: 1 }], head_revision: 1 });
+});
+
+it('exports and imports a same-Session Plan history bundle with remapped receipts and separate storage revision', async () => {
+  const base = new MemoryAgentsStore();
+  const store = new SessionEventStore(base, { now: () => 100 });
+  await store.put({ ownerId: 'owner', id: 'sess_plan', collection: 'sessions', revision: 1, createdAt: 100, value: sessionState() }, 0);
+  const service = new SessionPlanService(store, { now: () => 100 });
+  for (let revision = 0; revision < 3; revision++) {
+    const session = await store.get<SessionState>('owner', 'sessions', 'sess_plan');
+    const observation = await store.get('owner', 'session_observations', 'sess_plan');
+    await service.resolveCall({ ownerId: 'owner', sessionId: 'sess_plan', turnId: 'turn_1', callId: `call_${revision}`, agentId: 'agent_1',
+      rawArguments: { expected_revision: revision, items: [{ id: `item_${revision}`, text: `Plan item ${revision}`, state: 'working', source_message_ids: ['message_1'], result_links: [] }] },
+      sessionRevision: session!.revision, observationRevision: observation!.revision, sources: [{ id: 'receipt_1', message_ids: ['message_1'], status: 'dispatched' }],
+      available: { artifacts: [], activity: [] }, validArtifactVersions: new Set<string>(), validActivityItems: new Set<string>() });
+  }
+  const transfer = await service.export('owner', 'sess_plan');
+  const remapped = service.remapReceipts(transfer, new Map([['receipt_1', 'imported_receipt_1']]));
+  const imported = new MemoryAgentsStore();
+  const writes = service.importWrites('owner_2', 'sess_copy', remapped, 200);
+  expect(writes[0]?.resource).toMatchObject({ collection: 'session_plans', revision: 1, value: { revision: 3 } });
+  await imported.commit(writes);
+  const importedService = new SessionPlanService(imported, { now: () => 300 });
+  expect(await importedService.head('owner_2', 'sess_copy')).toMatchObject({ revision: 3 });
+  expect(await importedService.history('owner_2', 'sess_copy', 0, 2)).toMatchObject({
+    head_revision: 3, next_after: 2, revisions: [{ revision: 1, items: [{ source_refs: [{ receipt_id: 'imported_receipt_1' }] }] }, { revision: 2 }],
+  });
+  expect(await importedService.history('owner_2', 'sess_copy', 2, 1)).toMatchObject({ head_revision: 3, revisions: [{ revision: 3 }] });
 });
