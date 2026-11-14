@@ -81,8 +81,8 @@ The composer keeps the current Turn state visible: queued, working, waiting,
 completed, failed or cancelled. **Activity** opens recent saved tool and execution
 updates; the full history stays in the conversation. These are saved observations,
 not a percentage-complete estimate. **Details** contains the runtime, model and
-raw Turn status. Use **Shared workspace** beside the Session title to review work,
-and **← Conversation** to return to the full conversation.
+raw Turn status. The workspace beside the conversation shows the browser,
+artifacts and Plan. Narrow windows use **Conversation** and **Workspace** tabs.
 
 Each contributor has a color within the Session. The same identity keeps that color
 across clients and reconnects; new contributors receive unused colors. Names stay

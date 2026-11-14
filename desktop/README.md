@@ -106,8 +106,8 @@ Browser automation uses explicitly declared Agent tools. The
 [Playwright MCP example](../examples/browser/README.md) connects an isolated
 browser in the execution environment; completed tool activity appears in the
 conversation and retained screenshots appear in Files. To navigate a browser
-together, enable **Shared live browser** and open **Shared workspace** in the
-Session. That browser is shared by the agent and authorized collaborators; the
+together, enable **Shared live browser** and select **Browser** in the Session's
+workspace. That browser is shared by the agent and authorized collaborators; the
 MCP example's separate browser is not connected to this shared view.
 
 The sidebar uses compact single-line rows. Long names truncate visually and remain
@@ -200,10 +200,16 @@ for local rendered tests and optional AWS validation.
 
 ### Shared artifact workspace
 
-Open **Shared workspace** from a Session to review its saved images and text files,
-add pinned or region feedback, and follow discussions in participant colors.
-Feedback is also sent to the agent with the original artifact context. Viewers
-can follow along; collaborators can comment and resolve or reopen discussions.
+The workspace sits beside the conversation and contains the browser, saved
+artifacts and Plan. Narrow windows use **Conversation** and **Workspace** tabs.
+Choose **Annotate** to attach a browser element, image region or text selection
+to the ordinary message composer. Sending publishes one message with its original
+source context. Draft context stays pinned to that source while others browse.
+Viewers can follow along; collaborators can comment and resolve or reopen discussions.
+
+The agent maintains the [Session Plan](../docs/session-plan.md). Open its summary
+above the composer to follow status, source feedback, linked results and earlier
+revisions. Discussion status and Plan status remain separate.
 
 Enable **Shared live browser** when creating an Agent or an inline Session to use
 one browser with the group. It runs in the Rat Things Linux worker with the
