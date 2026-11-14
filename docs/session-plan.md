@@ -5,6 +5,16 @@ do and the feedback it has handled. The Plan belongs to one Session. It is
 separate from the accepted input log: receiving or dispatching a message never
 changes a Plan item or marks work complete.
 
+Open **Plan** in the workspace, or select the Plan summary above the message
+composer. Select an item to read its explanation, see the contributors' source
+messages and open linked results. **History** shows earlier revisions; **Current
+Plan** returns to the agent's latest account.
+
+The agent creates and updates the checklist. To challenge an interpretation,
+reopen a question or add feedback, follow up in the conversation. Collaborators
+can contribute through their existing roles; viewers can read the Plan and its
+sources. Resolving an artifact discussion does not complete a Plan item.
+
 Each item has a stable ID, a short description and one of these states:
 
 - `next`: work the agent intends to take up.
@@ -49,6 +59,8 @@ permissions or broader execution authority.
 ## Session lineage and transfer
 
 A fork creates a new Session and starts with an empty Plan; its lineage points to
-the source Session. A Share transfers the same Session identity, so it preserves
-the current Plan and its bounded revision history while remapping receipt IDs
-for imported inputs. Plan references remain tied to the Session that owns them.
+the source Session, which retains its Plan and history. A Share transfers the same
+Session identity, preserving the current Plan and every revision while remapping
+receipt IDs for imported inputs. Plan history must fit within 2 MiB and 10,000
+revisions to transfer; a larger history prevents sharing rather than being
+silently truncated. Plan references remain tied to the Session that owns them.

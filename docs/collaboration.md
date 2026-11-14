@@ -405,31 +405,39 @@ short-lived sequence record to reject delayed updates. No draft text is accepted
 
 ## Review artifacts together
 
-Open **Shared workspace** in a Session. The live browser opens when available;
-otherwise choose a saved artifact. In a wide window, the work stays beside a
-discussion pane. Use **Conversation** for the Session's messages and **Feedback**
-for annotations on the selected work. Both reach the same agent. In a narrower
-window, **Work** and **Discussion** give each view room to read and interact.
-Switching views preserves unsent messages and annotation drafts; it does not send them.
+The Session's workspace sits beside the conversation and shows the browser, a saved
+artifact, or the agent's Plan. In a narrow window, switch between
+**Conversation** and **Workspace**. The compact Plan summary stays above the message
+composer, so you can follow the work while reading the conversation.
+See [Session Plans](session-plan.md) for statuses, source links and revision history.
 
-Images can carry
-point or region annotations: choose **Add comment**, click a location or drag a
-rectangle, and send feedback. You can also comment on the whole file. Each
-annotation has a discussion, author names and the same participant colors as the
-conversation. **Resolve** closes a discussion; **Show resolved** lets you find it
-and **Reopen** brings it back.
+Choose **Annotate**, then select an element on a captured browser page, drag an
+image region, or select text. The selected context appears in the ordinary message
+composer. You can also comment on a whole artifact. Write your feedback and send
+it once to the team and agent. Removing the context chip keeps your message text.
+Until you send, your draft remains local to your client.
 
-Feedback appears in the shared conversation and is delivered to the agent with
-its author, artifact version and selected context. Image and browser feedback
-includes the referenced image. A newer output never moves an existing annotation
-onto different content. Files saved under `/workspace/outputs` become immutable
-artifacts when the agent's Turn ends. The desktop previews PNG, JPEG, WebP and
-UTF-8 text; save other formats to open them with another application. Preview size
-is bounded; a file can still receive whole-file feedback without a preview.
+The context belongs to the version you selected. Opening another artifact,
+returning to the live browser, or another participant navigating does not retarget
+your draft. Open its context chip to revisit the original source. A reply to a
+message can also carry artifact context; both are saved with the same contribution.
+
+Published feedback appears in the conversation with its author and source link.
+Open that link to see the original artifact or browser capture. Participant colors
+identify authors in chat and annotation markers. The feedback list lets you find
+comments when markers overlap. Resolving a discussion does not mark Plan work
+addressed; the agent controls Plan status.
+
+Feedback reaches the agent with its author, immutable artifact version and selected
+context. Image and browser feedback includes the referenced image. A newer output
+never moves an existing annotation onto different content. The desktop previews
+PNG, JPEG, WebP and UTF-8 text; save other formats to open them with another
+application. Preview size is bounded; a file can still receive whole-file feedback
+without a preview.
 
 This uses the Session's existing roles. Viewers can follow artifacts and feedback;
 collaborators can annotate, reply, resolve and reopen. Imported author names remain
-reported source identities, rather than identities verified by the current space.
+reported source identities rather than identities verified by the current space.
 
 ## One live browser
 
@@ -451,7 +459,7 @@ The worker initializes the browser before starting agent work. A cold worker can
 take longer to become ready; browser reads return a temporary unavailable response
 during initialization. Once ready, the browser remains available between Turns.
 
-Choose **Live browser** in the shared workspace. Everyone sees the same page,
+Choose **Browser** in the shared workspace. Everyone sees the same page,
 viewport and navigation. Collaborators can enter a URL, click, scroll, and type
 into the focused field. Viewers can watch. Actions from people and the agent use
 one ordered queue. If someone changes the browser before your action arrives,
@@ -464,10 +472,13 @@ To preview generated web content, the agent can navigate to
 outputs directory. It works with network access disabled and is never a public
 website. Symlinks cannot expose files outside outputs.
 
-**Add comment** captures the exact frame you were viewing. Your annotation view
-stays on that capture while other participants continue browsing. **Return to live
-view** rejoins the current page. Captures attached to feedback remain part of the
-Session's durable history even if the browser later navigates or its worker stops.
+**Annotate** preserves the frame you were viewing. Browser elements are selected
+from that frame's captured bounds and text. Your annotation view stays on the
+capture while other participants continue browsing. **Return to live** rejoins the
+current page without changing the context attached to your draft. Captures attached
+to published feedback remain part of the Session's durable history even if the
+browser later navigates or its worker stops. Element locations belong to one
+capture; they are not selectors that follow a changing page.
 
 The initial browser supports one page, a fixed viewport and periodically refreshed
 images. Pop-up tabs, downloads, file uploads, WebGL and WebSocket applications are not
@@ -519,14 +530,21 @@ supply an image or substitute a different version:
 
 Anchors are whole-item (`{"type":"item"}`), normalized points, normalized regions
 (with `width` and `height`), or text selections (`start`, `end`, `quote`, using
-UTF-16 offsets into the original text). Replies use `thread_id` instead of
-`target`. Resolving or reopening also supplies `thread_id`, `text` and
+UTF-16 offsets into the original text). Browser element selections use
+`{"type":"element","id":"element_4"}`. The service resolves the bounds and quote
+from the saved capture; clients cannot substitute them. Replies within an
+annotation use `thread_id` instead of `target`. An optional `reply_to` message ID
+also preserves ordinary conversation reply context in the same contribution.
+Resolving or reopening also supplies `thread_id`, `text` and
 `action: "resolve"` or `"reopen"`. Keep the same request key when retrying an
 uncertain submission; use a new key for each intentional new contribution.
 
 A browser frame contains `epoch`, `revision`, `frame_id`, dimensions, a base64 JPEG,
-URL, title and bounded page text. A browser action supplies `epoch`, `revision`
-and `operation`, with an `Idempotency-Key`. Operations include `navigate`, `click`,
+URL, title, bounded page text and optional `elements`. Each element has a
+capture-local `id`, bounded `text` and normalized `x`, `y`, `width` and `height`.
+A frame includes at most 256 visible element regions. Use a region or whole-page
+annotation when the desired element is absent. A browser action supplies `epoch`,
+`revision` and `operation`, with an `Idempotency-Key`. Operations include `navigate`, `click`,
 `type`, `key`, `scroll`, `back`, `forward` and `reload`. Coordinates are normalized
 to the displayed viewport. Do not automatically replay rejected actions against a
 newer revision. Authorized frame reads can share capture work within a server
