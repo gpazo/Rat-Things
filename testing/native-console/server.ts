@@ -465,7 +465,6 @@ const server = createServer((request, response) => void (async () => {
             type: 'function_call_output',
             turn_id: binding.turn.id,
             call_id: callId,
-            name: 'rat_things_plan_update',
             output: JSON.stringify({ plan: saved.plan }),
             status: 'completed',
           },
