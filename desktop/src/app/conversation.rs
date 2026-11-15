@@ -13,8 +13,9 @@ impl ConsoleApp {
         let session_id = snapshot.session.id.clone();
         let active = snapshot.turn_active();
         egui::Panel::bottom("composer").show_separator_line(false).resizable(false).min_size(0.0).frame(egui::Frame::NONE).show(ui, |ui| {
-            ui.add_space(12.0);
-            self.plan_summary(ui, snapshot);
+            let compact = ui.available_width() < 900.0;
+            ui.add_space(if compact { 4.0 } else { 12.0 });
+            self.plan_summary(ui, snapshot, compact);
             self.conversation_progress(ui, snapshot);
             if let Some(error) = self.collaboration.feedback_errors.get(&session_id) {
                 ui.colored_label(theme::ERROR, error);

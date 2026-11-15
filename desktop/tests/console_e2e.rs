@@ -1674,14 +1674,21 @@ fn session_workspace_search_pin_rename_undo_and_draft_navigation() {
     for size in [Vec2::new(1280.0, 850.0), Vec2::new(900.0, 650.0)] {
         app.set_size(size);
         tick(&mut app);
+        app.run_steps(3);
         let send = app
             .query_by_role_and_label(Role::Button, "Send")
             .or_else(|| app.query_by_role_and_label(Role::Button, "Steer"))
             .unwrap()
             .rect();
+        if send.bottom() >= size.y || send.left() <= 232.0 {
+            f.screenshot(
+                &mut app,
+                &format!("workspace-{}x{}-failed.png", size.x as u32, size.y as u32),
+            );
+        }
         assert!(
             send.bottom() < size.y && send.left() > 232.0,
-            "composer actions remain in the window"
+            "composer actions remain in the window: send={send:?}, size={size:?}"
         );
         f.screenshot(
             &mut app,

@@ -83,13 +83,18 @@ pub(super) enum ArtifactOperation {
     Feedback {
         session: String,
         text: String,
-        context: CapturedContext,
+        context: Box<CapturedContext>,
         reply_id: Option<String>,
         submission: String,
     },
     ThreadAction {
         submission: String,
     },
+}
+
+fn fence_artifact_view(state: &mut ArtifactWorkspace) {
+    state.generation = state.generation.wrapping_add(1);
+    state.pending = None;
 }
 
 impl ConsoleApp {
@@ -252,8 +257,7 @@ impl ConsoleApp {
         }
         let state = &mut self.artifact_workspace;
         state.selected = Some(id.clone());
-        state.generation += 1;
-        state.pending = None;
+        fence_artifact_view(state);
         state.texture = None;
         state.text = None;
         state.frame = None;
@@ -574,7 +578,7 @@ impl ConsoleApp {
         })
     }
 
-    pub(super) fn plan_summary(&mut self, ui: &mut Ui, snapshot: &SessionSnapshot) {
+    pub(super) fn plan_summary(&mut self, ui: &mut Ui, snapshot: &SessionSnapshot, compact: bool) {
         let Some(plan) = snapshot.plan.as_ref() else {
             return;
         };
@@ -588,10 +592,10 @@ impl ConsoleApp {
         } else {
             format!("Plan · {addressed} of {} addressed", plan.items.len())
         };
+        let button = egui::Button::new(RichText::new(label).small().color(theme::TEXT));
+        let button = if compact { button.small() } else { button };
         if ui
-            .add(egui::Button::new(
-                RichText::new(label).small().color(theme::TEXT),
-            ))
+            .add(button)
             .on_hover_text("Open the agent’s current Plan")
             .clicked()
         {
@@ -869,13 +873,12 @@ impl ConsoleApp {
                         self.artifact_workspace.selected_plan_item = None;
                     }
                 }
-                if let Some(after) = next_after {
-                    if ui
+                if let Some(after) = next_after
+                    && ui
                         .add_enabled(pending.is_none(), egui::Button::new("Load older revisions"))
                         .clicked()
-                    {
-                        load_after = Some(after);
-                    }
+                {
+                    load_after = Some(after);
                 }
             });
         if retry {
@@ -1174,7 +1177,7 @@ impl ConsoleApp {
             ArtifactOperation::Feedback {
                 session: session.into(),
                 text,
-                context,
+                context: Box::new(context),
                 reply_id,
                 submission,
             },
@@ -1201,27 +1204,8 @@ impl ConsoleApp {
         ctx: &egui::Context,
     ) {
         let browser = context.source.kind == CapturedSourceKind::Browser;
-        let stale_view_read = self.artifact_workspace.pending.is_some_and(|request_id| {
-            self.pending.get(&request_id).is_some_and(|request| {
-                matches!(
-                    &request.operation,
-                    Pending::Artifact {
-                        operation: ArtifactOperation::Preview
-                            | ArtifactOperation::Capture
-                            | ArtifactOperation::Frame {
-                                submission: None,
-                                ..
-                            },
-                        ..
-                    }
-                )
-            })
-        });
         let state = &mut self.artifact_workspace;
-        if stale_view_read {
-            state.generation = state.generation.wrapping_add(1);
-            state.pending = None;
-        }
+        fence_artifact_view(state);
         state.texture = None;
         state.text = None;
         state.error = None;
@@ -1497,15 +1481,13 @@ impl ConsoleApp {
             if browser
                 && self.artifact_workspace.annotating
                 && self.artifact_workspace.selecting_text
-            {
-                if let Some(text) = self
+                && let Some(text) = self
                     .artifact_workspace
                     .captured_frame
                     .as_ref()
                     .and_then(|frame| frame["text"].as_str())
-                {
-                    self.select_text_anchor(ui, session, text.to_owned());
-                }
+            {
+                self.select_text_anchor(ui, session, text.to_owned());
             }
         } else if let Some(text) = self.artifact_workspace.text.clone() {
             if self.artifact_workspace.selecting_text {
@@ -2021,7 +2003,7 @@ fn selected_text_anchor(
             .sum::<usize>()
     };
     let quote = chars[selected_chars.clone()].iter().collect::<String>();
-    if quote.trim().is_empty() || quote.encode_utf16().count() > 4000 {
+    if quote.trim().is_empty() || quote.encode_utf16().count() > 2000 {
         return None;
     }
     Some(CapturedAnchor::Text {
@@ -2103,8 +2085,10 @@ mod captured_context_tests {
 
     #[test]
     fn clearing_workspace_keeps_session_idempotency_keys_and_advances_generation() {
-        let mut workspace = ArtifactWorkspace::default();
-        workspace.generation = 7;
+        let mut workspace = ArtifactWorkspace {
+            generation: 7,
+            ..ArtifactWorkspace::default()
+        };
         workspace
             .submission_keys
             .insert("session\0body".into(), "key".into());
@@ -2114,6 +2098,28 @@ mod captured_context_tests {
         assert_eq!(workspace.generation, 8);
         assert_eq!(
             workspace
+                .submission_keys
+                .get("session\0body")
+                .map(String::as_str),
+            Some("key")
+        );
+    }
+
+    #[test]
+    fn opening_a_saved_source_fences_pending_requests_and_keeps_idempotency_keys() {
+        let mut state = ArtifactWorkspace {
+            generation: 7,
+            pending: Some(42),
+            submission_keys: HashMap::from([("session\0body".into(), "key".into())]),
+            ..ArtifactWorkspace::default()
+        };
+
+        fence_artifact_view(&mut state);
+
+        assert_eq!(state.generation, 8);
+        assert_eq!(state.pending, None);
+        assert_eq!(
+            state
                 .submission_keys
                 .get("session\0body")
                 .map(String::as_str),
@@ -2153,7 +2159,22 @@ mod captured_context_tests {
         let source = "A saved source";
         assert!(selected_text_anchor(source, 2..2).is_none());
         assert!(selected_text_anchor(source, 0..99).is_none());
-        assert!(selected_text_anchor(source, 0..1).is_none());
+    }
+
+    #[test]
+    fn selected_text_anchor_accepts_a_single_character() {
+        assert!(selected_text_anchor("A saved source", 0..1).is_some());
+    }
+
+    #[test]
+    fn selected_text_anchor_enforces_the_utf16_unit_limit() {
+        let exact_limit = "😀".repeat(1000);
+        let over_limit = "😀".repeat(1001);
+        assert!(matches!(
+            selected_text_anchor(&exact_limit, 0..1000),
+            Some(CapturedAnchor::Text { end: 2000, .. })
+        ));
+        assert!(selected_text_anchor(&over_limit, 0..1001).is_none());
     }
 
     #[test]
