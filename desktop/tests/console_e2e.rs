@@ -2739,10 +2739,29 @@ fn captured_source_context_uses_chat_send_and_reopens_the_saved_page_after_navig
 
     click(&mut app, "Annotate");
     visible(&mut app, "Click an element or drag a region.");
-    app.query_all_by_role(Role::Image)
+    let captured_image = app
+        .query_all_by_role(Role::Image)
         .max_by(|a, b| a.rect().area().total_cmp(&b.rect().area()))
-        .expect("captured browser image")
-        .click();
+        .expect("captured browser image");
+    let image_rect = captured_image.rect();
+    let edge_anchor = egui::pos2(
+        image_rect.left() + image_rect.width() * 0.88,
+        image_rect.top() + image_rect.height() * 0.86,
+    );
+    app.hover_at(edge_anchor);
+    app.event(egui::Event::PointerButton {
+        pos: edge_anchor,
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    app.event(egui::Event::PointerButton {
+        pos: edge_anchor,
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
+    tick(&mut app);
     visible(&mut app, "Page selection · Product direction");
     fill(
         &mut app,
@@ -2760,6 +2779,8 @@ fn captured_source_context_uses_chat_send_and_reopens_the_saved_page_after_navig
             .is_none()
     );
 
+    click(&mut app, "Expand workspace");
+    visible(&mut app, "Back to conversation");
     f.control(
         "/__test/workspace",
         json!({"hold":true,"capture_hold":true}),
@@ -2802,6 +2823,24 @@ fn captured_source_context_uses_chat_send_and_reopens_the_saved_page_after_navig
         .expect("captured browser image")
         .click();
     visible(&mut app, "Page selection · Product direction");
+    visible(&mut app, "Message");
+    assert!(
+        app.query_by_role_and_label(Role::Button, "Back to conversation")
+            .is_none(),
+        "staging context from an expanded workspace returns to the composer"
+    );
+    assert_eq!(
+        app.get_by_label("Message").value().as_deref(),
+        Some("Keep the original direction visible while we discuss it.")
+    );
+    click(&mut app, "Expand workspace");
+    click(&mut app, "Back to conversation");
+    visible(&mut app, "Page selection · Product direction");
+    assert_eq!(
+        app.get_by_label("Message").value().as_deref(),
+        Some("Keep the original direction visible while we discuss it."),
+        "expanding and returning preserves the draft and its normalized anchor context"
+    );
     f.control(
         "/__test/workspace",
         json!({"frame":{
@@ -2903,10 +2942,29 @@ fn captured_source_context_uses_chat_send_and_reopens_the_saved_page_after_navig
                 })
         },
     );
+    app.set_size(Vec2::new(1280.0, 850.0));
+    tick(&mut app);
+    click(&mut app, "Zoom in");
+    visible(&mut app, "1.25×");
+    click(&mut app, "Expand workspace");
+    visible(&mut app, "Back to conversation");
+    f.screenshot(&mut app, "shared-workspace-expanded-zoom-1280x850.png");
+    click(&mut app, "Back to conversation");
+    assert_eq!(
+        app.get_by_label("Message").value().as_deref(),
+        Some(""),
+        "successful publication clears the composer draft"
+    );
     app.set_size(Vec2::new(900.0, 650.0));
     click(&mut app, "Workspace");
     visible(&mut app, "Return to live");
-    f.screenshot(&mut app, "shared-browser-capture-open-source-900x650.png");
+    click(&mut app, "Zoom in");
+    click(&mut app, "Zoom in");
+    visible(&mut app, "2×");
+    f.screenshot(
+        &mut app,
+        "shared-browser-capture-open-source-2x-900x650.png",
+    );
 }
 
 #[test]
@@ -3159,6 +3217,20 @@ fn plan_is_agent_owned_navigable_and_has_read_only_revision_history() {
     visible(&mut app, "Result");
     assert!(app.query_all_by_role(Role::CheckBox).next().is_none());
     f.screenshot(&mut app, "session-plan-1280x850.png");
+
+    click(&mut app, "Expand workspace");
+    visible(&mut app, "Back to conversation");
+    click(&mut app, "Follow up in conversation");
+    visible(&mut app, "Message");
+    assert_eq!(
+        app.get_by_label("Message").value().as_deref(),
+        Some("Following up on Plan item “Clarify the product direction”")
+    );
+    assert!(
+        app.query_by_role_and_label(Role::Button, "Back to conversation")
+            .is_none(),
+        "following up from expanded Plan returns to the conversation"
+    );
 
     click(
         &mut app,

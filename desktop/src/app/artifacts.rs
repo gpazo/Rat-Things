@@ -1,6 +1,7 @@
 use super::*;
 
 pub(super) const PLAN_TAB_ID: &str = "__rat_things_plan";
+const IMAGE_ZOOM_LEVELS: [f32; 4] = [1.0, 1.25, 1.5, 2.0];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum NarrowSessionPane {
@@ -29,6 +30,7 @@ struct PlanHistoryRead {
 #[derive(Default)]
 pub(super) struct ArtifactWorkspace {
     pub(super) narrow_pane: NarrowSessionPane,
+    pub(super) workspace_expanded: bool,
     pub(super) selected: Option<String>,
     pub(super) generation: u64,
     pub(super) pending: Option<u64>,
@@ -57,6 +59,7 @@ pub(super) struct ArtifactWorkspace {
     selected_plan_revision: Option<u64>,
     plan_history: PlanHistoryRead,
     submission_keys: HashMap<String, String>,
+    zoom_level: u8,
 }
 impl ArtifactWorkspace {
     pub(super) fn plan_selected(&self) -> bool {
@@ -258,6 +261,7 @@ impl ConsoleApp {
         let state = &mut self.artifact_workspace;
         state.selected = Some(id.clone());
         fence_artifact_view(state);
+        state.zoom_level = 0;
         state.texture = None;
         state.text = None;
         state.frame = None;
@@ -395,7 +399,12 @@ impl ConsoleApp {
         );
     }
 
-    pub(super) fn artifact_workspace(&mut self, ui: &mut Ui, snapshot: &SessionSnapshot) {
+    pub(super) fn artifact_workspace(
+        &mut self,
+        ui: &mut Ui,
+        snapshot: &SessionSnapshot,
+        expandable: bool,
+    ) {
         let session = snapshot.session.id.clone();
         if self.artifact_workspace.selected.is_none() {
             let initial = if snapshot.browser_available {
@@ -453,6 +462,10 @@ impl ConsoleApp {
             {
                 self.artifact_workspace.selected = Some(PLAN_TAB_ID.into());
                 self.artifact_workspace.selected_plan_item = None;
+            }
+            if expandable && ui.button("Expand workspace").clicked() {
+                self.artifact_workspace.workspace_expanded = true;
+                self.artifact_workspace.narrow_pane = NarrowSessionPane::Workspace;
             }
         });
         ui.separator();
@@ -518,12 +531,13 @@ impl ConsoleApp {
                 }
             });
         }
+        let preview_viewport_width = ui.available_width();
         egui::ScrollArea::vertical()
             .id_salt(("shared-workspace", &session))
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 self.artifact_controls(ui, &session, browser);
-                self.artifact_preview(ui, &session, &threads, browser);
+                self.artifact_preview(ui, &session, &threads, browser, preview_viewport_width);
                 if browser {
                     self.artifact_feedback_list(ui, &session, &threads, true);
                 } else {
@@ -781,6 +795,7 @@ impl ConsoleApp {
                         {
                             self.collaboration.scroll_target = Some(source.message_id.clone());
                             self.artifact_workspace.narrow_pane = NarrowSessionPane::Conversation;
+                            self.artifact_workspace.workspace_expanded = false;
                         }
                     }
                 }
@@ -814,6 +829,7 @@ impl ConsoleApp {
                                     self.collaboration.scroll_target = Some(item_id.clone());
                                     self.artifact_workspace.narrow_pane =
                                         NarrowSessionPane::Conversation;
+                                    self.artifact_workspace.workspace_expanded = false;
                                 }
                             }
                         }
@@ -828,6 +844,7 @@ impl ConsoleApp {
                     }
                     self.collaboration.focus_composer = true;
                     self.artifact_workspace.narrow_pane = NarrowSessionPane::Conversation;
+                    self.artifact_workspace.workspace_expanded = false;
                 }
             });
     }
@@ -946,6 +963,41 @@ impl ConsoleApp {
 
     fn artifact_controls(&mut self, ui: &mut Ui, session: &str, browser: bool) {
         let reading_capture = self.artifact_workspace.reading_capture.is_some();
+        if self.artifact_workspace.texture.is_some() {
+            let zoom_level =
+                usize::from(self.artifact_workspace.zoom_level).min(IMAGE_ZOOM_LEVELS.len() - 1);
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .add_enabled(zoom_level > 0, egui::Button::new("Zoom out").small())
+                    .clicked()
+                {
+                    self.artifact_workspace.zoom_level =
+                        self.artifact_workspace.zoom_level.saturating_sub(1);
+                }
+                ui.label(match zoom_level {
+                    0 => "Fit",
+                    1 => "1.25×",
+                    2 => "1.5×",
+                    _ => "2×",
+                });
+                if ui
+                    .add_enabled(
+                        zoom_level + 1 < IMAGE_ZOOM_LEVELS.len(),
+                        egui::Button::new("Zoom in").small(),
+                    )
+                    .clicked()
+                {
+                    self.artifact_workspace.zoom_level = self
+                        .artifact_workspace
+                        .zoom_level
+                        .saturating_add(1)
+                        .min((IMAGE_ZOOM_LEVELS.len() - 1) as u8);
+                }
+                if zoom_level > 0 && ui.small_button("Reset zoom").clicked() {
+                    self.artifact_workspace.zoom_level = 0;
+                }
+            });
+        }
         if browser && !reading_capture {
             ui.horizontal(|ui| {
                 ui.add_enabled_ui(
@@ -1155,6 +1207,7 @@ impl ConsoleApp {
         self.artifact_workspace.selecting_text = false;
         self.collaboration.focus_composer = true;
         self.artifact_workspace.narrow_pane = NarrowSessionPane::Conversation;
+        self.artifact_workspace.workspace_expanded = false;
         self.artifact_workspace.error = None;
     }
 
@@ -1369,16 +1422,40 @@ impl ConsoleApp {
         }
     }
 
-    fn artifact_preview(&mut self, ui: &mut Ui, session: &str, threads: &[Value], browser: bool) {
+    fn artifact_preview(
+        &mut self,
+        ui: &mut Ui,
+        session: &str,
+        threads: &[Value],
+        browser: bool,
+        viewport_width: f32,
+    ) {
         if let Some(texture) = self.artifact_workspace.texture.clone() {
             let size = texture.size_vec2();
             let max_height = (ui.available_height() * 0.56).clamp(180.0, 420.0);
-            let scale = (ui.available_width() / size.x)
-                .min(max_height / size.y)
-                .min(1.0);
-            let response = ui.add(
-                egui::Image::new((texture.id(), size * scale)).sense(egui::Sense::click_and_drag()),
-            );
+            let zoom = IMAGE_ZOOM_LEVELS
+                .get(usize::from(self.artifact_workspace.zoom_level))
+                .copied()
+                .unwrap_or(1.0);
+            let scale = (viewport_width / size.x).min(max_height / size.y).min(1.0) * zoom;
+            let image_size = size * scale;
+            let image_output = egui::ScrollArea::horizontal()
+                .id_salt((
+                    "artifact-image-zoom",
+                    session,
+                    self.artifact_workspace.selected.as_deref(),
+                ))
+                .auto_shrink([true, false])
+                .show(ui, |ui| {
+                    ui.set_width(image_size.x);
+                    ui.add(
+                        egui::Image::new((texture.id(), image_size))
+                            .sense(egui::Sense::click_and_drag()),
+                    )
+                });
+            let response = image_output.inner;
+            let image_viewport = image_output.inner_rect;
+            let overlay_painter = ui.painter().with_clip_rect(image_viewport);
             let normalized = |point: egui::Pos2| {
                 egui::pos2(
                     ((point.x - response.rect.left()) / response.rect.width()).clamp(0.0, 1.0),
@@ -1389,15 +1466,23 @@ impl ConsoleApp {
                 && self.artifact_workspace.captured_source.is_some()
                 && !self.artifact_workspace.selecting_text
             {
-                if response.drag_started() {
+                if response.drag_started()
+                    && response
+                        .interact_pointer_pos()
+                        .is_some_and(|position| image_viewport.contains(position))
+                {
                     self.artifact_workspace.drag_start = ui
                         .input(|input| input.pointer.press_origin())
+                        .filter(|position| image_viewport.contains(*position))
                         .map(normalized);
                 }
                 if response.drag_stopped()
                     && let (Some(start), Some(end)) = (
                         self.artifact_workspace.drag_start.take(),
-                        response.interact_pointer_pos().map(normalized),
+                        response
+                            .interact_pointer_pos()
+                            .filter(|position| image_viewport.contains(*position))
+                            .map(normalized),
                     )
                 {
                     let width = (start.x - end.x).abs();
@@ -1414,7 +1499,10 @@ impl ConsoleApp {
                         );
                     }
                 } else if response.clicked()
-                    && let Some(point) = response.interact_pointer_pos().map(normalized)
+                    && let Some(point) = response
+                        .interact_pointer_pos()
+                        .filter(|position| image_viewport.contains(*position))
+                        .map(normalized)
                 {
                     let anchor = if browser {
                         element_at(
@@ -1448,7 +1536,10 @@ impl ConsoleApp {
                 && !self.artifact_workspace.annotating
                 && self.can_contribute()
                 && response.clicked()
-                && let Some(point) = response.interact_pointer_pos().map(normalized)
+                && let Some(point) = response
+                    .interact_pointer_pos()
+                    .filter(|position| image_viewport.contains(*position))
+                    .map(normalized)
             {
                 self.browser_request(
                     session,
@@ -1471,23 +1562,26 @@ impl ConsoleApp {
                 })
                 .collect::<Vec<_>>();
             for cluster in pin_clusters(&current_capture_threads, response.rect) {
-                ui.painter()
-                    .circle_filled(cluster.position, 12.0, cluster.color);
-                ui.painter().text(
+                overlay_painter.circle_filled(cluster.position, 12.0, cluster.color);
+                overlay_painter.text(
                     cluster.position,
                     egui::Align2::CENTER_CENTER,
                     cluster.indices.len().to_string(),
                     egui::FontId::proportional(11.0),
                     theme::BACKGROUND,
                 );
-                if ui
-                    .interact(
-                        egui::Rect::from_center_size(cluster.position, egui::vec2(24.0, 24.0)),
-                        ui.scope_id()
-                            .with(("annotation-cluster", cluster.indices[0])),
-                        egui::Sense::click(),
-                    )
-                    .clicked()
+                let cluster_hit =
+                    egui::Rect::from_center_size(cluster.position, egui::vec2(24.0, 24.0))
+                        .intersect(image_viewport);
+                if cluster_hit.is_positive()
+                    && ui
+                        .interact(
+                            cluster_hit,
+                            ui.scope_id()
+                                .with(("annotation-cluster", cluster.indices[0])),
+                            egui::Sense::click(),
+                        )
+                        .clicked()
                 {
                     let (_, thread) = current_capture_threads[cluster.indices[0]];
                     self.open_annotation(session, thread, ui.ctx());
@@ -1506,7 +1600,7 @@ impl ConsoleApp {
             if (self.artifact_workspace.annotating || saved_anchor_visible)
                 && let Some(anchor) = &self.artifact_workspace.anchor
             {
-                paint_anchor(ui, response.rect, anchor);
+                paint_anchor(&overlay_painter, response.rect, anchor);
             }
             if browser
                 && self.artifact_workspace.annotating
@@ -1957,8 +2051,7 @@ fn pin_clusters(threads: &[(usize, &Value)], rect: egui::Rect) -> Vec<PinCluster
     clusters
 }
 
-fn paint_anchor(ui: &Ui, image_rect: egui::Rect, anchor: &CapturedAnchor) {
-    let painter = ui.painter();
+fn paint_anchor(painter: &egui::Painter, image_rect: egui::Rect, anchor: &CapturedAnchor) {
     match anchor {
         CapturedAnchor::Point { x, y } => {
             let point = egui::pos2(

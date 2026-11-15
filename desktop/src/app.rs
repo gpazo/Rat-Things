@@ -3131,11 +3131,16 @@ impl ConsoleApp {
         }
         if ui.available_width() < 900.0 {
             ui.horizontal(|ui| {
-                ui.selectable_value(
-                    &mut self.artifact_workspace.narrow_pane,
-                    NarrowSessionPane::Conversation,
-                    "Conversation",
-                );
+                if ui
+                    .selectable_value(
+                        &mut self.artifact_workspace.narrow_pane,
+                        NarrowSessionPane::Conversation,
+                        "Conversation",
+                    )
+                    .clicked()
+                {
+                    self.artifact_workspace.workspace_expanded = false;
+                }
                 ui.selectable_value(
                     &mut self.artifact_workspace.narrow_pane,
                     NarrowSessionPane::Workspace,
@@ -3145,8 +3150,17 @@ impl ConsoleApp {
             ui.add_space(8.0);
             match self.artifact_workspace.narrow_pane {
                 NarrowSessionPane::Conversation => self.session_conversation(ui, snapshot),
-                NarrowSessionPane::Workspace => self.artifact_workspace(ui, snapshot),
+                NarrowSessionPane::Workspace => self.artifact_workspace(ui, snapshot, false),
             }
+            return;
+        }
+        if self.artifact_workspace.workspace_expanded {
+            if ui.button("Back to conversation").clicked() {
+                self.artifact_workspace.workspace_expanded = false;
+                self.artifact_workspace.narrow_pane = NarrowSessionPane::Conversation;
+            }
+            ui.separator();
+            self.artifact_workspace(ui, snapshot, false);
             return;
         }
         let area = ui.available_rect_before_wrap();
@@ -3164,7 +3178,7 @@ impl ConsoleApp {
             egui::Stroke::new(1.0, theme::BORDER),
         );
         ui.scope_builder(egui::UiBuilder::new().max_rect(workspace), |ui| {
-            self.artifact_workspace(ui, snapshot);
+            self.artifact_workspace(ui, snapshot, true);
         });
     }
 
