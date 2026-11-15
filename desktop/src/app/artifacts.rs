@@ -1055,14 +1055,44 @@ impl ConsoleApp {
         selecting_text: bool,
         ctx: &egui::Context,
     ) {
+        if browser {
+            if self.artifact_workspace.reading_capture.is_some() {
+                return;
+            }
+            if let Some(request_id) = self.artifact_workspace.pending {
+                let read_refresh = self.pending.get(&request_id).is_some_and(|request| {
+                    matches!(
+                        &request.operation,
+                        Pending::Artifact {
+                            operation: ArtifactOperation::Frame {
+                                submission: None,
+                                ..
+                            },
+                            ..
+                        }
+                    )
+                });
+                if read_refresh || !self.pending.contains_key(&request_id) {
+                    fence_artifact_view(&mut self.artifact_workspace);
+                } else {
+                    self.artifact_workspace.error = Some(
+                        "Wait for the current browser action to finish before capturing this page."
+                            .into(),
+                    );
+                    return;
+                }
+            }
+        }
         self.artifact_workspace.annotating = true;
         self.artifact_workspace.selecting_text = selecting_text;
         self.artifact_workspace.anchor = None;
         self.artifact_workspace.thread = None;
         if browser {
-            if self.artifact_workspace.reading_capture.is_some() {
-                return;
-            }
+            self.artifact_workspace.captured_source = None;
+            self.artifact_workspace.captured_frame = None;
+            self.artifact_workspace.capture = None;
+            self.artifact_workspace.reading_capture = None;
+            self.artifact_workspace.reading_url = None;
             let Some(frame) = self.artifact_workspace.frame.clone() else {
                 self.artifact_workspace.annotating = false;
                 self.artifact_workspace.error =

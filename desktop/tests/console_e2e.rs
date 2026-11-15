@@ -2760,7 +2760,42 @@ fn captured_source_context_uses_chat_send_and_reopens_the_saved_page_after_navig
             .is_none()
     );
 
+    f.control(
+        "/__test/workspace",
+        json!({"hold":true,"capture_hold":true}),
+    );
+    until(&mut app, "held live browser refresh", |_| {
+        f.client
+            .get(format!("{}/__test/workspace", f.upstream.url))
+            .send()
+            .unwrap()
+            .json::<Value>()
+            .unwrap()["waiting"]
+            .as_u64()
+            .unwrap()
+            > 0
+    });
+    let captures_before_second_selection = f.state()["browserCaptureCompleted"].as_u64().unwrap();
     click(&mut app, "Annotate");
+    visible(&mut app, "Capturing page…");
+    assert!(
+        app.query_by_label("Click an element or drag a region.")
+            .is_none(),
+        "a new selection must not reuse the previous capture while this capture is pending"
+    );
+    f.control("/__test/workspace", json!({"hold":false}));
+    until(&mut app, "second capture request", |_| {
+        f.state()["browserCaptureWaiting"].as_u64().unwrap() > 0
+    });
+    assert_eq!(
+        f.state()["browserCaptureCompleted"].as_u64().unwrap(),
+        captures_before_second_selection,
+        "the second capture remains held until the test releases it"
+    );
+    f.control("/__test/workspace", json!({"capture_hold":false}));
+    until(&mut app, "second capture completion", |_| {
+        f.state()["browserCaptureCompleted"].as_u64().unwrap() > captures_before_second_selection
+    });
     visible(&mut app, "Click an element or drag a region.");
     app.query_all_by_role(Role::Image)
         .max_by(|a, b| a.rect().area().total_cmp(&b.rect().area()))
