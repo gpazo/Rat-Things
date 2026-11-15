@@ -12,7 +12,9 @@ import { resetPersistentWorkspace } from '../../src/runner/workspace.js';
 it('rejects commands that could smuggle navigation, code execution or stale coordinates', () => {
   for (const operation of [{ action: 'evaluate', code: '1' }, { action: 'navigate', url: 'file:///etc/passwd' },
     { action: 'navigate', url: 'https://name:password@example.com' }, { action: 'click', x: NaN, y: .5 },
-    { action: 'click', x: 1.1, y: 0 }, { action: 'type', text: 'ok', actor: 'admin' }]) {
+    { action: 'click', x: 1.1, y: 0 }, { action: 'type', text: 'ok', actor: 'admin' },
+    { action: 'resize', width: 319, height: 844 }, { action: 'resize', width: 390.5, height: 844 },
+    { action: 'resize', width: 1280, height: 1441 }, { action: 'resize', width: 390 }]) {
     expect(() => browserCommand({ command_id: 'id', epoch: 'epoch', revision: 1, operation })).toThrow();
   }
   expect(() => browserCommand({ command_id: 'id', operation: { action: 'click', x: 0, y: 0 } })).toThrow();
@@ -20,11 +22,14 @@ it('rejects commands that could smuggle navigation, code execution or stale coor
 });
 
 it('validates bounded browser elements at the worker boundary', () => {
-  const frame = { epoch: 'epoch', revision: 1, frame_id: 'a'.repeat(64), width: 1280, height: 800, image: 'aW1hZ2U=', url: 'about:blank', title: 'Page', text: 'Heading' };
+  const frame = { epoch: 'epoch', revision: 1, frame_id: 'a'.repeat(64), width: 390, height: 844, image: 'aW1hZ2U=', url: 'about:blank', title: 'Page', text: 'Heading' };
   const element = { id: 'element_0', text: 'Heading', x: 0, y: 0, width: .5, height: .1 };
   expect(browserFrame({ ...frame, elements: [element] }).elements).toEqual([element]);
   for (const elements of [[{ ...element, x: .9 }], [{ ...element, width: 0 }], [{ ...element, text: 'x'.repeat(501) }], [element, element], Array.from({ length: 257 }, (_, i) => ({ ...element, id: `element_${i}` }))]) {
     expect(() => browserFrame({ ...frame, elements })).toThrow();
+  }
+  for (const dimensions of [{ width: 319, height: 844 }, { width: 390, height: 1441 }, { width: 390.5, height: 844 }]) {
+    expect(() => browserFrame({ ...frame, ...dimensions })).toThrow();
   }
 });
 
@@ -128,6 +133,66 @@ it.skipIf(!process.env.RAT_BROWSER_TEST_BINARY)('shares one real browser, fences
   await browser.execute({ command_id: 'symlink_root', epoch: moved.epoch, revision: moved.revision, operation: { action: 'navigate', url: 'https://rat-artifacts.invalid/outside.txt' } });
   expect((await snapshot()).text).not.toContain('OUTSIDE_OUTPUTS');
 }, 30000);
+
+it.skipIf(!process.env.RAT_BROWSER_TEST_BINARY)('navigates Taco Cometa links and resizes the shared viewport with normalized coordinates and immutable captures', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'rat-browser-taco-'));
+  cleanups.push(() => rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+  await mkdir(join(directory, 'outputs'));
+  await writeFile(join(directory, 'outputs/index.html'), '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Taco Cometa</title><style>body{margin:0;font:16px sans-serif}.hero{min-height:800px;padding:40px}nav{position:fixed;top:0;background:white}a{display:inline-block;padding:12px}.content{height:1000px;padding:40px}</style><nav><a href="#visit">Visit</a></nav><main class="hero"><h1>Taco Cometa</h1><a href="#menu">Explore the menu</a></main><section class="content" id="menu"><h2>Menu</h2></section><section class="content" id="visit"><h2>Visit</h2></section>');
+  const browser = new SharedBrowserWorker({ binary: process.env.RAT_BROWSER_TEST_BINARY!, directory, network: { access: 'disabled' } });
+  cleanups.push(() => browser.close());
+  let next = 0;
+  const snapshot = () => browser.execute({ command_id: `taco_frame_${++next}`, operation: { action: 'snapshot' } });
+  const initial = await snapshot();
+  const opened = await browser.execute({ command_id: 'taco_open', epoch: initial.epoch, revision: initial.revision,
+    operation: { action: 'navigate', url: 'https://rat-artifacts.invalid/index.html' } });
+  let desktop = opened;
+  for (let i = 0; i < 20 && !desktop.elements?.some(element => element.text.includes('Explore the menu')); i++) {
+    await new Promise(resolve => setTimeout(resolve, 50)); desktop = await snapshot();
+  }
+  expect(desktop).toMatchObject({ width: 1280, height: 800 });
+  const cta = desktop.elements?.find(element => element.text.includes('Explore the menu'));
+  expect(cta).toBeDefined();
+  const clicked = await browser.execute({ command_id: 'taco_cta', epoch: desktop.epoch, revision: desktop.revision,
+    operation: { action: 'click', x: cta!.x + cta!.width / 2, y: cta!.y + cta!.height / 2 } });
+  expect(clicked.url).toBe('https://rat-artifacts.invalid/index.html#menu');
+  expect(jpegDimensions(clicked.image)).toEqual({ width: 1280, height: 800 });
+
+  const capture = await browser.execute({ command_id: 'taco_capture_before_resize', operation: { action: 'capture', frame_id: clicked.frame_id } });
+  const resize = { command_id: 'taco_phone', epoch: clicked.epoch, revision: clicked.revision, operation: { action: 'resize', width: 390, height: 844 } } as const;
+  const competing = { command_id: 'stale_taco_click', epoch: clicked.epoch, revision: clicked.revision, operation: { action: 'click', x: .5, y: .5 } } as const;
+  const [resized, stale] = await Promise.allSettled([browser.execute(resize), browser.execute(competing)]);
+  expect(resized.status).toBe('fulfilled');
+  expect(stale).toMatchObject({ status: 'rejected', reason: expect.objectContaining({ message: 'The shared browser changed. Refresh before interacting.' }) });
+  if (resized.status !== 'fulfilled') throw resized.reason;
+  const phone = resized.value;
+  expect(phone).toMatchObject({ width: 390, height: 844 });
+  expect(jpegDimensions(phone.image)).toEqual({ width: 390, height: 844 });
+  expect(await browser.execute(resize)).toEqual(phone);
+  expect(await browser.execute({ command_id: 'taco_capture_after_resize', operation: { action: 'capture', frame_id: capture.frame_id } })).toEqual(capture);
+  const visit = phone.elements?.find(element => element.text === 'Visit');
+  expect(visit).toBeDefined();
+  const phoneClick = await browser.execute({ command_id: 'taco_phone_visit', epoch: phone.epoch, revision: phone.revision,
+    operation: { action: 'click', x: visit!.x + visit!.width / 2, y: visit!.y + visit!.height / 2 } });
+  expect(phoneClick.url).toBe('https://rat-artifacts.invalid/index.html#visit');
+  expect(phoneClick).toMatchObject({ width: 390, height: 844 });
+}, 30000);
+
+function jpegDimensions(image: string) {
+  const bytes = Buffer.from(image, 'base64');
+  for (let offset = 2; offset + 9 < bytes.length;) {
+    if (bytes[offset] !== 0xff) return undefined;
+    while (bytes[offset] === 0xff) offset++;
+    const marker = bytes[offset++]!;
+    if (marker === 0xd9 || marker === 0xda) return undefined;
+    const length = bytes.readUInt16BE(offset);
+    if ([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf].includes(marker)) {
+      return { height: bytes.readUInt16BE(offset + 3), width: bytes.readUInt16BE(offset + 5) };
+    }
+    offset += length;
+  }
+  return undefined;
+}
 
 it.skipIf(!process.env.RAT_BROWSER_TEST_BINARY)('keeps a worker-owned browser across independent clients and Pi tool calls without model inference', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'rat-browser-owner-'));

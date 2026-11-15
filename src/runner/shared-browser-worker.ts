@@ -21,6 +21,7 @@ export class SharedBrowserWorker {
   private readonly requests = new Map<number, { resolve(value: any): void; reject(error: Error): void; timer: NodeJS.Timeout }>();
   private readonly completed = new Map<string, { digest: string; frameId: string }>();
   private readonly frames = new Map<string, BrowserFrame>();
+  private viewport = { width: 1280, height: 800 };
   private closed = false;
   private partial = Buffer.alloc(0);
   private startupDiagnostics = '';
@@ -70,7 +71,7 @@ export class SharedBrowserWorker {
           if (entry) await this.call('Page.navigateToHistoryEntry', { entryId: entry.id }); break;
         }
         case 'click': {
-          const point = { x: action.x * 1280, y: action.y * 800, button: 'left', clickCount: 1 };
+          const point = { x: action.x * this.viewport.width, y: action.y * this.viewport.height, button: 'left', clickCount: 1 };
           await this.call('Input.dispatchMouseEvent', { type: 'mousePressed', ...point });
           await this.call('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point }); break;
         }
@@ -80,7 +81,13 @@ export class SharedBrowserWorker {
           await this.call('Input.dispatchKeyEvent', { type: 'keyDown', key: action.key, code: action.key, windowsVirtualKeyCode: codes[action.key], ...(action.key === 'Enter' ? { text: '\r' } : {}) });
           await this.call('Input.dispatchKeyEvent', { type: 'keyUp', key: action.key, code: action.key, windowsVirtualKeyCode: codes[action.key] }); break;
         }
-        case 'scroll': await this.call('Input.dispatchMouseEvent', { type: 'mouseWheel', x: action.x * 1280, y: action.y * 800, deltaX: 0, deltaY: action.delta_y }); break;
+        case 'scroll': await this.call('Input.dispatchMouseEvent', { type: 'mouseWheel', x: action.x * this.viewport.width, y: action.y * this.viewport.height, deltaX: 0, deltaY: action.delta_y }); break;
+        case 'resize': {
+          const viewport = { width: action.width, height: action.height };
+          await this.call('Emulation.setDeviceMetricsOverride', { ...viewport, deviceScaleFactor: 1, mobile: action.width <= 600 });
+          this.viewport = viewport;
+          break;
+        }
       }
     }
     const result = await this.snapshot();
@@ -133,7 +140,7 @@ export class SharedBrowserWorker {
     await this.call('Network.enable');
     await this.call('Network.setBypassServiceWorker', { bypass: true });
     await this.call('Network.setBlockedURLs', { urls: ['file:*', 'ftp:*', 'ws:*', 'wss:*'] });
-    await this.call('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+    await this.call('Emulation.setDeviceMetricsOverride', { ...this.viewport, deviceScaleFactor: 1, mobile: false });
     await this.call('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
     // Pause new targets before scripts/requests run; one shared page owns all interactions.
     await this.call('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });
@@ -192,12 +199,12 @@ export class SharedBrowserWorker {
     return access === 'enabled' || allowed_domains.some(host => url.hostname === host || host.startsWith('*.') && url.hostname.endsWith(host.slice(1)));
   }
   private async snapshot(): Promise<BrowserFrame> {
-    const details = await this.call('Runtime.evaluate', { expression: browserCaptureExpression, returnByValue: true });
+    const details = await this.call('Runtime.evaluate', { expression: browserCaptureExpression(this.viewport.width, this.viewport.height), returnByValue: true });
     const info = JSON.parse(details.result.value);
     const image = (await this.call('Page.captureScreenshot', { format: 'jpeg', quality: 65, captureBeyondViewport: false })).data as string;
     if (image.length > 3 * 1024 * 1024) throw new Error('Browser frame exceeds 3 MiB.');
     const frame_id = createHash('sha256').update(JSON.stringify([this.epoch, this.revision, image, info])).digest('hex');
-    const frame = browserFrame({ epoch: this.epoch, revision: this.revision, frame_id, width: 1280, height: 800, image, url: info.url, title: info.title, text: info.text, elements: info.elements });
+    const frame = browserFrame({ epoch: this.epoch, revision: this.revision, frame_id, ...this.viewport, image, url: info.url, title: info.title, text: info.text, elements: info.elements });
     this.frames.set(frame_id, frame); if (this.frames.size > 16) this.frames.delete(this.frames.keys().next().value!);
     return frame;
   }
