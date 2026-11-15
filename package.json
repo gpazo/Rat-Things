@@ -67,7 +67,7 @@
     "agents-api:worker": "node scripts/generate-environment-file-worker.mjs",
     "agents-api:worker:check": "node scripts/generate-environment-file-worker.mjs --check",
     "console:build": "npm run build && node scripts/build-desktop.mjs",
-    "console:check": "cargo fmt --manifest-path desktop/Cargo.toml --check && cargo clippy --locked --manifest-path desktop/Cargo.toml --all-targets -- -D warnings && cargo test --locked --manifest-path desktop/Cargo.toml",
+    "console:check": "cargo fmt --manifest-path desktop/Cargo.toml --check && cargo clippy --locked --manifest-path desktop/Cargo.toml --all-targets -- -D warnings && cargo test --locked --manifest-path desktop/Cargo.toml -- --test-threads=1",
     "test:e2e:browser": "cargo test --locked --manifest-path desktop/Cargo.toml --test browser_e2e -- --ignored --test-threads=1",
     "demo:fork": "tsx testing/fork-demo/server.ts",
     "sim:commands": "tsx testing/time-travel/cli.ts",

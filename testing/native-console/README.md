@@ -5,7 +5,7 @@ Install the repository's Node dependencies and the Rust toolchain specified by
 
 ```sh
 npm ci
-cargo test --manifest-path desktop/Cargo.toml --test console_e2e -- --nocapture
+cargo test --manifest-path desktop/Cargo.toml --test console_e2e -- --nocapture --test-threads=1
 ```
 
 The test launches the local TypeScript fixture and the production console proxy
@@ -13,6 +13,10 @@ on ephemeral loopback ports. It drives the real `ConsoleApp` using egui's
 AccessKit test harness: controls receive clicks, keyboard events, and text input.
 It never assigns application state to skip a user interaction. The test checks
 requests and durable service records as well as the visible interface.
+
+Rendered journeys run serially so competing GPU renderers and local fixture
+processes do not turn interaction deadlines into machine-load tests.
+`npm run console:check` uses the same setting for the full native suite.
 
 The fixture uses the production Agents router and Agent, Session, Vault, and
 Environment Template services. Storage, secret persistence, and worker execution
@@ -26,6 +30,11 @@ app recreation with saved output, a second turn, and cancellation. Configuration
 coverage includes saved-agent pagination and editing, starting from a saved
 agent, environment-template CRUD, write-only credential creation and rotation,
 revocation, editor clearing, and request errors.
+
+Shared-workspace checks cover captured context in the ordinary composer, replies,
+retry after a lost response, source navigation during pending work, and canceled
+captures. Plan checks follow source messages and saved results, read earlier
+revisions, and keep status updates agent-owned.
 
 Files remain hidden until the header's Files control is opened. The journey checks
 keyboard opening and Escape focus restoration, viewport fit, pointer interaction
