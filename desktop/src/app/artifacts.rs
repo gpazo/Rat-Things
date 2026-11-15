@@ -578,7 +578,7 @@ impl ConsoleApp {
         })
     }
 
-    pub(super) fn plan_summary(&mut self, ui: &mut Ui, snapshot: &SessionSnapshot, compact: bool) {
+    pub(super) fn plan_summary(&mut self, ui: &mut Ui, snapshot: &SessionSnapshot) {
         let Some(plan) = snapshot.plan.as_ref() else {
             return;
         };
@@ -592,8 +592,8 @@ impl ConsoleApp {
         } else {
             format!("Plan · {addressed} of {} addressed", plan.items.len())
         };
-        let button = egui::Button::new(RichText::new(label).small().color(theme::TEXT));
-        let button = if compact { button.small() } else { button };
+        let button = egui::Button::new(RichText::new(label).small().color(theme::TEXT))
+            .min_size(egui::vec2(0.0, 28.0));
         if ui
             .add(button)
             .on_hover_text("Open the agent’s current Plan")

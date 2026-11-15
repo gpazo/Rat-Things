@@ -15,7 +15,7 @@ impl ConsoleApp {
         egui::Panel::bottom("composer").show_separator_line(false).resizable(false).min_size(0.0).frame(egui::Frame::NONE).show(ui, |ui| {
             let compact = ui.available_width() < 900.0;
             ui.add_space(if compact { 4.0 } else { 12.0 });
-            self.plan_summary(ui, snapshot, compact);
+            self.plan_summary(ui, snapshot);
             self.conversation_progress(ui, snapshot);
             if let Some(error) = self.collaboration.feedback_errors.get(&session_id) {
                 ui.colored_label(theme::ERROR, error);
