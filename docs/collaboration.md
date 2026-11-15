@@ -411,6 +411,10 @@ artifact, or the agent's Plan. In a narrow window, switch between
 composer, so you can follow the work while reading the conversation.
 See [Session Plans](session-plan.md) for statuses, source links and revision history.
 
+Use **Expand workspace** for more room, then **Back to conversation** to return
+to the discussion. Image zoom and scrolling change only your view. They do not
+navigate the shared browser or change the source attached to a draft.
+
 Choose **Annotate**, then select an element on a captured browser page, drag an
 image region, or select text. The selected context appears in the ordinary message
 composer. You can also comment on a whole artifact. Write your feedback and send
