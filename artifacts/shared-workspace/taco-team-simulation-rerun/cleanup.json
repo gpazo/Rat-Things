@@ -1,0 +1,58 @@
+{
+  "status": "removed",
+  "resources": {
+    "loopback_server": {
+      "status": "removed"
+    },
+    "local_services": {
+      "status": "removed"
+    },
+    "connection_file": {
+      "status": "removed"
+    },
+    "worker_volume": {
+      "status": "removed",
+      "name": "rat-8935aa12d0cc2a05-sess_a50afcc772cd4fa0bf68c3a95f39bd2a-workspace"
+    },
+    "state_volume": {
+      "status": "removed",
+      "name": "rat-8935aa12d0cc2a05-sess_a50afcc772cd4fa0bf68c3a95f39bd2a-workspace-state"
+    }
+  },
+  "usage_status": "read",
+  "model": "gpt-6-luna",
+  "inference": "ChatGPT subscription through Codex (not API-billed)",
+  "turns": 2,
+  "usage": [
+    {
+      "id": "turn_7a529170d5ce413cb3e777b5e6e2d498",
+      "status": "in_progress",
+      "usage": {
+        "input_tokens": 90797,
+        "input_tokens_details": {
+          "cached_tokens": 86272
+        },
+        "output_tokens": 1142,
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "total_tokens": 91939
+      }
+    },
+    {
+      "id": "turn_67e4936eaedf4b2781a9a350c9fafb0e",
+      "status": "completed",
+      "usage": {
+        "input_tokens": 303570,
+        "input_tokens_details": {
+          "cached_tokens": 262272
+        },
+        "output_tokens": 7953,
+        "output_tokens_details": {
+          "reasoning_tokens": 89
+        },
+        "total_tokens": 311523
+      }
+    }
+  ]
+}

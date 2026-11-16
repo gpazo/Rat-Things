@@ -1,0 +1,27 @@
+{
+  "git_head": "c5f8bcf7e96ae1f09d81075597f3765d6ec8ab26",
+  "uncommitted_changes": true,
+  "source_sha256": {
+    "desktop/src/app.rs": "054aab1f8f76f1affc7ff89e46c265c1dcc4d60aa898c92274e32f499cee2985",
+    "desktop/src/app/artifacts.rs": "73680195a79475ac23ffd1326e33d7bebeb4b9086ea8ceb6b1e022144254f9d1",
+    "desktop/src/app/conversation.rs": "4f389291fe80462a181e1b2dda6bb1922c695353ac311222a4a9c151e86c6fc3",
+    "desktop/src/icons.rs": "67ad48218e33f6227560580a44dc58e4917c2ffe9e04affb22aaa9bd283f5f5f",
+    "desktop/tests/team_simulation.rs": "b5428003cc85252b59689111e58bd0e34559f60f2c008fa52debe1559bd225bc",
+    "src/domain/shared-browser.ts": "cc842b9765d5e0886b0fefe7fc9c536ce22ae01062794bc62a4481c5855d5d7c",
+    "src/runner/shared-browser-worker.ts": "0ea67bbd696488653c1b03f6e79f13a0c162250a7ff762fd3e0ebd2d52a2734e",
+    "src/runner/shared-browser-worker-source.json": "9cf99dca912014648dc64d9a694ea2ca01454dcd10640f1f0d5b6f2e30a74b45",
+    "testing/shared-workspace/agents-live/server.ts": "6e99d8efd5dd5de47ff91cb1f0a5c8ce150d1137bcd5f78c683e8736605218af"
+  },
+  "model": "gpt-6-luna",
+  "provider": "ChatGPT subscription via Codex",
+  "bounds": {
+    "turns": 6,
+    "observed_tokens": 400000,
+    "tool_items": 60,
+    "minutes": 25
+  },
+  "paid_api_calls": 0,
+  "aws_resources": 0,
+  "delegation_token_usage": null,
+  "delegation_cost": null
+}

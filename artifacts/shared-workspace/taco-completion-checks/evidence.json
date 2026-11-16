@@ -1,0 +1,15 @@
+{
+  "checks": [
+    "Phone resize reaches both native clients",
+    "Native click follows menu link after resize",
+    "Second client sees the same navigation",
+    "Scroll controls work outside the keyboard menu",
+    "Phone annotation is published after another client restores Desktop",
+    "Other client sees feedback",
+    "Published phone capture reopens while the live browser stays Desktop"
+  ],
+  "clients": 2,
+  "model": "deterministic local fixture",
+  "paid_inference_calls": 0,
+  "status": "passed"
+}

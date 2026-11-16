@@ -1,0 +1,38 @@
+{
+  "repository": {
+    "passed_tests": 3137,
+    "skipped_tests": 86,
+    "test_files_passed": 347,
+    "test_files_skipped": 34,
+    "architecture_schema_routes_types_microvm": "passed",
+    "packaging": "passed on retry; 15 Lambda bundles smoke-tested",
+    "site": "passed",
+    "terraform_format_and_validate": "passed for infra, testing/localstack and testing/aws",
+    "full_check_single_invocation": "not green as one invocation: first test timeout; second invocation passed all tests then packaging hit disk full; failed stages and remaining stages subsequently passed"
+  },
+  "native": {
+    "unit_tests_passed": 82,
+    "interaction_tests_passed": 29,
+    "rustfmt": "passed",
+    "clippy_all_targets": "passed",
+    "focused_final_capture_and_error_outcome_tests": "passed",
+    "opt_in_two_client_real_linux_browser": "passed",
+    "opt_in_four_live_native_clients": "4 passed"
+  },
+  "real_chromium_tests": 10,
+  "diff_check": "passed",
+  "environment_recovery": [
+    "Packaging test passed in isolation and in the final full test run.",
+    "Removed regenerable Rust incremental compiler cache after disk-full build; no source or simulation evidence removed.",
+    "Packaging, site and all Terraform stages passed after recovery."
+  ],
+  "live_scope": "local subscription inference; no paid model API and no AWS deployment",
+  "unvalidated": [
+    "AWS",
+    "OIDC and broad RBAC/revocation integration",
+    "load and performance scaling",
+    "OS accessibility and screen readers",
+    "image-only feedback comprehension",
+    "live budget cutoff/cancellation/review expiry"
+  ]
+}

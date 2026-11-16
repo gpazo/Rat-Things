@@ -1,0 +1,2300 @@
+Node {
+    id: FullNodeId(
+        TreeIndex(
+            0,
+        ),
+        #13826925289788388,
+    ),
+    role: Window,
+    focused: true,
+    hidden: false,
+    disabled: false,
+    children: [
+        Node {
+            id: FullNodeId(
+                TreeIndex(
+                    0,
+                ),
+                #18356943641707106210,
+            ),
+            role: GenericContainer,
+            focused: false,
+            hidden: false,
+            disabled: false,
+            children: [
+                Node {
+                    id: FullNodeId(
+                        TreeIndex(
+                            0,
+                        ),
+                        #9531869980634780175,
+                    ),
+                    role: Pane,
+                    focused: false,
+                    hidden: false,
+                    disabled: false,
+                    children: [
+                        Node {
+                            id: FullNodeId(
+                                TreeIndex(
+                                    0,
+                                ),
+                                #4517814141946214385,
+                            ),
+                            role: GenericContainer,
+                            focused: false,
+                            hidden: false,
+                            disabled: false,
+                            children: [
+                                Node {
+                                    id: FullNodeId(
+                                        TreeIndex(
+                                            0,
+                                        ),
+                                        #6656004785796371827,
+                                    ),
+                                    role: Pane,
+                                    focused: false,
+                                    hidden: false,
+                                    disabled: false,
+                                    children: [
+                                        Node {
+                                            id: FullNodeId(
+                                                TreeIndex(
+                                                    0,
+                                                ),
+                                                #7716727207082378691,
+                                            ),
+                                            role: GenericContainer,
+                                            focused: false,
+                                            hidden: false,
+                                            disabled: false,
+                                            children: [
+                                                Node {
+                                                    id: FullNodeId(
+                                                        TreeIndex(
+                                                            0,
+                                                        ),
+                                                        #1010672412963961455,
+                                                    ),
+                                                    role: Label,
+                                                    value: "Workspace",
+                                                    focused: false,
+                                                    hidden: false,
+                                                    disabled: false,
+                                                    children: [
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #14644368991332214063,
+                                                            ),
+                                                            role: TextRun,
+                                                            value: "Workspace",
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            children: [],
+                                                        },
+                                                    ],
+                                                },
+                                                Node {
+                                                    id: FullNodeId(
+                                                        TreeIndex(
+                                                            0,
+                                                        ),
+                                                        #1752413992874005681,
+                                                    ),
+                                                    role: GenericContainer,
+                                                    focused: false,
+                                                    hidden: false,
+                                                    disabled: false,
+                                                    children: [
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #12581105909368470685,
+                                                            ),
+                                                            role: Button,
+                                                            label: "Sessions",
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            toggled: True,
+                                                            children: [],
+                                                        },
+                                                    ],
+                                                },
+                                                Node {
+                                                    id: FullNodeId(
+                                                        TreeIndex(
+                                                            0,
+                                                        ),
+                                                        #6205890840305984242,
+                                                    ),
+                                                    role: GenericContainer,
+                                                    focused: false,
+                                                    hidden: false,
+                                                    disabled: false,
+                                                    children: [
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #16989025877453119733,
+                                                            ),
+                                                            role: Button,
+                                                            label: "Agents",
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            toggled: False,
+                                                            children: [],
+                                                        },
+                                                    ],
+                                                },
+                                                Node {
+                                                    id: FullNodeId(
+                                                        TreeIndex(
+                                                            0,
+                                                        ),
+                                                        #3536534614064468492,
+                                                    ),
+                                                    role: GenericContainer,
+                                                    focused: false,
+                                                    hidden: false,
+                                                    disabled: false,
+                                                    children: [
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #9161351472555181936,
+                                                            ),
+                                                            role: Button,
+                                                            label: "Templates",
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            toggled: False,
+                                                            children: [],
+                                                        },
+                                                    ],
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                },
+                                Node {
+                                    id: FullNodeId(
+                                        TreeIndex(
+                                            0,
+                                        ),
+                                        #6301474490203065117,
+                                    ),
+                                    role: GenericContainer,
+                                    focused: false,
+                                    hidden: false,
+                                    disabled: false,
+                                    children: [
+                                        Node {
+                                            id: FullNodeId(
+                                                TreeIndex(
+                                                    0,
+                                                ),
+                                                #3888020449157673993,
+                                            ),
+                                            role: Label,
+                                            value: "Rat Things",
+                                            focused: false,
+                                            hidden: false,
+                                            disabled: false,
+                                            children: [
+                                                Node {
+                                                    id: FullNodeId(
+                                                        TreeIndex(
+                                                            0,
+                                                        ),
+                                                        #4211224475215617051,
+                                                    ),
+                                                    role: TextRun,
+                                                    value: "Rat Things",
+                                                    focused: false,
+                                                    hidden: false,
+                                                    disabled: false,
+                                                    children: [],
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                },
+                                Node {
+                                    id: FullNodeId(
+                                        TreeIndex(
+                                            0,
+                                        ),
+                                        #15284096287675414772,
+                                    ),
+                                    role: GenericContainer,
+                                    focused: false,
+                                    hidden: false,
+                                    disabled: false,
+                                    children: [
+                                        Node {
+                                            id: FullNodeId(
+                                                TreeIndex(
+                                                    0,
+                                                ),
+                                                #16482633251631724765,
+                                            ),
+                                            role: Button,
+                                            label: "Product team",
+                                            focused: false,
+                                            hidden: false,
+                                            disabled: false,
+                                            children: [],
+                                        },
+                                    ],
+                                },
+                                Node {
+                                    id: FullNodeId(
+                                        TreeIndex(
+                                            0,
+                                        ),
+                                        #8381476577378511671,
+                                    ),
+                                    role: GenericContainer,
+                                    focused: false,
+                                    hidden: false,
+                                    disabled: false,
+                                    children: [
+                                        Node {
+                                            id: FullNodeId(
+                                                TreeIndex(
+                                                    0,
+                                                ),
+                                                #4746149095338889205,
+                                            ),
+                                            role: GenericContainer,
+                                            focused: false,
+                                            hidden: false,
+                                            disabled: false,
+                                            children: [
+                                                Node {
+                                                    id: FullNodeId(
+                                                        TreeIndex(
+                                                            0,
+                                                        ),
+                                                        #16621510920697519110,
+                                                    ),
+                                                    role: GenericContainer,
+                                                    focused: false,
+                                                    hidden: false,
+                                                    disabled: false,
+                                                    children: [
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #1399467709229890257,
+                                                            ),
+                                                            role: Button,
+                                                            label: "New session",
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: true,
+                                                            children: [],
+                                                        },
+                                                    ],
+                                                },
+                                            ],
+                                        },
+                                        Node {
+                                            id: FullNodeId(
+                                                TreeIndex(
+                                                    0,
+                                                ),
+                                                #14329908183623863437,
+                                            ),
+                                            role: TextInput,
+                                            label: "Search sessions",
+                                            value: "",
+                                            focused: false,
+                                            hidden: false,
+                                            disabled: false,
+                                            children: [
+                                                Node {
+                                                    id: FullNodeId(
+                                                        TreeIndex(
+                                                            0,
+                                                        ),
+                                                        #1485408189857325476,
+                                                    ),
+                                                    role: TextRun,
+                                                    value: "",
+                                                    focused: false,
+                                                    hidden: false,
+                                                    disabled: false,
+                                                    children: [],
+                                                },
+                                            ],
+                                        },
+                                        Node {
+                                            id: FullNodeId(
+                                                TreeIndex(
+                                                    0,
+                                                ),
+                                                #17184055007724102832,
+                                            ),
+                                            role: GenericContainer,
+                                            focused: false,
+                                            hidden: false,
+                                            disabled: false,
+                                            children: [
+                                                Node {
+                                                    id: FullNodeId(
+                                                        TreeIndex(
+                                                            0,
+                                                        ),
+                                                        #12088881603222143488,
+                                                    ),
+                                                    role: Label,
+                                                    value: "Recent",
+                                                    focused: false,
+                                                    hidden: false,
+                                                    disabled: false,
+                                                    children: [
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #7592212829077129057,
+                                                            ),
+                                                            role: TextRun,
+                                                            value: "Recent",
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            children: [],
+                                                        },
+                                                    ],
+                                                },
+                                                Node {
+                                                    id: FullNodeId(
+                                                        TreeIndex(
+                                                            0,
+                                                        ),
+                                                        #18368683411499506970,
+                                                    ),
+                                                    role: GenericContainer,
+                                                    focused: false,
+                                                    hidden: false,
+                                                    disabled: false,
+                                                    children: [
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #11792285891114162550,
+                                                            ),
+                                                            role: Button,
+                                                            label: "List options",
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            children: [],
+                                                        },
+                                                    ],
+                                                },
+                                            ],
+                                        },
+                                        Node {
+                                            id: FullNodeId(
+                                                TreeIndex(
+                                                    0,
+                                                ),
+                                                #5940970778505588505,
+                                            ),
+                                            role: GenericContainer,
+                                            focused: false,
+                                            hidden: false,
+                                            disabled: false,
+                                            children: [
+                                                Node {
+                                                    id: FullNodeId(
+                                                        TreeIndex(
+                                                            0,
+                                                        ),
+                                                        #15953488890795275345,
+                                                    ),
+                                                    role: GenericContainer,
+                                                    focused: false,
+                                                    hidden: false,
+                                                    disabled: false,
+                                                    children: [
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #16544984685005060872,
+                                                            ),
+                                                            role: GenericContainer,
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            children: [
+                                                                Node {
+                                                                    id: FullNodeId(
+                                                                        TreeIndex(
+                                                                            0,
+                                                                        ),
+                                                                        #8934434653379430882,
+                                                                    ),
+                                                                    role: GenericContainer,
+                                                                    focused: false,
+                                                                    hidden: false,
+                                                                    disabled: false,
+                                                                    children: [
+                                                                        Node {
+                                                                            id: FullNodeId(
+                                                                                TreeIndex(
+                                                                                    0,
+                                                                                ),
+                                                                                #8488395656098824254,
+                                                                            ),
+                                                                            role: Button,
+                                                                            label: "Works on our machines",
+                                                                            focused: false,
+                                                                            hidden: false,
+                                                                            disabled: false,
+                                                                            toggled: True,
+                                                                            children: [],
+                                                                        },
+                                                                    ],
+                                                                },
+                                                            ],
+                                                        },
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #3080541695793768859,
+                                                            ),
+                                                            role: Button,
+                                                            label: "Archived sessions",
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            children: [],
+                                                        },
+                                                    ],
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                },
+                Node {
+                    id: FullNodeId(
+                        TreeIndex(
+                            0,
+                        ),
+                        #15183016370033833151,
+                    ),
+                    role: Splitter,
+                    label: "Resize panel",
+                    numeric_value: 0.16111111640930176,
+                    focused: false,
+                    hidden: false,
+                    disabled: false,
+                    children: [],
+                },
+                Node {
+                    id: FullNodeId(
+                        TreeIndex(
+                            0,
+                        ),
+                        #10451402470317923571,
+                    ),
+                    role: Pane,
+                    focused: false,
+                    hidden: false,
+                    disabled: false,
+                    children: [
+                        Node {
+                            id: FullNodeId(
+                                TreeIndex(
+                                    0,
+                                ),
+                                #11952710319151270944,
+                            ),
+                            role: GenericContainer,
+                            focused: false,
+                            hidden: false,
+                            disabled: false,
+                            children: [
+                                Node {
+                                    id: FullNodeId(
+                                        TreeIndex(
+                                            0,
+                                        ),
+                                        #14823215424836652260,
+                                    ),
+                                    role: GenericContainer,
+                                    focused: false,
+                                    hidden: false,
+                                    disabled: false,
+                                    children: [
+                                        Node {
+                                            id: FullNodeId(
+                                                TreeIndex(
+                                                    0,
+                                                ),
+                                                #16054339004772654016,
+                                            ),
+                                            role: GenericContainer,
+                                            focused: false,
+                                            hidden: false,
+                                            disabled: false,
+                                            children: [
+                                                Node {
+                                                    id: FullNodeId(
+                                                        TreeIndex(
+                                                            0,
+                                                        ),
+                                                        #1296796329204123510,
+                                                    ),
+                                                    role: GenericContainer,
+                                                    focused: false,
+                                                    hidden: false,
+                                                    disabled: false,
+                                                    children: [
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #7653552873834174887,
+                                                            ),
+                                                            role: GenericContainer,
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            children: [
+                                                                Node {
+                                                                    id: FullNodeId(
+                                                                        TreeIndex(
+                                                                            0,
+                                                                        ),
+                                                                        #17519515293809553093,
+                                                                    ),
+                                                                    role: Button,
+                                                                    label: "Actions",
+                                                                    focused: false,
+                                                                    hidden: false,
+                                                                    disabled: false,
+                                                                    children: [],
+                                                                },
+                                                            ],
+                                                        },
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #8932531982253166769,
+                                                            ),
+                                                            role: GenericContainer,
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            children: [
+                                                                Node {
+                                                                    id: FullNodeId(
+                                                                        TreeIndex(
+                                                                            0,
+                                                                        ),
+                                                                        #1709616408033786838,
+                                                                    ),
+                                                                    role: Button,
+                                                                    label: "Files (2)",
+                                                                    focused: false,
+                                                                    hidden: false,
+                                                                    disabled: false,
+                                                                    children: [],
+                                                                },
+                                                            ],
+                                                        },
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #7257613466060886153,
+                                                            ),
+                                                            role: GenericContainer,
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            children: [
+                                                                Node {
+                                                                    id: FullNodeId(
+                                                                        TreeIndex(
+                                                                            0,
+                                                                        ),
+                                                                        #14562949441249589884,
+                                                                    ),
+                                                                    role: Button,
+                                                                    label: "Details",
+                                                                    focused: false,
+                                                                    hidden: false,
+                                                                    disabled: false,
+                                                                    children: [],
+                                                                },
+                                                            ],
+                                                        },
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #277925549765935352,
+                                                            ),
+                                                            role: GenericContainer,
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            children: [
+                                                                Node {
+                                                                    id: FullNodeId(
+                                                                        TreeIndex(
+                                                                            0,
+                                                                        ),
+                                                                        #390863256129333388,
+                                                                    ),
+                                                                    role: Label,
+                                                                    value: "Works on our machines",
+                                                                    focused: false,
+                                                                    hidden: false,
+                                                                    disabled: false,
+                                                                    children: [
+                                                                        Node {
+                                                                            id: FullNodeId(
+                                                                                TreeIndex(
+                                                                                    0,
+                                                                                ),
+                                                                                #17856048577974840960,
+                                                                            ),
+                                                                            role: TextRun,
+                                                                            value: "Works on our machines",
+                                                                            focused: false,
+                                                                            hidden: false,
+                                                                            disabled: false,
+                                                                            children: [],
+                                                                        },
+                                                                    ],
+                                                                },
+                                                            ],
+                                                        },
+                                                    ],
+                                                },
+                                            ],
+                                        },
+                                        Node {
+                                            id: FullNodeId(
+                                                TreeIndex(
+                                                    0,
+                                                ),
+                                                #804412302780918153,
+                                            ),
+                                            role: Splitter,
+                                            label: "Resize workspace",
+                                            focused: false,
+                                            hidden: false,
+                                            disabled: false,
+                                            children: [],
+                                        },
+                                        Node {
+                                            id: FullNodeId(
+                                                TreeIndex(
+                                                    0,
+                                                ),
+                                                #9621028456195504295,
+                                            ),
+                                            role: GenericContainer,
+                                            focused: false,
+                                            hidden: false,
+                                            disabled: false,
+                                            children: [
+                                                Node {
+                                                    id: FullNodeId(
+                                                        TreeIndex(
+                                                            0,
+                                                        ),
+                                                        #2028580799956395384,
+                                                    ),
+                                                    role: GenericContainer,
+                                                    focused: false,
+                                                    hidden: false,
+                                                    disabled: false,
+                                                    children: [
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #8586652275285061601,
+                                                            ),
+                                                            role: Pane,
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            children: [
+                                                                Node {
+                                                                    id: FullNodeId(
+                                                                        TreeIndex(
+                                                                            0,
+                                                                        ),
+                                                                        #3344116929100991720,
+                                                                    ),
+                                                                    role: GenericContainer,
+                                                                    focused: false,
+                                                                    hidden: false,
+                                                                    disabled: false,
+                                                                    children: [
+                                                                        Node {
+                                                                            id: FullNodeId(
+                                                                                TreeIndex(
+                                                                                    0,
+                                                                                ),
+                                                                                #11323047029042900726,
+                                                                            ),
+                                                                            role: Button,
+                                                                            label: "Plan · 0 of 3 addressed",
+                                                                            focused: false,
+                                                                            hidden: false,
+                                                                            disabled: false,
+                                                                            children: [],
+                                                                        },
+                                                                        Node {
+                                                                            id: FullNodeId(
+                                                                                TreeIndex(
+                                                                                    0,
+                                                                                ),
+                                                                                #6282181662681459761,
+                                                                            ),
+                                                                            role: GenericContainer,
+                                                                            focused: false,
+                                                                            hidden: false,
+                                                                            disabled: false,
+                                                                            children: [
+                                                                                Node {
+                                                                                    id: FullNodeId(
+                                                                                        TreeIndex(
+                                                                                            0,
+                                                                                        ),
+                                                                                        #6605517667376690668,
+                                                                                    ),
+                                                                                    role: Label,
+                                                                                    value: "Ready for the next step",
+                                                                                    focused: false,
+                                                                                    hidden: false,
+                                                                                    disabled: false,
+                                                                                    children: [
+                                                                                        Node {
+                                                                                            id: FullNodeId(
+                                                                                                TreeIndex(
+                                                                                                    0,
+                                                                                                ),
+                                                                                                #315880225680436398,
+                                                                                            ),
+                                                                                            role: TextRun,
+                                                                                            value: "Ready for the next step",
+                                                                                            focused: false,
+                                                                                            hidden: false,
+                                                                                            disabled: false,
+                                                                                            children: [],
+                                                                                        },
+                                                                                    ],
+                                                                                },
+                                                                                Node {
+                                                                                    id: FullNodeId(
+                                                                                        TreeIndex(
+                                                                                            0,
+                                                                                        ),
+                                                                                        #17312925336145321338,
+                                                                                    ),
+                                                                                    role: GenericContainer,
+                                                                                    focused: false,
+                                                                                    hidden: false,
+                                                                                    disabled: false,
+                                                                                    children: [
+                                                                                        Node {
+                                                                                            id: FullNodeId(
+                                                                                                TreeIndex(
+                                                                                                    0,
+                                                                                                ),
+                                                                                                #8102776866002465417,
+                                                                                            ),
+                                                                                            role: Button,
+                                                                                            label: "Activity",
+                                                                                            focused: false,
+                                                                                            hidden: false,
+                                                                                            disabled: false,
+                                                                                            children: [],
+                                                                                        },
+                                                                                    ],
+                                                                                },
+                                                                            ],
+                                                                        },
+                                                                        Node {
+                                                                            id: FullNodeId(
+                                                                                TreeIndex(
+                                                                                    0,
+                                                                                ),
+                                                                                #5828764890716840880,
+                                                                            ),
+                                                                            role: GenericContainer,
+                                                                            focused: false,
+                                                                            hidden: false,
+                                                                            disabled: false,
+                                                                            children: [],
+                                                                        },
+                                                                        Node {
+                                                                            id: FullNodeId(
+                                                                                TreeIndex(
+                                                                                    0,
+                                                                                ),
+                                                                                #7917508445165822755,
+                                                                            ),
+                                                                            role: GenericContainer,
+                                                                            focused: false,
+                                                                            hidden: false,
+                                                                            disabled: false,
+                                                                            children: [
+                                                                                Node {
+                                                                                    id: FullNodeId(
+                                                                                        TreeIndex(
+                                                                                            0,
+                                                                                        ),
+                                                                                        #6495100553818454413,
+                                                                                    ),
+                                                                                    role: GenericContainer,
+                                                                                    focused: false,
+                                                                                    hidden: false,
+                                                                                    disabled: false,
+                                                                                    children: [
+                                                                                        Node {
+                                                                                            id: FullNodeId(
+                                                                                                TreeIndex(
+                                                                                                    0,
+                                                                                                ),
+                                                                                                #1434194687622176611,
+                                                                                            ),
+                                                                                            role: GenericContainer,
+                                                                                            focused: false,
+                                                                                            hidden: false,
+                                                                                            disabled: false,
+                                                                                            children: [
+                                                                                                Node {
+                                                                                                    id: FullNodeId(
+                                                                                                        TreeIndex(
+                                                                                                            0,
+                                                                                                        ),
+                                                                                                        #12930979948106652131,
+                                                                                                    ),
+                                                                                                    role: TextInput,
+                                                                                                    label: "Message",
+                                                                                                    value: "",
+                                                                                                    focused: false,
+                                                                                                    hidden: false,
+                                                                                                    disabled: false,
+                                                                                                    children: [
+                                                                                                        Node {
+                                                                                                            id: FullNodeId(
+                                                                                                                TreeIndex(
+                                                                                                                    0,
+                                                                                                                ),
+                                                                                                                #9880602189807190814,
+                                                                                                            ),
+                                                                                                            role: TextRun,
+                                                                                                            value: "",
+                                                                                                            focused: false,
+                                                                                                            hidden: false,
+                                                                                                            disabled: false,
+                                                                                                            children: [],
+                                                                                                        },
+                                                                                                    ],
+                                                                                                },
+                                                                                            ],
+                                                                                        },
+                                                                                    ],
+                                                                                },
+                                                                                Node {
+                                                                                    id: FullNodeId(
+                                                                                        TreeIndex(
+                                                                                            0,
+                                                                                        ),
+                                                                                        #7755323042090847776,
+                                                                                    ),
+                                                                                    role: GenericContainer,
+                                                                                    focused: false,
+                                                                                    hidden: false,
+                                                                                    disabled: false,
+                                                                                    children: [
+                                                                                        Node {
+                                                                                            id: FullNodeId(
+                                                                                                TreeIndex(
+                                                                                                    0,
+                                                                                                ),
+                                                                                                #3574009612954612543,
+                                                                                            ),
+                                                                                            role: Label,
+                                                                                            value: "⌘ / Ctrl + Enter",
+                                                                                            focused: false,
+                                                                                            hidden: false,
+                                                                                            disabled: false,
+                                                                                            children: [
+                                                                                                Node {
+                                                                                                    id: FullNodeId(
+                                                                                                        TreeIndex(
+                                                                                                            0,
+                                                                                                        ),
+                                                                                                        #10350736501830140632,
+                                                                                                    ),
+                                                                                                    role: TextRun,
+                                                                                                    value: "⌘ / Ctrl + Enter",
+                                                                                                    focused: false,
+                                                                                                    hidden: false,
+                                                                                                    disabled: false,
+                                                                                                    children: [],
+                                                                                                },
+                                                                                            ],
+                                                                                        },
+                                                                                        Node {
+                                                                                            id: FullNodeId(
+                                                                                                TreeIndex(
+                                                                                                    0,
+                                                                                                ),
+                                                                                                #7791631466062353082,
+                                                                                            ),
+                                                                                            role: GenericContainer,
+                                                                                            focused: false,
+                                                                                            hidden: false,
+                                                                                            disabled: false,
+                                                                                            children: [
+                                                                                                Node {
+                                                                                                    id: FullNodeId(
+                                                                                                        TreeIndex(
+                                                                                                            0,
+                                                                                                        ),
+                                                                                                        #10977510425811405309,
+                                                                                                    ),
+                                                                                                    role: Button,
+                                                                                                    label: "Send",
+                                                                                                    focused: false,
+                                                                                                    hidden: false,
+                                                                                                    disabled: true,
+                                                                                                    children: [],
+                                                                                                },
+                                                                                            ],
+                                                                                        },
+                                                                                    ],
+                                                                                },
+                                                                            ],
+                                                                        },
+                                                                    ],
+                                                                },
+                                                            ],
+                                                        },
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #3107541257623088592,
+                                                            ),
+                                                            role: GenericContainer,
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            children: [
+                                                                Node {
+                                                                    id: FullNodeId(
+                                                                        TreeIndex(
+                                                                            0,
+                                                                        ),
+                                                                        #1177267406674567410,
+                                                                    ),
+                                                                    role: GenericContainer,
+                                                                    focused: false,
+                                                                    hidden: false,
+                                                                    disabled: false,
+                                                                    children: [
+                                                                        Node {
+                                                                            id: FullNodeId(
+                                                                                TreeIndex(
+                                                                                    0,
+                                                                                ),
+                                                                                #7495348886673586999,
+                                                                            ),
+                                                                            role: GenericContainer,
+                                                                            focused: false,
+                                                                            hidden: false,
+                                                                            disabled: false,
+                                                                            children: [
+                                                                                Node {
+                                                                                    id: FullNodeId(
+                                                                                        TreeIndex(
+                                                                                            0,
+                                                                                        ),
+                                                                                        #10160943861590685600,
+                                                                                    ),
+                                                                                    role: GenericContainer,
+                                                                                    focused: false,
+                                                                                    hidden: false,
+                                                                                    disabled: false,
+                                                                                    children: [
+                                                                                        Node {
+                                                                                            id: FullNodeId(
+                                                                                                TreeIndex(
+                                                                                                    0,
+                                                                                                ),
+                                                                                                #2528006114181344887,
+                                                                                            ),
+                                                                                            role: GenericContainer,
+                                                                                            focused: false,
+                                                                                            hidden: false,
+                                                                                            disabled: false,
+                                                                                            children: [
+                                                                                                Node {
+                                                                                                    id: FullNodeId(
+                                                                                                        TreeIndex(
+                                                                                                            0,
+                                                                                                        ),
+                                                                                                        #17163542457031614437,
+                                                                                                    ),
+                                                                                                    role: GenericContainer,
+                                                                                                    focused: false,
+                                                                                                    hidden: false,
+                                                                                                    disabled: false,
+                                                                                                    children: [
+                                                                                                        Node {
+                                                                                                            id: FullNodeId(
+                                                                                                                TreeIndex(
+                                                                                                                    0,
+                                                                                                                ),
+                                                                                                                #14907277431519531522,
+                                                                                                            ),
+                                                                                                            role: GenericContainer,
+                                                                                                            focused: false,
+                                                                                                            hidden: false,
+                                                                                                            disabled: false,
+                                                                                                            children: [
+                                                                                                                Node {
+                                                                                                                    id: FullNodeId(
+                                                                                                                        TreeIndex(
+                                                                                                                            0,
+                                                                                                                        ),
+                                                                                                                        #10219498507560073932,
+                                                                                                                    ),
+                                                                                                                    role: Label,
+                                                                                                                    value: "Maya · Designer",
+                                                                                                                    focused: false,
+                                                                                                                    hidden: false,
+                                                                                                                    disabled: false,
+                                                                                                                    children: [
+                                                                                                                        Node {
+                                                                                                                            id: FullNodeId(
+                                                                                                                                TreeIndex(
+                                                                                                                                    0,
+                                                                                                                                ),
+                                                                                                                                #16780507934143545418,
+                                                                                                                            ),
+                                                                                                                            role: TextRun,
+                                                                                                                            value: "Maya · Designer",
+                                                                                                                            focused: false,
+                                                                                                                            hidden: false,
+                                                                                                                            disabled: false,
+                                                                                                                            children: [],
+                                                                                                                        },
+                                                                                                                    ],
+                                                                                                                },
+                                                                                                                Node {
+                                                                                                                    id: FullNodeId(
+                                                                                                                        TreeIndex(
+                                                                                                                            0,
+                                                                                                                        ),
+                                                                                                                        #9101417085934745789,
+                                                                                                                    ),
+                                                                                                                    role: GenericContainer,
+                                                                                                                    focused: false,
+                                                                                                                    hidden: false,
+                                                                                                                    disabled: false,
+                                                                                                                    children: [
+                                                                                                                        Node {
+                                                                                                                            id: FullNodeId(
+                                                                                                                                TreeIndex(
+                                                                                                                                    0,
+                                                                                                                                ),
+                                                                                                                                #1434477819337440630,
+                                                                                                                            ),
+                                                                                                                            role: GenericContainer,
+                                                                                                                            focused: false,
+                                                                                                                            hidden: false,
+                                                                                                                            disabled: false,
+                                                                                                                            children: [
+                                                                                                                                Node {
+                                                                                                                                    id: FullNodeId(
+                                                                                                                                        TreeIndex(
+                                                                                                                                            0,
+                                                                                                                                        ),
+                                                                                                                                        #16977192966919699700,
+                                                                                                                                    ),
+                                                                                                                                    role: Button,
+                                                                                                                                    label: "Reply",
+                                                                                                                                    focused: false,
+                                                                                                                                    hidden: false,
+                                                                                                                                    disabled: false,
+                                                                                                                                    children: [],
+                                                                                                                                },
+                                                                                                                            ],
+                                                                                                                        },
+                                                                                                                        Node {
+                                                                                                                            id: FullNodeId(
+                                                                                                                                TreeIndex(
+                                                                                                                                    0,
+                                                                                                                                ),
+                                                                                                                                #4054581609344163086,
+                                                                                                                            ),
+                                                                                                                            role: GenericContainer,
+                                                                                                                            focused: false,
+                                                                                                                            hidden: false,
+                                                                                                                            disabled: false,
+                                                                                                                            children: [
+                                                                                                                                Node {
+                                                                                                                                    id: FullNodeId(
+                                                                                                                                        TreeIndex(
+                                                                                                                                            0,
+                                                                                                                                        ),
+                                                                                                                                        #4970669500782505892,
+                                                                                                                                    ),
+                                                                                                                                    role: Button,
+                                                                                                                                    label: "Copy message",
+                                                                                                                                    focused: false,
+                                                                                                                                    hidden: false,
+                                                                                                                                    disabled: false,
+                                                                                                                                    children: [],
+                                                                                                                                },
+                                                                                                                            ],
+                                                                                                                        },
+                                                                                                                    ],
+                                                                                                                },
+                                                                                                            ],
+                                                                                                        },
+                                                                                                        Node {
+                                                                                                            id: FullNodeId(
+                                                                                                                TreeIndex(
+                                                                                                                    0,
+                                                                                                                ),
+                                                                                                                #1340735790823413888,
+                                                                                                            ),
+                                                                                                            role: Label,
+                                                                                                            value: "Plan and critique our product direction together.",
+                                                                                                            focused: false,
+                                                                                                            hidden: false,
+                                                                                                            disabled: false,
+                                                                                                            children: [
+                                                                                                                Node {
+                                                                                                                    id: FullNodeId(
+                                                                                                                        TreeIndex(
+                                                                                                                            0,
+                                                                                                                        ),
+                                                                                                                        #4583935782794167495,
+                                                                                                                    ),
+                                                                                                                    role: TextRun,
+                                                                                                                    value: "Plan and critique our product direction together.",
+                                                                                                                    focused: false,
+                                                                                                                    hidden: false,
+                                                                                                                    disabled: false,
+                                                                                                                    children: [],
+                                                                                                                },
+                                                                                                            ],
+                                                                                                        },
+                                                                                                    ],
+                                                                                                },
+                                                                                            ],
+                                                                                        },
+                                                                                    ],
+                                                                                },
+                                                                            ],
+                                                                        },
+                                                                        Node {
+                                                                            id: FullNodeId(
+                                                                                TreeIndex(
+                                                                                    0,
+                                                                                ),
+                                                                                #6161773951194386533,
+                                                                            ),
+                                                                            role: Button,
+                                                                            label: "Updated Plan · revision 1",
+                                                                            focused: false,
+                                                                            hidden: false,
+                                                                            disabled: false,
+                                                                            children: [],
+                                                                        },
+                                                                        Node {
+                                                                            id: FullNodeId(
+                                                                                TreeIndex(
+                                                                                    0,
+                                                                                ),
+                                                                                #7826825695677184035,
+                                                                            ),
+                                                                            role: GenericContainer,
+                                                                            focused: false,
+                                                                            hidden: false,
+                                                                            disabled: false,
+                                                                            children: [
+                                                                                Node {
+                                                                                    id: FullNodeId(
+                                                                                        TreeIndex(
+                                                                                            0,
+                                                                                        ),
+                                                                                        #7022832979265426830,
+                                                                                    ),
+                                                                                    role: GenericContainer,
+                                                                                    focused: false,
+                                                                                    hidden: false,
+                                                                                    disabled: false,
+                                                                                    children: [
+                                                                                        Node {
+                                                                                            id: FullNodeId(
+                                                                                                TreeIndex(
+                                                                                                    0,
+                                                                                                ),
+                                                                                                #15549027033485904411,
+                                                                                            ),
+                                                                                            role: GenericContainer,
+                                                                                            focused: false,
+                                                                                            hidden: false,
+                                                                                            disabled: false,
+                                                                                            children: [
+                                                                                                Node {
+                                                                                                    id: FullNodeId(
+                                                                                                        TreeIndex(
+                                                                                                            0,
+                                                                                                        ),
+                                                                                                        #17723168589714854808,
+                                                                                                    ),
+                                                                                                    role: GenericContainer,
+                                                                                                    focused: false,
+                                                                                                    hidden: false,
+                                                                                                    disabled: false,
+                                                                                                    children: [
+                                                                                                        Node {
+                                                                                                            id: FullNodeId(
+                                                                                                                TreeIndex(
+                                                                                                                    0,
+                                                                                                                ),
+                                                                                                                #15000514090536682791,
+                                                                                                            ),
+                                                                                                            role: GenericContainer,
+                                                                                                            focused: false,
+                                                                                                            hidden: false,
+                                                                                                            disabled: false,
+                                                                                                            children: [
+                                                                                                                Node {
+                                                                                                                    id: FullNodeId(
+                                                                                                                        TreeIndex(
+                                                                                                                            0,
+                                                                                                                        ),
+                                                                                                                        #16827140801212348474,
+                                                                                                                    ),
+                                                                                                                    role: Label,
+                                                                                                                    value: "Agent",
+                                                                                                                    focused: false,
+                                                                                                                    hidden: false,
+                                                                                                                    disabled: false,
+                                                                                                                    children: [
+                                                                                                                        Node {
+                                                                                                                            id: FullNodeId(
+                                                                                                                                TreeIndex(
+                                                                                                                                    0,
+                                                                                                                                ),
+                                                                                                                                #2946227762726771840,
+                                                                                                                            ),
+                                                                                                                            role: TextRun,
+                                                                                                                            value: "Agent",
+                                                                                                                            focused: false,
+                                                                                                                            hidden: false,
+                                                                                                                            disabled: false,
+                                                                                                                            children: [],
+                                                                                                                        },
+                                                                                                                    ],
+                                                                                                                },
+                                                                                                                Node {
+                                                                                                                    id: FullNodeId(
+                                                                                                                        TreeIndex(
+                                                                                                                            0,
+                                                                                                                        ),
+                                                                                                                        #9221730853986181557,
+                                                                                                                    ),
+                                                                                                                    role: GenericContainer,
+                                                                                                                    focused: false,
+                                                                                                                    hidden: false,
+                                                                                                                    disabled: false,
+                                                                                                                    children: [
+                                                                                                                        Node {
+                                                                                                                            id: FullNodeId(
+                                                                                                                                TreeIndex(
+                                                                                                                                    0,
+                                                                                                                                ),
+                                                                                                                                #7078991262221789702,
+                                                                                                                            ),
+                                                                                                                            role: GenericContainer,
+                                                                                                                            focused: false,
+                                                                                                                            hidden: false,
+                                                                                                                            disabled: false,
+                                                                                                                            children: [
+                                                                                                                                Node {
+                                                                                                                                    id: FullNodeId(
+                                                                                                                                        TreeIndex(
+                                                                                                                                            0,
+                                                                                                                                        ),
+                                                                                                                                        #894319651502888820,
+                                                                                                                                    ),
+                                                                                                                                    role: Button,
+                                                                                                                                    label: "Reply",
+                                                                                                                                    focused: false,
+                                                                                                                                    hidden: false,
+                                                                                                                                    disabled: false,
+                                                                                                                                    children: [],
+                                                                                                                                },
+                                                                                                                            ],
+                                                                                                                        },
+                                                                                                                        Node {
+                                                                                                                            id: FullNodeId(
+                                                                                                                                TreeIndex(
+                                                                                                                                    0,
+                                                                                                                                ),
+                                                                                                                                #13160209309431518481,
+                                                                                                                            ),
+                                                                                                                            role: GenericContainer,
+                                                                                                                            focused: false,
+                                                                                                                            hidden: false,
+                                                                                                                            disabled: false,
+                                                                                                                            children: [
+                                                                                                                                Node {
+                                                                                                                                    id: FullNodeId(
+                                                                                                                                        TreeIndex(
+                                                                                                                                            0,
+                                                                                                                                        ),
+                                                                                                                                        #5823899705054467139,
+                                                                                                                                    ),
+                                                                                                                                    role: Button,
+                                                                                                                                    label: "Copy message",
+                                                                                                                                    focused: false,
+                                                                                                                                    hidden: false,
+                                                                                                                                    disabled: false,
+                                                                                                                                    children: [],
+                                                                                                                                },
+                                                                                                                            ],
+                                                                                                                        },
+                                                                                                                    ],
+                                                                                                                },
+                                                                                                            ],
+                                                                                                        },
+                                                                                                        Node {
+                                                                                                            id: FullNodeId(
+                                                                                                                TreeIndex(
+                                                                                                                    0,
+                                                                                                                ),
+                                                                                                                #2455997814456910318,
+                                                                                                            ),
+                                                                                                            role: GenericContainer,
+                                                                                                            focused: false,
+                                                                                                            hidden: false,
+                                                                                                            disabled: false,
+                                                                                                            children: [
+                                                                                                                Node {
+                                                                                                                    id: FullNodeId(
+                                                                                                                        TreeIndex(
+                                                                                                                            0,
+                                                                                                                        ),
+                                                                                                                        #17200859778845131540,
+                                                                                                                    ),
+                                                                                                                    role: GenericContainer,
+                                                                                                                    focused: false,
+                                                                                                                    hidden: false,
+                                                                                                                    disabled: false,
+                                                                                                                    children: [
+                                                                                                                        Node {
+                                                                                                                            id: FullNodeId(
+                                                                                                                                TreeIndex(
+                                                                                                                                    0,
+                                                                                                                                ),
+                                                                                                                                #12178478953648268260,
+                                                                                                                            ),
+                                                                                                                            role: Label,
+                                                                                                                            value: "“It works on my machine” is our starting point. Let’s turn it into “we can reproduce it together.” Review the shared page: design can question the framing, engineering can constrain the first release, and QA can challenge the edge cases.",
+                                                                                                                            focused: false,
+                                                                                                                            hidden: false,
+                                                                                                                            disabled: false,
+                                                                                                                            children: [],
+                                                                                                                        },
+                                                                                                                    ],
+                                                                                                                },
+                                                                                                            ],
+                                                                                                        },
+                                                                                                    ],
+                                                                                                },
+                                                                                            ],
+                                                                                        },
+                                                                                    ],
+                                                                                },
+                                                                            ],
+                                                                        },
+                                                                    ],
+                                                                },
+                                                            ],
+                                                        },
+                                                    ],
+                                                },
+                                            ],
+                                        },
+                                        Node {
+                                            id: FullNodeId(
+                                                TreeIndex(
+                                                    0,
+                                                ),
+                                                #12236407356714955022,
+                                            ),
+                                            role: GenericContainer,
+                                            focused: false,
+                                            hidden: false,
+                                            disabled: false,
+                                            children: [
+                                                Node {
+                                                    id: FullNodeId(
+                                                        TreeIndex(
+                                                            0,
+                                                        ),
+                                                        #3253601916797557991,
+                                                    ),
+                                                    role: GenericContainer,
+                                                    focused: false,
+                                                    hidden: false,
+                                                    disabled: false,
+                                                    children: [
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #11097411513748877664,
+                                                            ),
+                                                            role: Button,
+                                                            label: "Browser",
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            toggled: True,
+                                                            children: [],
+                                                        },
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #8697780180774775906,
+                                                            ),
+                                                            role: Button,
+                                                            label: "direction.md",
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            toggled: False,
+                                                            children: [],
+                                                        },
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #17505158552297713834,
+                                                            ),
+                                                            role: Button,
+                                                            label: "index.html",
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            toggled: False,
+                                                            children: [],
+                                                        },
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #7887918384430439476,
+                                                            ),
+                                                            role: Button,
+                                                            label: "Plan",
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            toggled: False,
+                                                            children: [],
+                                                        },
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #5520659167475308312,
+                                                            ),
+                                                            role: GenericContainer,
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            children: [
+                                                                Node {
+                                                                    id: FullNodeId(
+                                                                        TreeIndex(
+                                                                            0,
+                                                                        ),
+                                                                        #12843536631823762351,
+                                                                    ),
+                                                                    role: Button,
+                                                                    label: "Expand workspace",
+                                                                    focused: false,
+                                                                    hidden: false,
+                                                                    disabled: false,
+                                                                    children: [],
+                                                                },
+                                                            ],
+                                                        },
+                                                    ],
+                                                },
+                                                Node {
+                                                    id: FullNodeId(
+                                                        TreeIndex(
+                                                            0,
+                                                        ),
+                                                        #8096434330841443224,
+                                                    ),
+                                                    role: GenericContainer,
+                                                    focused: false,
+                                                    hidden: false,
+                                                    disabled: false,
+                                                    children: [
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #14805661483876164076,
+                                                            ),
+                                                            role: GenericContainer,
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            children: [
+                                                                Node {
+                                                                    id: FullNodeId(
+                                                                        TreeIndex(
+                                                                            0,
+                                                                        ),
+                                                                        #15037708043711880043,
+                                                                    ),
+                                                                    role: GenericContainer,
+                                                                    focused: false,
+                                                                    hidden: false,
+                                                                    disabled: false,
+                                                                    children: [
+                                                                        Node {
+                                                                            id: FullNodeId(
+                                                                                TreeIndex(
+                                                                                    0,
+                                                                                ),
+                                                                                #18357166808027614249,
+                                                                            ),
+                                                                            role: Button,
+                                                                            label: "Back",
+                                                                            focused: false,
+                                                                            hidden: false,
+                                                                            disabled: true,
+                                                                            children: [],
+                                                                        },
+                                                                    ],
+                                                                },
+                                                                Node {
+                                                                    id: FullNodeId(
+                                                                        TreeIndex(
+                                                                            0,
+                                                                        ),
+                                                                        #12954371334024915282,
+                                                                    ),
+                                                                    role: GenericContainer,
+                                                                    focused: false,
+                                                                    hidden: false,
+                                                                    disabled: false,
+                                                                    children: [
+                                                                        Node {
+                                                                            id: FullNodeId(
+                                                                                TreeIndex(
+                                                                                    0,
+                                                                                ),
+                                                                                #11477932280420252741,
+                                                                            ),
+                                                                            role: Button,
+                                                                            label: "Reload",
+                                                                            focused: false,
+                                                                            hidden: false,
+                                                                            disabled: true,
+                                                                            children: [],
+                                                                        },
+                                                                    ],
+                                                                },
+                                                                Node {
+                                                                    id: FullNodeId(
+                                                                        TreeIndex(
+                                                                            0,
+                                                                        ),
+                                                                        #2267167835337902968,
+                                                                    ),
+                                                                    role: GenericContainer,
+                                                                    focused: false,
+                                                                    hidden: false,
+                                                                    disabled: false,
+                                                                    children: [
+                                                                        Node {
+                                                                            id: FullNodeId(
+                                                                                TreeIndex(
+                                                                                    0,
+                                                                                ),
+                                                                                #11081841898959640916,
+                                                                            ),
+                                                                            role: TextInput,
+                                                                            label: "Address",
+                                                                            value: "https://rat-artifacts.invalid/index.html",
+                                                                            focused: false,
+                                                                            hidden: false,
+                                                                            disabled: true,
+                                                                            children: [
+                                                                                Node {
+                                                                                    id: FullNodeId(
+                                                                                        TreeIndex(
+                                                                                            0,
+                                                                                        ),
+                                                                                        #15947245406212377276,
+                                                                                    ),
+                                                                                    role: TextRun,
+                                                                                    value: "https://rat-artifacts.invalid/index.html",
+                                                                                    focused: false,
+                                                                                    hidden: false,
+                                                                                    disabled: false,
+                                                                                    children: [],
+                                                                                },
+                                                                            ],
+                                                                        },
+                                                                    ],
+                                                                },
+                                                                Node {
+                                                                    id: FullNodeId(
+                                                                        TreeIndex(
+                                                                            0,
+                                                                        ),
+                                                                        #17209234450751079881,
+                                                                    ),
+                                                                    role: GenericContainer,
+                                                                    focused: false,
+                                                                    hidden: false,
+                                                                    disabled: false,
+                                                                    children: [
+                                                                        Node {
+                                                                            id: FullNodeId(
+                                                                                TreeIndex(
+                                                                                    0,
+                                                                                ),
+                                                                                #567634726418728986,
+                                                                            ),
+                                                                            role: Button,
+                                                                            label: "Go",
+                                                                            focused: false,
+                                                                            hidden: false,
+                                                                            disabled: true,
+                                                                            children: [],
+                                                                        },
+                                                                    ],
+                                                                },
+                                                            ],
+                                                        },
+                                                    ],
+                                                },
+                                                Node {
+                                                    id: FullNodeId(
+                                                        TreeIndex(
+                                                            0,
+                                                        ),
+                                                        #18334805396698041952,
+                                                    ),
+                                                    role: GenericContainer,
+                                                    focused: false,
+                                                    hidden: false,
+                                                    disabled: false,
+                                                    children: [
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #8707111571041736590,
+                                                            ),
+                                                            role: GenericContainer,
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            children: [
+                                                                Node {
+                                                                    id: FullNodeId(
+                                                                        TreeIndex(
+                                                                            0,
+                                                                        ),
+                                                                        #10910871769400438342,
+                                                                    ),
+                                                                    role: Button,
+                                                                    label: "Annotate",
+                                                                    focused: false,
+                                                                    hidden: false,
+                                                                    disabled: false,
+                                                                    toggled: False,
+                                                                    children: [],
+                                                                },
+                                                            ],
+                                                        },
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #13845982973581149726,
+                                                            ),
+                                                            role: GenericContainer,
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            children: [
+                                                                Node {
+                                                                    id: FullNodeId(
+                                                                        TreeIndex(
+                                                                            0,
+                                                                        ),
+                                                                        #4914189879531351447,
+                                                                    ),
+                                                                    role: Button,
+                                                                    label: "Select text",
+                                                                    focused: false,
+                                                                    hidden: false,
+                                                                    disabled: false,
+                                                                    toggled: False,
+                                                                    children: [],
+                                                                },
+                                                            ],
+                                                        },
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #389175172911898826,
+                                                            ),
+                                                            role: GenericContainer,
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            children: [
+                                                                Node {
+                                                                    id: FullNodeId(
+                                                                        TreeIndex(
+                                                                            0,
+                                                                        ),
+                                                                        #10220044635650730132,
+                                                                    ),
+                                                                    role: Button,
+                                                                    label: "Browser controls",
+                                                                    focused: false,
+                                                                    hidden: false,
+                                                                    disabled: false,
+                                                                    children: [],
+                                                                },
+                                                            ],
+                                                        },
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #18434150030163938658,
+                                                            ),
+                                                            role: GenericContainer,
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            children: [
+                                                                Node {
+                                                                    id: FullNodeId(
+                                                                        TreeIndex(
+                                                                            0,
+                                                                        ),
+                                                                        #9966132628716449414,
+                                                                    ),
+                                                                    role: Button,
+                                                                    label: "Scroll up",
+                                                                    focused: false,
+                                                                    hidden: false,
+                                                                    disabled: true,
+                                                                    children: [],
+                                                                },
+                                                            ],
+                                                        },
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #4602924391838028013,
+                                                            ),
+                                                            role: GenericContainer,
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            children: [
+                                                                Node {
+                                                                    id: FullNodeId(
+                                                                        TreeIndex(
+                                                                            0,
+                                                                        ),
+                                                                        #4485388189292849207,
+                                                                    ),
+                                                                    role: Button,
+                                                                    label: "Scroll down",
+                                                                    focused: false,
+                                                                    hidden: false,
+                                                                    disabled: true,
+                                                                    children: [],
+                                                                },
+                                                            ],
+                                                        },
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #1486214230808882862,
+                                                            ),
+                                                            role: GenericContainer,
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            children: [
+                                                                Node {
+                                                                    id: FullNodeId(
+                                                                        TreeIndex(
+                                                                            0,
+                                                                        ),
+                                                                        #5871781447816742097,
+                                                                    ),
+                                                                    role: Button,
+                                                                    label: "Desktop viewport",
+                                                                    focused: false,
+                                                                    hidden: false,
+                                                                    disabled: true,
+                                                                    toggled: False,
+                                                                    children: [],
+                                                                },
+                                                            ],
+                                                        },
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #2332521693768910296,
+                                                            ),
+                                                            role: GenericContainer,
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            children: [
+                                                                Node {
+                                                                    id: FullNodeId(
+                                                                        TreeIndex(
+                                                                            0,
+                                                                        ),
+                                                                        #5185207813514351596,
+                                                                    ),
+                                                                    role: Button,
+                                                                    label: "Phone viewport",
+                                                                    focused: false,
+                                                                    hidden: false,
+                                                                    disabled: true,
+                                                                    toggled: True,
+                                                                    children: [],
+                                                                },
+                                                            ],
+                                                        },
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #9553704362132951007,
+                                                            ),
+                                                            role: GenericContainer,
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            children: [
+                                                                Node {
+                                                                    id: FullNodeId(
+                                                                        TreeIndex(
+                                                                            0,
+                                                                        ),
+                                                                        #8135686442696822692,
+                                                                    ),
+                                                                    role: GenericContainer,
+                                                                    focused: false,
+                                                                    hidden: false,
+                                                                    disabled: false,
+                                                                    children: [
+                                                                        Node {
+                                                                            id: FullNodeId(
+                                                                                TreeIndex(
+                                                                                    0,
+                                                                                ),
+                                                                                #5731026427551258129,
+                                                                            ),
+                                                                            role: Button,
+                                                                            label: "Reset zoom",
+                                                                            focused: false,
+                                                                            hidden: false,
+                                                                            disabled: true,
+                                                                            children: [],
+                                                                        },
+                                                                    ],
+                                                                },
+                                                                Node {
+                                                                    id: FullNodeId(
+                                                                        TreeIndex(
+                                                                            0,
+                                                                        ),
+                                                                        #17733330392657445096,
+                                                                    ),
+                                                                    role: GenericContainer,
+                                                                    focused: false,
+                                                                    hidden: false,
+                                                                    disabled: false,
+                                                                    children: [
+                                                                        Node {
+                                                                            id: FullNodeId(
+                                                                                TreeIndex(
+                                                                                    0,
+                                                                                ),
+                                                                                #13256183603721495202,
+                                                                            ),
+                                                                            role: Button,
+                                                                            label: "Zoom in",
+                                                                            focused: false,
+                                                                            hidden: false,
+                                                                            disabled: false,
+                                                                            children: [],
+                                                                        },
+                                                                    ],
+                                                                },
+                                                                Node {
+                                                                    id: FullNodeId(
+                                                                        TreeIndex(
+                                                                            0,
+                                                                        ),
+                                                                        #14176219297259045736,
+                                                                    ),
+                                                                    role: GenericContainer,
+                                                                    focused: false,
+                                                                    hidden: false,
+                                                                    disabled: false,
+                                                                    children: [
+                                                                        Node {
+                                                                            id: FullNodeId(
+                                                                                TreeIndex(
+                                                                                    0,
+                                                                                ),
+                                                                                #7328971977915896352,
+                                                                            ),
+                                                                            role: Label,
+                                                                            value: "Fit",
+                                                                            focused: false,
+                                                                            hidden: false,
+                                                                            disabled: false,
+                                                                            children: [
+                                                                                Node {
+                                                                                    id: FullNodeId(
+                                                                                        TreeIndex(
+                                                                                            0,
+                                                                                        ),
+                                                                                        #6158235079885333090,
+                                                                                    ),
+                                                                                    role: TextRun,
+                                                                                    value: "Fit",
+                                                                                    focused: false,
+                                                                                    hidden: false,
+                                                                                    disabled: false,
+                                                                                    children: [],
+                                                                                },
+                                                                            ],
+                                                                        },
+                                                                    ],
+                                                                },
+                                                                Node {
+                                                                    id: FullNodeId(
+                                                                        TreeIndex(
+                                                                            0,
+                                                                        ),
+                                                                        #16932219181232500111,
+                                                                    ),
+                                                                    role: GenericContainer,
+                                                                    focused: false,
+                                                                    hidden: false,
+                                                                    disabled: false,
+                                                                    children: [
+                                                                        Node {
+                                                                            id: FullNodeId(
+                                                                                TreeIndex(
+                                                                                    0,
+                                                                                ),
+                                                                                #13498355909555246934,
+                                                                            ),
+                                                                            role: Button,
+                                                                            label: "Zoom out",
+                                                                            focused: false,
+                                                                            hidden: false,
+                                                                            disabled: true,
+                                                                            children: [],
+                                                                        },
+                                                                    ],
+                                                                },
+                                                            ],
+                                                        },
+                                                    ],
+                                                },
+                                                Node {
+                                                    id: FullNodeId(
+                                                        TreeIndex(
+                                                            0,
+                                                        ),
+                                                        #13759036125073352039,
+                                                    ),
+                                                    role: GenericContainer,
+                                                    focused: false,
+                                                    hidden: false,
+                                                    disabled: false,
+                                                    children: [
+                                                        Node {
+                                                            id: FullNodeId(
+                                                                TreeIndex(
+                                                                    0,
+                                                                ),
+                                                                #7964321848554387063,
+                                                            ),
+                                                            role: GenericContainer,
+                                                            focused: false,
+                                                            hidden: false,
+                                                            disabled: false,
+                                                            children: [
+                                                                Node {
+                                                                    id: FullNodeId(
+                                                                        TreeIndex(
+                                                                            0,
+                                                                        ),
+                                                                        #6115657301351523638,
+                                                                    ),
+                                                                    role: GenericContainer,
+                                                                    focused: false,
+                                                                    hidden: false,
+                                                                    disabled: false,
+                                                                    children: [
+                                                                        Node {
+                                                                            id: FullNodeId(
+                                                                                TreeIndex(
+                                                                                    0,
+                                                                                ),
+                                                                                #16094188861679642498,
+                                                                            ),
+                                                                            role: GenericContainer,
+                                                                            focused: false,
+                                                                            hidden: false,
+                                                                            disabled: false,
+                                                                            children: [
+                                                                                Node {
+                                                                                    id: FullNodeId(
+                                                                                        TreeIndex(
+                                                                                            0,
+                                                                                        ),
+                                                                                        #13759097494583590509,
+                                                                                    ),
+                                                                                    role: Image,
+                                                                                    focused: false,
+                                                                                    hidden: false,
+                                                                                    disabled: false,
+                                                                                    children: [],
+                                                                                },
+                                                                            ],
+                                                                        },
+                                                                    ],
+                                                                },
+                                                                Node {
+                                                                    id: FullNodeId(
+                                                                        TreeIndex(
+                                                                            0,
+                                                                        ),
+                                                                        #8654003872630898355,
+                                                                    ),
+                                                                    role: GenericContainer,
+                                                                    focused: false,
+                                                                    hidden: false,
+                                                                    disabled: false,
+                                                                    children: [
+                                                                        Node {
+                                                                            id: FullNodeId(
+                                                                                TreeIndex(
+                                                                                    0,
+                                                                                ),
+                                                                                #9907971028384704814,
+                                                                            ),
+                                                                            role: Label,
+                                                                            value: "Feedback",
+                                                                            focused: false,
+                                                                            hidden: false,
+                                                                            disabled: false,
+                                                                            children: [
+                                                                                Node {
+                                                                                    id: FullNodeId(
+                                                                                        TreeIndex(
+                                                                                            0,
+                                                                                        ),
+                                                                                        #11034683192817377895,
+                                                                                    ),
+                                                                                    role: TextRun,
+                                                                                    value: "Feedback",
+                                                                                    focused: false,
+                                                                                    hidden: false,
+                                                                                    disabled: false,
+                                                                                    children: [],
+                                                                                },
+                                                                            ],
+                                                                        },
+                                                                        Node {
+                                                                            id: FullNodeId(
+                                                                                TreeIndex(
+                                                                                    0,
+                                                                                ),
+                                                                                #9621973600107012356,
+                                                                            ),
+                                                                            role: Button,
+                                                                            label: "Everyone",
+                                                                            focused: false,
+                                                                            hidden: false,
+                                                                            disabled: false,
+                                                                            toggled: True,
+                                                                            children: [],
+                                                                        },
+                                                                        Node {
+                                                                            id: FullNodeId(
+                                                                                TreeIndex(
+                                                                                    0,
+                                                                                ),
+                                                                                #12207161894933097594,
+                                                                            ),
+                                                                            role: Button,
+                                                                            label: "Mine",
+                                                                            focused: false,
+                                                                            hidden: false,
+                                                                            disabled: false,
+                                                                            toggled: False,
+                                                                            children: [],
+                                                                        },
+                                                                        Node {
+                                                                            id: FullNodeId(
+                                                                                TreeIndex(
+                                                                                    0,
+                                                                                ),
+                                                                                #9722351586008175745,
+                                                                            ),
+                                                                            role: CheckBox,
+                                                                            label: "Resolved",
+                                                                            focused: false,
+                                                                            hidden: false,
+                                                                            disabled: false,
+                                                                            toggled: False,
+                                                                            children: [],
+                                                                        },
+                                                                    ],
+                                                                },
+                                                                Node {
+                                                                    id: FullNodeId(
+                                                                        TreeIndex(
+                                                                            0,
+                                                                        ),
+                                                                        #13328585133129631258,
+                                                                    ),
+                                                                    role: Label,
+                                                                    value: "No feedback on this source yet.",
+                                                                    focused: false,
+                                                                    hidden: false,
+                                                                    disabled: false,
+                                                                    children: [
+                                                                        Node {
+                                                                            id: FullNodeId(
+                                                                                TreeIndex(
+                                                                                    0,
+                                                                                ),
+                                                                                #3918342250377694075,
+                                                                            ),
+                                                                            role: TextRun,
+                                                                            value: "No feedback on this source yet.",
+                                                                            focused: false,
+                                                                            hidden: false,
+                                                                            disabled: false,
+                                                                            children: [],
+                                                                        },
+                                                                    ],
+                                                                },
+                                                            ],
+                                                        },
+                                                    ],
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    ],
+}

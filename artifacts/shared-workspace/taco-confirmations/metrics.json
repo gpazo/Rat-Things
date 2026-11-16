@@ -1,0 +1,58 @@
+{
+  "model": "gpt-6-luna",
+  "provider": "ChatGPT subscription through local Codex",
+  "turns": [
+    {
+      "status": "completed",
+      "duration_seconds": 150,
+      "total_tokens": 187475
+    },
+    {
+      "status": "completed",
+      "duration_seconds": 50,
+      "total_tokens": 218158
+    },
+    {
+      "status": "completed",
+      "duration_seconds": 2,
+      "total_tokens": 37485
+    }
+  ],
+  "usage": {
+    "input_tokens": 434237,
+    "output_tokens": 8881,
+    "total_tokens": 443118,
+    "cached_input_tokens": 384000,
+    "uncached_input_tokens": 50237
+  },
+  "participant_colors": {
+    "Alex \u00b7 Client lead": "#d9adf5",
+    "Maya \u00b7 Designer": "#8fc9ff",
+    "Eli \u00b7 Engineer": "#f3c77b",
+    "Sam \u00b7 QA": "#f2a9c2"
+  },
+  "receipts": 6,
+  "plan_revision": 3,
+  "plan_items": 5,
+  "resolved_annotations": 1,
+  "tool_items": 11,
+  "artifact_sha256": {
+    "first-draft.html": "e818e8ae4f73d4a6e89d0a50c977dac6b00424fe4c32185e072f9e20c3003088",
+    "index.html": "324b547e2a8e62e1d694f3d324c18398759de41df515b2d2afcd6c17915954f7",
+    "latest.html": "324b547e2a8e62e1d694f3d324c18398759de41df515b2d2afcd6c17915954f7"
+  },
+  "cost": {
+    "direct_paid_api_usd": 0,
+    "aws_resources_created": 0,
+    "subscription_incremental_cost": "unavailable; not API-billed",
+    "delegated_analysis_usage_and_cost": "unavailable",
+    "local_infrastructure_energy_cost": "unavailable"
+  },
+  "limits": {
+    "max_turns": 4,
+    "max_observed_tokens": 1200000,
+    "max_tool_items": 120,
+    "max_active_ms": 2100000,
+    "review_ms": 600000
+  }
+}

@@ -1,0 +1,8 @@
+   Compiling rat-things-desktop v0.1.0 (/Users/gp/src/rat-things/.codex/pstack-runs/shared-feedback/main/desktop)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.28s
+     Running tests/console_e2e.rs (/Users/gp/src/rat-things/.codex/participant-colors/desktop/target/debug/deps/console_e2e-d7705e6b633c1876)
+
+running 1 test
+test captured_source_context_uses_chat_send_and_reopens_the_saved_page_after_navigation ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 10.63s

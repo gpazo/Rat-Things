@@ -1,0 +1,170 @@
+
+> rat-things@0.1.0 console:check
+> cargo fmt --manifest-path desktop/Cargo.toml --check && cargo clippy --locked --manifest-path desktop/Cargo.toml --all-targets -- -D warnings && cargo test --locked --manifest-path desktop/Cargo.toml -- --test-threads=1
+
+    Checking rat-things-desktop v0.1.0 (/Users/gp/src/rat-things/.codex/pstack-runs/shared-feedback/main/desktop)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.61s
+   Compiling rat-things-desktop v0.1.0 (/Users/gp/src/rat-things/.codex/pstack-runs/shared-feedback/main/desktop)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.68s
+     Running unittests src/lib.rs (/Users/gp/src/rat-things/.codex/participant-colors/desktop/target/debug/deps/rat_things_desktop-70c744fd92245a54)
+
+running 86 tests
+test api::tests::activity_resumes_cursor_and_ignores_unchanged_permissions_before_live_downgrade ... ok
+test api::tests::activity_stream_delivers_multiple_frames_before_finishing ... ok
+test api::tests::cancelling_activity_after_a_frame_stops_further_delivery ... ok
+test api::tests::catalogs_filter_pi_and_keep_codex_request_unchanged ... ok
+test api::tests::download_names_cannot_traverse_directories ... ok
+test api::tests::local_failures_preserve_rejection_status_without_accepting_error_bodies ... ok
+test api::tests::rejects_upstream_destinations_at_construction ... ok
+test api::tests::runtime_submission_rejects_a_full_reserved_queue_without_enqueuing ... ok
+test api::tests::session_runtime_readback_ignores_editable_metadata ... ok
+test api::tests::worker_cancels_the_active_activity_token ... ok
+test app::artifacts::captured_context_tests::actual_size_ignores_fit_bounds_and_attribution_requires_the_current_revision ... ok
+test app::artifacts::captured_context_tests::browser_element_hit_chooses_the_smallest_containing_rectangle ... ok
+test app::artifacts::captured_context_tests::browser_pins_only_overlay_the_capture_being_viewed ... ok
+test app::artifacts::captured_context_tests::capture_status_tracks_frame_revision_even_at_same_url ... ok
+test app::artifacts::captured_context_tests::clearing_workspace_keeps_session_idempotency_keys_and_advances_generation ... ok
+test app::artifacts::captured_context_tests::element_feedback_sends_identity_without_trusting_client_geometry ... ok
+test app::artifacts::captured_context_tests::file_tabs_group_versions_and_preserve_the_selected_source ... ok
+test app::artifacts::captured_context_tests::opening_a_saved_source_fences_pending_requests_and_keeps_idempotency_keys ... ok
+test app::artifacts::captured_context_tests::published_element_pins_and_outlines_use_the_saved_bounds_without_a_live_frame ... ok
+test app::artifacts::captured_context_tests::selected_text_anchor_accepts_a_single_character ... ok
+test app::artifacts::captured_context_tests::selected_text_anchor_converts_unicode_character_ranges_to_utf16 ... ok
+test app::artifacts::captured_context_tests::selected_text_anchor_enforces_the_utf16_unit_limit ... ok
+test app::artifacts::captured_context_tests::selected_text_anchor_rejects_empty_or_unbounded_ranges ... ok
+test app::collaboration::tests::multiplayer_layout_and_typing_labels ... ok
+test app::collaboration::tests::selecting_reply_preserves_the_draft_and_cancel_keeps_it ... ok
+test app::collaboration::tests::typing_excludes_self_and_expires_during_disconnect ... ok
+test app::confirmation::tests::editing_clears_a_receipt_but_preserves_an_inflight_save ... ok
+test app::confirmation::tests::save_outcome_requires_its_own_mutation_acknowledgment ... ok
+test app::conversation::tests::progress_never_presents_waiting_or_failed_work_as_complete ... ok
+test app::local_tests::a_definitive_copy_rejection_does_not_introduce_uncertainty ... ok
+test app::local_tests::completed_review_remains_bound_to_its_original_draft ... ok
+test app::local_tests::copy_submissions_require_a_stable_local_workspace ... ok
+test app::local_tests::local_rejection_retires_only_a_submission_without_an_accepted_receipt ... ok
+test app::local_tests::login_retry_keeps_its_id_and_opens_only_the_matching_auth_url ... ok
+test app::local_tests::retry_rejection_cannot_erase_an_earlier_uncertain_submission ... ok
+test app::local_tests::runtime_changes_ignore_receipts_for_other_requests_and_keep_retry_identity ... ok
+test app::local_tests::runtime_changes_poll_only_after_acceptance_and_until_a_terminal_result ... ok
+test app::local_tests::runtime_status_keeps_the_last_successful_data_after_transient_errors ... ok
+test app::local_tests::saved_copy_paging_keeps_one_page_and_preserves_the_selected_plan ... ok
+test app::local_tests::uncertain_copy_execution_reconciles_without_replacing_its_saved_identity ... ok
+test app::read_status::tests::receive_fences_old_read_results_and_preserves_mutation_errors ... ok
+test app::read_status::tests::recovery_is_owned_by_the_matching_read ... ok
+test app::runtime_tests::catalog_refresh_preserves_a_saved_model_and_reports_unavailable ... ok
+test app::runtime_tests::clearing_agent_metadata_restores_default_runtime_for_future_sessions ... ok
+test app::runtime_tests::runtime_picker_preserves_metadata_and_selects_compatible_default ... ok
+test app::runtime_tests::runtime_switch_replaces_only_incompatible_models ... ok
+test app::runtime_tests::saved_agent_runtime_is_inherited_and_pi_restrictions_are_visible ... ok
+test app::team::authority_tests::delayed_authority_cannot_restore_an_earlier_role_or_clear_another_workspace ... ok
+test app::team::authority_tests::idle_authority_revocation_clears_every_view_with_workspace_open_or_closed ... ok
+test app::team::authority_tests::idle_downgrade_removes_vault_content_and_reloads_allowed_sessions ... ok
+test app::team::authority_tests::idle_expired_identity_and_missing_membership_both_clear_the_unselected_session_index ... ok
+test app::team::authority_tests::idle_role_change_restarts_held_readable_details_and_discards_the_old_reply ... ok
+test app::team::authority_tests::only_managers_see_invite_link_controls ... ok
+test app::team::authority_tests::stale_authority_expires_while_its_request_is_still_pending ... ok
+test app::team::tests::a_used_invite_keeps_the_link_and_reports_why ... ok
+test app::team::tests::ambiguous_input_reuses_the_same_request_key ... ok
+test app::team::tests::cancelling_account_choice_clears_the_chooser_and_keeps_the_invite ... ok
+test app::team::tests::cancelling_invite_sign_in_does_not_reuse_the_invite_for_a_new_sign_in ... ok
+test app::team::tests::completing_share_preserves_navigation_to_another_session ... ok
+test app::team::tests::created_invite_uses_the_team_endpoint_and_is_cleared_when_management_ends ... ok
+test app::team::tests::editing_an_invite_clears_the_old_provider_choice ... ok
+test app::team::tests::failed_activity_refresh_keeps_the_last_history_and_draft ... ok
+test app::team::tests::held_activity_cannot_replace_a_new_selection ... ok
+test app::team::tests::held_activity_retains_history_and_draft_then_applies_viewer_controls ... ok
+test app::team::tests::imported_actor_claims_are_labelled_as_imported ... ok
+test app::team::tests::invite_account_choice_submits_the_chosen_connection_id ... ok
+test app::team::tests::invite_links_keep_the_secret_in_the_fragment_and_label_expiry ... ok
+test app::team::tests::joining_signs_in_with_the_chosen_provider_then_opens_the_joined_space ... ok
+test app::team::tests::revoked_activity_clears_content_and_render_caches ... ok
+test app::team::tests::roles_fail_closed ... ok
+test app::team::tests::share_ambiguity_preserves_id_and_handoff_opens_the_same_session ... ok
+test icons::tests::compact_actions_keep_names_focus_activation_and_disabled_state ... ok
+test markdown::tests::checklists_render_read_only_aligned_and_wrap_within_the_message ... ok
+test markdown::tests::only_web_links_survive_and_images_never_load ... ok
+test markdown::tests::task_lists_keep_states_formatting_nesting_and_ordinary_siblings ... ok
+test model::activity_tests::a_different_turns_tool_result_does_not_complete_a_plan_call ... ok
+test model::activity_tests::a_generated_plan_call_does_not_claim_an_update_was_saved ... ok
+test model::activity_tests::pending_activity_messages_render_once_then_dedupe_after_materialization ... ok
+test model::activity_tests::plan_output_error_cannot_claim_success_even_with_completed_status ... ok
+test model::activity_tests::plan_output_status_controls_the_single_visible_update ... ok
+test model::activity_tests::saved_plan_revision_reads_host_results_and_ignores_conflict_heads ... ok
+test session_copy::tests::absent_source_needs_an_explicit_destination_choice ... ok
+test session_copy::tests::old_catalog_reply_does_not_clear_a_newer_request ... ok
+test session_copy::tests::refresh_does_not_substitute_for_a_removed_selected_model ... ok
+test session_copy::tests::refresh_failure_keeps_the_catalog_and_choice_until_recovery ... ok
+test session_copy::tests::saved_copy_pages_require_a_valid_cursor_and_plan_shape ... ok
+
+test result: ok. 86 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.76s
+
+     Running unittests src/main.rs (/Users/gp/src/rat-things/.codex/participant-colors/desktop/target/debug/deps/rat_things_desktop-de294997e8af9afa)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/agents_live_recording.rs (/Users/gp/src/rat-things/.codex/participant-colors/desktop/target/debug/deps/agents_live_recording-bb2a37a1077bdd9d)
+
+running 1 test
+test record_agents_live_session ... ignored, Observes a live local Session started by agents-live/server.ts
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/browser_e2e.rs (/Users/gp/src/rat-things/.codex/participant-colors/desktop/target/debug/deps/browser_e2e-21b89f5205def521)
+
+running 1 test
+test real_browser_output_reaches_native_files ... ignored, Requires installed Chromium; run npm run test:e2e:browser
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/console_e2e.rs (/Users/gp/src/rat-things/.codex/participant-colors/desktop/target/debug/deps/console_e2e-d7705e6b633c1876)
+
+running 31 tests
+test cancelling_page_capture_fences_a_late_capture_response ... ok
+test captured_source_context_uses_chat_send_and_reopens_the_saved_page_after_navigation ... FAILED
+test chatgpt_sign_in_retries_one_flow_and_cancels_only_its_saved_id ... ok
+test explicit_browser_click_preempts_an_inflight_refresh_with_original_revision ... ok
+test held_reply_completion_preserves_draft_after_retargeting ... ok
+test local_setup_retains_inputs_through_slow_failure_and_retry ... ok
+test local_workspace_welcome_starters_and_failed_cloud_connection ... ok
+test long_activity_does_not_widen_the_conversation_past_the_workspace ... ok
+test message_save_confirmation_waits_for_ack_and_clears_for_a_new_draft ... ok
+test model_catalog_recovers_from_errors_and_retains_saved_values ... ok
+test native_console_real_service_journey ... ok
+test native_copy_controls_wait_for_a_workspace_switch_to_finish ... ok
+test native_copy_ignores_old_models_and_keeps_polling_after_the_window_closes ... ok
+test native_copy_requires_a_destination_model_and_recovers_the_saved_review_after_restart ... ok
+test native_progress_continues_while_account_and_login_requests_are_held ... ok
+test native_setup_retries_uncertain_requests_and_stops_polling_at_restart ... ok
+test pi_session_selects_bedrock_model_rejects_unsupported_effort_and_reads_runtime_pin ... ok
+test plan_is_agent_owned_navigable_and_has_read_only_revision_history ... ok
+test refresh_failure_recovers_in_place_without_hiding_a_failed_send ... ok
+test refresh_preserves_visible_content_drafts_and_selection ... ok
+test rejected_native_setup_can_be_dismissed_without_retrying_another_owners_work ... ok
+test replies_keep_the_original_context_through_the_native_composer_and_service ... ok
+test rollback_uses_its_own_action_and_development_keeps_the_setup_command ... ok
+test server_failure_after_native_acceptance_keeps_the_id_and_cannot_be_dismissed ... ok
+test session_environment_picker_uses_templates_and_preserves_custom_configuration ... ok
+test session_index_includes_later_pages_and_preserves_archive_filter ... ok
+test session_workspace_search_pin_rename_undo_and_draft_navigation ... ok
+test sessions_archive_from_context_menu_and_restore_after_reopening ... ok
+test sidebar_keeps_long_titles_compact_and_names_new_conversations ... ok
+test uncertain_workspace_send_keeps_its_idempotency_key_across_session_navigation ... ok
+test workspace_switch_preserves_current_work_during_slow_failure_and_recovers ... ok
+
+failures:
+
+---- captured_source_context_uses_chat_send_and_reopens_the_saved_page_after_navigation stdout ----
+
+thread 'captured_source_context_uses_chat_send_and_reopens_the_saved_page_after_navigation' (53851853) panicked at tests/support/harness.rs:107:9:
+Timed out waiting for Resolving…
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    captured_source_context_uses_chat_send_and_reopens_the_saved_page_after_navigation
+
+test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 213.62s
+
+error: test failed, to rerun pass `--test console_e2e`

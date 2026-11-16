@@ -1,0 +1,38 @@
+{
+  "npm_run_check": {
+    "exit_code": 0,
+    "tests_passed": 3137,
+    "tests_skipped": 86,
+    "test_files_passed": 347,
+    "stages": "architecture, generated API contracts, typecheck, MicroVM syntax, tests, package and Lambda smoke, site build, three Terraform format/validation targets"
+  },
+  "npm_run_console_check": {
+    "exit_code": 0,
+    "unit_tests_passed": 84,
+    "native_tests_passed": 30,
+    "opt_in_tests_skipped": 8,
+    "scope": "before final recovery button copy and frame-poll priority follow-up"
+  },
+  "final_follow_up": {
+    "format": "passed",
+    "clippy_all_targets": "passed",
+    "held_captured_feedback_and_resolution_test": "passed",
+    "four_live_native_clients": "all four passed",
+    "git_diff_check": "passed"
+  },
+  "live_model": "gpt-6-luna via local ChatGPT subscription",
+  "not_tested": [
+    "AWS",
+    "OIDC and broad RBAC/revocation integration",
+    "high-concurrency load and latency scaling",
+    "OS accessibility and screen readers",
+    "full website functional/responsive/a11y coverage",
+    "image-only annotation comprehension",
+    "hard-budget cancellation against a live provider"
+  ],
+  "cleanup_exact_name_check": {
+    "containers_remaining": 0,
+    "volumes_remaining": 0,
+    "private_connection_removed": true
+  }
+}

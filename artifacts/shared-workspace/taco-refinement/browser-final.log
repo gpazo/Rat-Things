@@ -1,0 +1,13 @@
+
+ RUN  v3.2.7 /Users/gp/src/rat-things/.codex/pstack-runs/shared-feedback/main
+
+ ✓ tests/runner/shared-browser.test.ts (9 tests) 13194ms
+   ✓ allows cold browser initialization to exceed the interactive command deadline  11053ms
+   ✓ shares one real browser, fences competing clicks, preserves captured pages, and confines generated HTML  1272ms
+   ✓ navigates Taco Cometa links and resizes the shared viewport with normalized coordinates and immutable captures  390ms
+   ✓ keeps a worker-owned browser across independent clients and Pi tool calls without model inference  416ms
+
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+   Start at  15:21:04
+   Duration  14.02s (transform 401ms, setup 0ms, collect 669ms, tests 13.19s, environment 0ms, prepare 43ms)

@@ -1,0 +1,98 @@
+{
+  "status": "removed",
+  "resources": {
+    "loopback_server": {
+      "status": "removed"
+    },
+    "local_services": {
+      "status": "removed"
+    },
+    "connection_file": {
+      "status": "removed"
+    },
+    "worker_volume": {
+      "status": "removed",
+      "name": "rat-8935aa12d0cc2a05-sess_7d5ec82e3e464f9393c8b36bb76bafbd-workspace"
+    },
+    "state_volume": {
+      "status": "removed",
+      "name": "rat-8935aa12d0cc2a05-sess_7d5ec82e3e464f9393c8b36bb76bafbd-workspace-state"
+    }
+  },
+  "usage_status": "read",
+  "budget": {
+    "phase": "active",
+    "reason": null,
+    "cancellation_status": "not_needed",
+    "active_elapsed_ms": 765474,
+    "review_elapsed_ms": null,
+    "limits": {
+      "max_turns": 4,
+      "max_observed_tokens": 1200000,
+      "max_tool_items": 120,
+      "max_active_ms": 2100000,
+      "review_ms": 600000
+    }
+  },
+  "artifact_export": {
+    "status": "written",
+    "path": "/Users/gp/src/rat-things/.codex/pstack-runs/shared-feedback/main/artifacts/shared-workspace/taco-status-recovery/latest.html",
+    "artifact_id": "art_0c776f69be29d4ff97e3557cc0a1af5827545d9b5341d2e5a66eef9432738154"
+  },
+  "observed_usage": {
+    "turns": 3,
+    "observed_tokens": 632872,
+    "tool_items": 14,
+    "token_usage_pending": false
+  },
+  "model": "gpt-6-luna",
+  "inference": "ChatGPT subscription through Codex (not API-billed)",
+  "turns": 3,
+  "usage": [
+    {
+      "id": "turn_cbaebc70e5fb4bf8928778e40fa0a9b3",
+      "status": "completed",
+      "usage": {
+        "input_tokens": 61331,
+        "input_tokens_details": {
+          "cached_tokens": 59264
+        },
+        "output_tokens": 25,
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "total_tokens": 61356
+      }
+    },
+    {
+      "id": "turn_0d602f671cb949b08f1f997423bd5822",
+      "status": "completed",
+      "usage": {
+        "input_tokens": 360564,
+        "input_tokens_details": {
+          "cached_tokens": 325632
+        },
+        "output_tokens": 2647,
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "total_tokens": 363211
+      }
+    },
+    {
+      "id": "turn_37cf06ff377a4d1ebd1db1ab56783bfe",
+      "status": "completed",
+      "usage": {
+        "input_tokens": 200450,
+        "input_tokens_details": {
+          "cached_tokens": 160384
+        },
+        "output_tokens": 7855,
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "total_tokens": 208305
+      }
+    }
+  ]
+}

@@ -1,0 +1,83 @@
+{
+  "model": "gpt-6-luna",
+  "provider": "ChatGPT subscription through local Codex",
+  "turns": [
+    {
+      "status": "completed",
+      "duration_seconds": 159,
+      "total_tokens": 208305
+    },
+    {
+      "status": "completed",
+      "duration_seconds": 58,
+      "total_tokens": 363211
+    },
+    {
+      "status": "completed",
+      "duration_seconds": 2,
+      "total_tokens": 61356
+    }
+  ],
+  "usage": {
+    "input_tokens": 622345,
+    "output_tokens": 10527,
+    "total_tokens": 632872,
+    "cached_input_tokens": 545280,
+    "uncached_input_tokens": 77065
+  },
+  "participant_colors": {
+    "Alex \u00b7 Client lead": "#d9adf5",
+    "Maya \u00b7 Designer": "#8fc9ff",
+    "Eli \u00b7 Engineer": "#f3c77b",
+    "Sam \u00b7 QA": "#f2a9c2"
+  },
+  "receipts": 6,
+  "plan_revision": 1,
+  "plan_items": 4,
+  "resolved_annotations": 1,
+  "tool_items": 14,
+  "failed_tool_attempts": [
+    {
+      "type": "command_execution",
+      "exit_code": 127,
+      "output": "/workspace\n"
+    },
+    {
+      "type": "function_call",
+      "name": "rat_things_plan_update",
+      "unknown_source_refs": [
+        "msg_177cc2867748dabe40e04576c5640e"
+      ]
+    },
+    {
+      "type": "function_call",
+      "name": "rat_things_plan_update",
+      "unknown_source_refs": [
+        "msg_177cc2867748dabe40e04576c5640e"
+      ]
+    }
+  ],
+  "ui_actions": 55,
+  "ui_action_errors": [],
+  "timeout_banner_frames": [],
+  "reconnecting_frames": [],
+  "artifact_sha256": {
+    "first-draft.html": "b87dd4d8cb5ad295eeb9ef981bbeb46d937842a826abc5337e4860be58390d67",
+    "index.html": "3aed1df79e9e6860521f88ecb61c7dc8c9a883c478a1238963860d2d78642475",
+    "latest.html": "3aed1df79e9e6860521f88ecb61c7dc8c9a883c478a1238963860d2d78642475"
+  },
+  "cost": {
+    "direct_paid_api_usd": 0,
+    "aws_resources_created": 0,
+    "subscription_incremental_cost": "unavailable; not API-billed",
+    "delegated_analysis_usage_and_cost": "unavailable",
+    "local_infrastructure_energy_cost": "unavailable"
+  },
+  "limits": {
+    "max_turns": 4,
+    "max_observed_tokens": 1200000,
+    "max_tool_items": 120,
+    "max_active_ms": 2100000,
+    "review_ms": 600000
+  }
+}

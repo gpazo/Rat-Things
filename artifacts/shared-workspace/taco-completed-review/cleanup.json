@@ -1,0 +1,98 @@
+{
+  "status": "removed",
+  "resources": {
+    "loopback_server": {
+      "status": "removed"
+    },
+    "local_services": {
+      "status": "removed"
+    },
+    "connection_file": {
+      "status": "removed"
+    },
+    "worker_volume": {
+      "status": "removed",
+      "name": "rat-8935aa12d0cc2a05-sess_ba74d14f2e974f86a27bb61d55342c53-workspace"
+    },
+    "state_volume": {
+      "status": "removed",
+      "name": "rat-8935aa12d0cc2a05-sess_ba74d14f2e974f86a27bb61d55342c53-workspace-state"
+    }
+  },
+  "usage_status": "read",
+  "budget": {
+    "phase": "active",
+    "reason": null,
+    "cancellation_status": "not_needed",
+    "active_elapsed_ms": 586523,
+    "review_elapsed_ms": null,
+    "limits": {
+      "max_turns": 4,
+      "max_observed_tokens": 1200000,
+      "max_tool_items": 120,
+      "max_active_ms": 2100000,
+      "review_ms": 600000
+    }
+  },
+  "artifact_export": {
+    "status": "written",
+    "path": "/Users/gp/src/rat-things/.codex/pstack-runs/shared-feedback/main/artifacts/shared-workspace/taco-completed-review/latest.html",
+    "artifact_id": "art_f612fa3d169d922e14ee5d58981429afc55fc1f7190b5e8802fc492156b8a50a"
+  },
+  "observed_usage": {
+    "turns": 3,
+    "observed_tokens": 892674,
+    "tool_items": 22,
+    "token_usage_pending": false
+  },
+  "model": "gpt-6-luna",
+  "inference": "ChatGPT subscription through Codex (not API-billed)",
+  "turns": 3,
+  "usage": [
+    {
+      "id": "turn_1501d1caa7fd4c9691483991bbf0e18a",
+      "status": "completed",
+      "usage": {
+        "input_tokens": 43771,
+        "input_tokens_details": {
+          "cached_tokens": 41344
+        },
+        "output_tokens": 48,
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "total_tokens": 43819
+      }
+    },
+    {
+      "id": "turn_06a49673512c4328a717f5195c3292ed",
+      "status": "completed",
+      "usage": {
+        "input_tokens": 548938,
+        "input_tokens_details": {
+          "cached_tokens": 529664
+        },
+        "output_tokens": 5798,
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "total_tokens": 554736
+      }
+    },
+    {
+      "id": "turn_c8190592ff7944e9bdb2735d5b1b4fd9",
+      "status": "completed",
+      "usage": {
+        "input_tokens": 289377,
+        "input_tokens_details": {
+          "cached_tokens": 262272
+        },
+        "output_tokens": 4742,
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "total_tokens": 294119
+      }
+    }
+  ]
+}

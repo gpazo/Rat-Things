@@ -1,0 +1,1648 @@
+
+> rat-things@0.1.0 check
+> npm run architecture:check && npm run agents-api:schema:check && npm run agents-api:validators:check && npm run agents-api:routes:check && npm run agents-api:worker:check && npm run typecheck && npm run microvm:check && env -u CODEX_RUNTIME_ARTIFACT npm test && npm run package && npm run site:build && npm run terraform:fmt:check && npm run terraform:localstack:fmt:check && npm run terraform:aws-e2e:fmt:check && npm run terraform:validate && npm run terraform:localstack:validate && npm run terraform:aws-e2e:validate
+
+
+> rat-things@0.1.0 architecture:check
+> node scripts/check-architecture.mjs
+
+Architecture boundaries are valid.
+
+> rat-things@0.1.0 agents-api:schema:check
+> node scripts/generate-agents-api-schema.mjs --check
+
+
+> rat-things@0.1.0 agents-api:validators:check
+> node scripts/generate-agents-api-validators.mjs --check
+
+
+> rat-things@0.1.0 agents-api:routes:check
+> node scripts/generate-agents-api-routes.mjs --check
+
+
+> rat-things@0.1.0 agents-api:worker:check
+> node scripts/generate-environment-file-worker.mjs --check
+
+
+> rat-things@0.1.0 typecheck
+> tsc --noEmit
+
+
+> rat-things@0.1.0 microvm:check
+> node --check microvm/runtime-server.mjs && node --check microvm/runtime-network-policy.mjs && node --check microvm/runtime-process-policy.mjs
+
+
+> rat-things@0.1.0 test
+> vitest run --pool=forks --maxWorkers=1 --isolate
+
+
+ RUN  v3.2.7 /Users/gp/src/rat-things/.codex/pstack-runs/shared-feedback/main
+
+ ✓ tests/scripts/native-app-inputs.test.ts (21 tests) 9127ms
+   ✓ bundles the actual installed services and records their locked dependencies without starting them  8019ms
+ ✓ tests/adapters/local-native-installation.test.ts (69 tests) 9464ms
+   ✓ lease-owned native installation with unsigned fixtures > stages an update without switching the pin, then activates and rolls back only at startup  311ms
+   ✓ fresh process recovery at durable boundaries using unsigned fixtures > recovers first install after process exit at staging-synced  352ms
+   ✓ fresh process recovery at durable boundaries using unsigned fixtures > does not exchange active and previous twice after activation exit at probe-ready  321ms
+   ✓ fresh process recovery at durable boundaries using unsigned fixtures > does not exchange active and previous twice after activation exit at selection-file-synced  325ms
+   ✓ fresh process recovery at durable boundaries using unsigned fixtures > does not exchange active and previous twice after activation exit at selection-renamed  317ms
+   ✓ fresh process recovery at durable boundaries using unsigned fixtures > does not exchange active and previous twice after activation exit at selection-parent-synced  317ms
+   ✓ fresh process recovery at durable boundaries using unsigned fixtures > retains or completes a staged update after process exit at copied-file  326ms
+   ✓ fresh process recovery at durable boundaries using unsigned fixtures > retains or completes a staged update after process exit at staging-synced  448ms
+   ✓ fresh process recovery at durable boundaries using unsigned fixtures > retains or completes a staged update after process exit at copy-verified  378ms
+   ✓ fresh process recovery at durable boundaries using unsigned fixtures > retains or completes a staged update after process exit at version-renamed  323ms
+   ✓ fresh process recovery at durable boundaries using unsigned fixtures > retains or completes a staged update after process exit at version-parent-synced  322ms
+   ✓ fresh process recovery at durable boundaries using unsigned fixtures > retains or completes a staged update after process exit at selection-file-synced  318ms
+   ✓ fresh process recovery at durable boundaries using unsigned fixtures > retains or completes a staged update after process exit at selection-renamed  320ms
+   ✓ fresh process recovery at durable boundaries using unsigned fixtures > retains or completes a staged update after process exit at selection-parent-synced  345ms
+ ✓ tests/runner/shared-browser.test.ts (10 tests | 3 skipped) 11111ms
+   ✓ allows cold browser initialization to exceed the interactive command deadline  11049ms
+ ✓ tests/adapters/local-native-runtime.test.ts (36 tests) 10508ms
+   ✓ retains admission and rejects an unconfirmed helper exit  5016ms
+   ✓ retains an unconfirmed host-facts operation at the probe deadline without allocating a disk  5059ms
+ ✓ tests/scripts/aws-quickstart-teardown.test.ts (34 tests) 8580ms
+   ✓ AWS quickstart teardown recovery > destroys a deployment whose state exceeds the default subprocess capture limit  325ms
+   ✓ AWS quickstart teardown recovery > retries with saved targets after destroy empties state and kmsFailure interrupts verification  726ms
+   ✓ AWS quickstart teardown recovery > retries with saved targets after destroy empties state and microvmFailure interrupts verification  696ms
+   ✓ AWS quickstart teardown recovery > recovers an interrupted apply from nested managed resources before outputs exist  309ms
+   ✓ AWS quickstart teardown recovery > does not accept an empty-state retry with kmsEnabled still present  318ms
+   ✓ AWS quickstart teardown recovery > clears the prior checkpoint after setup confirmation and before recording a new deployment  305ms
+(node:11126) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/simulation/local-first-cli.e2e.test.ts (13 tests) 8445ms
+   ✓ local-first CLI > starts login with the private ChatGPT profile and no inherited billing credentials  3552ms
+   ✓ local-first CLI > captures OTLP locally without AWS or a collector and omits prompt content  505ms
+   ✓ local-first CLI > rejects retired submit commands before executing a prompt  393ms
+   ✓ local-first CLI > rejects retired chat commands before executing a prompt  393ms
+   ✓ local-first CLI > rejects retired computer commands before executing a prompt  387ms
+   ✓ local-first CLI > rejects retired conversations commands before executing a prompt  384ms
+   ✓ local-first CLI > rejects retired get commands before executing a prompt  388ms
+   ✓ local-first CLI > rejects retired publish commands before executing a prompt  390ms
+   ✓ local-first CLI > routes an unqualified prompt to the local runtime  489ms
+   ✓ local-first CLI > advertises canonical Sessions and explicit local work  394ms
+   ✓ local-first CLI > rejects cloud options ["--thread","cloud-thread"] before executing locally  389ms
+   ✓ local-first CLI > rejects cloud options ["--json"] before executing locally  388ms
+   ✓ local-first CLI > rejects cloud options ["--attach","evidence.txt"] before executing locally  391ms
+ ✓ tests/simulation/console-launcher.test.ts (9 tests) 6194ms
+   ✓ isolates native signer instances, rejects browser access, and exits on parent EOF  1141ms
+   ✓ cleans up only its own borrowed-service sign-in on exit (ready)  674ms
+   ✓ cleans up only its own borrowed-service sign-in on exit (pending)  624ms
+   ✓ cleans up only its own borrowed-service sign-in on exit (rejected)  570ms
+   ✓ cleans up only its own borrowed-service sign-in on exit (rejected-replay)  576ms
+   ✓ cleans up only its own borrowed-service sign-in on exit (missing-id)  523ms
+   ✓ cleans up only its own borrowed-service sign-in on exit (late-rejection)  579ms
+   ✓ cleans up only its own borrowed-service sign-in on exit (late-cancel)  681ms
+   ✓ launches a native binary with the bundled signer contract and reports startup failure  826ms
+ ✓ tests/simulation/integration-cli.e2e.test.ts (8 tests) 5873ms
+   ✓ Integration CLI-to-HTTP workflow > returns machine-readable installation diagnostics  438ms
+   ✓ Integration CLI-to-HTTP workflow > updates an existing source policy through the control endpoint  402ms
+   ✓ Integration CLI-to-HTTP workflow > discovers authentication fields and creates and rotates a connection from credential-only files  837ms
+   ✓ Integration CLI-to-HTTP workflow > starts configured self-hosted OAuth without putting an app secret or token on the command line  397ms
+   ✓ Integration CLI-to-HTTP workflow > can wait for the OAuth callback to install a verified connection  436ms
+   ✓ Integration CLI-to-HTTP workflow > enables signed Slack mentions with a source binding and owner connection set  871ms
+   ✓ Integration CLI-to-HTTP workflow > inspects, tests, renames, and traces connection consumers through the control plane  1612ms
+   ✓ Integration CLI-to-HTTP workflow > reconnects manual and OAuth accounts without requesting a new grant  876ms
+ ✓ tests/simulation/time-travel-cli.test.ts (14 tests) 5435ms
+   ✓ command simulator CLI > replays, inspects, branches at an exact choice, and minimizes without rewriting the original  1473ms
+   ✓ command simulator CLI > explores bounded schedules and refuses existing output directories  356ms
+   ✓ command simulator CLI > rejects malformed input, tampering, provenance mismatch, and out-of-range inspection  631ms
+ ✓ tests/agents/environment-relay.test.ts (1 test) 4569ms
+   ✓ local managed worker relay > connects the stock Codex executor and harness through the encrypted relay without model calls  4569ms
+stderr | tests/agents/native-turn-errors.test.ts > projects official provider failure context_length_exceeded over SSE without inventing detail
+{"message":"Native harness initialized","purpose":"session","ordinal":1,"elapsedMs":87}
+
+stderr | tests/agents/native-turn-errors.test.ts > projects official provider failure insufficient_quota over SSE without inventing detail
+{"message":"Native harness initialized","purpose":"session","ordinal":2,"elapsedMs":90}
+
+stderr | tests/agents/native-turn-errors.test.ts > projects official provider failure cyber_policy over SSE without inventing detail
+{"message":"Native harness initialized","purpose":"session","ordinal":3,"elapsedMs":94}
+
+stderr | tests/agents/native-turn-errors.test.ts > projects official provider failure rate_limit_exceeded over SSE without inventing detail
+{"message":"Native harness initialized","purpose":"session","ordinal":4,"elapsedMs":96}
+
+stderr | tests/agents/native-turn-errors.test.ts > projects official provider failure slow_down over SSE without inventing detail
+{"message":"Native harness initialized","purpose":"session","ordinal":5,"elapsedMs":97}
+
+stderr | tests/agents/native-turn-errors.test.ts > projects official provider failure slow_down over 503 without inventing detail
+{"message":"Native harness initialized","purpose":"session","ordinal":6,"elapsedMs":99}
+
+stderr | tests/agents/native-turn-errors.test.ts > projects official provider failure server_is_overloaded over SSE without inventing detail
+{"message":"Native harness initialized","purpose":"session","ordinal":7,"elapsedMs":102}
+
+stderr | tests/agents/native-turn-errors.test.ts > projects official provider failure rate_limit_exceeded over 429 without inventing detail
+{"message":"Native harness initialized","purpose":"session","ordinal":8,"elapsedMs":90}
+
+stderr | tests/agents/native-turn-errors.test.ts > projects official provider failure server_error over 500 without inventing detail
+{"message":"Native harness initialized","purpose":"session","ordinal":9,"elapsedMs":93}
+
+stderr | tests/agents/native-turn-errors.test.ts > projects official provider failure credit_balance_exhausted over SSE without inventing detail
+{"message":"Native harness initialized","purpose":"session","ordinal":10,"elapsedMs":98}
+
+stderr | tests/agents/native-turn-errors.test.ts > projects official provider failure credit_balance_exhausted over 402 without inventing detail
+{"message":"Native harness initialized","purpose":"session","ordinal":11,"elapsedMs":93}
+
+stderr | tests/agents/native-turn-errors.test.ts > projects official provider failure invalid_api_key over 401 without inventing detail
+{"message":"Native harness initialized","purpose":"session","ordinal":12,"elapsedMs":93}
+
+stderr | tests/agents/native-turn-errors.test.ts > projects official provider failure model_not_found over 404 without inventing detail
+{"message":"Native harness initialized","purpose":"session","ordinal":13,"elapsedMs":93}
+
+stderr | tests/agents/native-turn-errors.test.ts > projects official provider failure invalid_request_error over 400 without inventing detail
+{"message":"Native harness initialized","purpose":"session","ordinal":14,"elapsedMs":97}
+
+stderr | tests/agents/native-turn-errors.test.ts > projects official provider failure context_length_exceeded over 400 without inventing detail
+{"message":"Native harness initialized","purpose":"session","ordinal":15,"elapsedMs":102}
+
+stderr | tests/agents/native-turn-errors.test.ts > projects official provider failure insufficient_quota over 429 without inventing detail
+{"message":"Native harness initialized","purpose":"session","ordinal":16,"elapsedMs":115}
+
+stderr | tests/agents/native-turn-errors.test.ts > projects official provider failure access_denied over 403 without inventing detail
+{"message":"Native harness initialized","purpose":"session","ordinal":17,"elapsedMs":92}
+
+stderr | tests/agents/native-turn-errors.test.ts > projects official provider failure service_unavailable over 503 without inventing detail
+{"message":"Native harness initialized","purpose":"session","ordinal":18,"elapsedMs":94}
+
+stderr | tests/agents/native-turn-errors.test.ts > projects official provider failure timeout over 408 without inventing detail
+{"message":"Native harness initialized","purpose":"session","ordinal":19,"elapsedMs":98}
+
+stderr | tests/agents/native-turn-errors.test.ts > projects official provider failure gateway_timeout over 504 without inventing detail
+{"message":"Native harness initialized","purpose":"session","ordinal":20,"elapsedMs":93}
+
+stderr | tests/agents/native-turn-errors.test.ts > projects official provider failure server_error over SSE without inventing detail
+{"message":"Native harness initialized","purpose":"session","ordinal":21,"elapsedMs":94}
+
+stderr | tests/agents/native-turn-errors.test.ts > projects official provider failure request_timeout over SSE without inventing detail
+{"message":"Native harness initialized","purpose":"session","ordinal":22,"elapsedMs":94}
+
+stderr | tests/agents/native-turn-errors.test.ts > projects official provider failure session_budget_exceeded over SSE without inventing detail
+{"message":"Native harness initialized","purpose":"session","ordinal":23,"elapsedMs":93}
+
+stderr | tests/agents/native-turn-errors.test.ts > projects official provider failure usage_limit_exceeded over SSE without inventing detail
+{"message":"Native harness initialized","purpose":"session","ordinal":24,"elapsedMs":99}
+
+stderr | tests/agents/native-turn-errors.test.ts > projects official provider failure server_overloaded over SSE without inventing detail
+{"message":"Native harness initialized","purpose":"session","ordinal":25,"elapsedMs":94}
+
+ ✓ tests/agents/native-turn-errors.test.ts (25 tests) 3483ms
+(node:12857) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/performance-share/controller.test.ts (6 tests) 3879ms
+   ✓ retains evidence and cleans source/destination for late_activation  1244ms
+   ✓ retains evidence and cleans source/destination for activation_ack_lost  1056ms
+   ✓ retains evidence and cleans source/destination for activation_status_unknown  1084ms
+ ✓ tests/agents/fork-demo.test.ts (15 tests) 3634ms
+   ✓ Fork studio managed startup > retries an explicitly rejected fork conflict without duplicating the returned child  1510ms
+   ✓ Fork studio managed startup > waits through the managed environment connection state until its Turn completes  2003ms
+ ✓ tests/agents/session-collaboration.test.ts (14 tests) 3271ms
+   ✓ accepts concurrent participant inputs in one order with actor-scoped retry receipts and trusted native attribution  313ms
+   ✓ rejects membership removal before acceptance but keeps already accepted work after removal  305ms
+   ✓ durably accepts a burst without rewriting shared Session state and preserves all contributors in one execution batch  308ms
+   ✓ keeps accepted contributions visible as failed when the Session fails before dispatch  306ms
+   ✓ recovers materialized receipts after cleanup fails without replaying the batch  308ms
+   ✓ saves a host-resolved reply, sends its attribution to the agent and deduplicates a retry  304ms
+   ✓ replies to accepted feedback before dispatch and preserves the link when batching  304ms
+   ✓ streams lightweight typing without replacing the activity cursor or dispatching work  1004ms
+ ✓ tests/simulation/local-subscription-acceptance.test.ts (2 tests) 3165ms
+   ✓ refuses live acceptance without opt-in and a Rat Things ChatGPT account (opt-in 0)  1487ms
+   ✓ refuses live acceptance without opt-in and a Rat Things ChatGPT account (opt-in 1)  1678ms
+stderr | tests/agents/native-session.test.ts > stock harness with a local model protocol fixture > records native child work with multi_agent_v2=false and plaintext=false
+{"message":"Native harness initialized","purpose":"session","ordinal":1,"elapsedMs":91}
+
+stderr | tests/agents/native-session.test.ts > stock harness with a local model protocol fixture > records native child work with multi_agent_v2=true and plaintext=false
+{"message":"Native harness initialized","purpose":"session","ordinal":2,"elapsedMs":87}
+
+stderr | tests/agents/native-session.test.ts > stock harness with a local model protocol fixture > records native child work with multi_agent_v2=true and plaintext=true
+{"message":"Native harness initialized","purpose":"session","ordinal":3,"elapsedMs":93}
+
+stderr | tests/agents/native-session.test.ts > stock harness with a local model protocol fixture > admits exactly 1 simultaneous children with fork_turns='none' and batch=false, excluding the root
+{"message":"Native harness initialized","purpose":"session","ordinal":4,"elapsedMs":101}
+
+stderr | tests/agents/native-session.test.ts > stock harness with a local model protocol fixture > admits exactly 6 simultaneous children with fork_turns='none' and batch=false, excluding the root
+{"message":"Native harness initialized","purpose":"session","ordinal":5,"elapsedMs":97}
+
+stderr | tests/agents/native-session.test.ts > stock harness with a local model protocol fixture > admits exactly 6 simultaneous children with fork_turns='all' and batch=false, excluding the root
+{"message":"Native harness initialized","purpose":"session","ordinal":6,"elapsedMs":93}
+
+stderr | tests/agents/native-session.test.ts > stock harness with a local model protocol fixture > admits exactly 6 simultaneous children with fork_turns='all' and batch=true, excluding the root
+{"message":"Native harness initialized","purpose":"session","ordinal":7,"elapsedMs":95}
+
+stderr | tests/agents/native-session.test.ts > stock harness with a local model protocol fixture > preserves the native interruption and follow-up outcome (limit=1, attempt 1)
+{"message":"Native harness initialized","purpose":"session","ordinal":8,"elapsedMs":97}
+
+stderr | tests/agents/native-session.test.ts > stock harness with a local model protocol fixture > preserves the native interruption and follow-up outcome (limit=6, attempt 1)
+{"message":"Native harness initialized","purpose":"session","ordinal":9,"elapsedMs":112}
+
+stderr | tests/agents/native-session.test.ts > stock harness with a local model protocol fixture > recovers an absent native checkpoint from saved tool context without replay
+{"message":"Native harness initialized","purpose":"session","ordinal":10,"elapsedMs":115}
+
+ ✓ tests/agents/native-session.test.ts (10 tests) 12556ms
+   ✓ stock harness with a local model protocol fixture > records native child work with multi_agent_v2=false and plaintext=false  402ms
+   ✓ stock harness with a local model protocol fixture > preserves the native interruption and follow-up outcome (limit=1, attempt 1)  10561ms
+(node:13769) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with persistent subscriptions
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802370616,"RequestCount":1,"RequestDuration":6.304624999999987,"ResponseHeadersDuration":4.880750000000035,"ResponseBytes":96}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with persistent subscriptions
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802370626,"RequestCount":1,"RequestDuration":3.923583000000008,"AuthorizationCount":8,"AuthorizationDuration":1.777582999999936,"ResponseHeadersDuration":2.7808749999999804,"ResponseBytes":201}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with persistent subscriptions
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802370631,"RequestCount":1,"RequestDuration":2.5982079999999996,"AuthorizationCount":8,"AuthorizationDuration":0.9272100000000592,"ResponseHeadersDuration":1.824124999999981,"ResponseBytes":196}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with persistent subscriptions
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802370637,"RequestCount":1,"RequestDuration":2.170749999999998,"AuthorizationCount":8,"AuthorizationDuration":0.7397490000000744,"ResponseHeadersDuration":1.5882090000000062,"ResponseBytes":196}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with persistent subscriptions
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802370640,"RequestCount":1,"RequestDuration":1.984958000000006,"AuthorizationCount":8,"AuthorizationDuration":0.7282909999999561,"ResponseHeadersDuration":1.40949999999998,"ResponseBytes":196}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with persistent subscriptions
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802370643,"RequestCount":1,"RequestDuration":1.3333339999999794,"AuthorizationCount":8,"AuthorizationDuration":0.5687929999999142,"ResponseHeadersDuration":0.8494999999999777,"ResponseBytes":190}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with persistent subscriptions
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802370645,"RequestCount":1,"RequestDuration":1.4856250000000273,"AuthorizationCount":8,"AuthorizationDuration":0.621543000000031,"ResponseHeadersDuration":1.074292000000014,"ResponseBytes":190}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with persistent subscriptions
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802370647,"RequestCount":1,"RequestDuration":2.4155000000000086,"AuthorizationCount":8,"AuthorizationDuration":0.5878759999998806,"ResponseHeadersDuration":1.9597499999999854,"ResponseBytes":203}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with persistent subscriptions
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802370651,"RequestCount":1,"RequestDuration":3.006834000000026,"AuthorizationCount":7,"AuthorizationDuration":0.7485409999999888,"ResponseHeadersDuration":2.2387090000000285,"ResponseBytes":394}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with persistent subscriptions
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802370655,"RequestCount":1,"RequestDuration":1.6906250000000114,"AuthorizationCount":8,"AuthorizationDuration":0.5664190000000531,"ResponseHeadersDuration":1.2083339999999794,"ResponseBytes":162}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with persistent subscriptions
+{"event":"rat.performance","Operation":"session-create","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802370658,"RequestCount":1,"RequestDuration":4.599333999999999,"AuthorizationCount":7,"AuthorizationDuration":0.5106660000000716,"ResponseHeadersDuration":4.1832919999999945,"ResponseBytes":577}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with persistent subscriptions
+{"event":"rat.performance","Operation":"activity-snapshot","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802370667,"RequestCount":1,"RequestDuration":1.654958000000022,"AuthorizationCount":8,"AuthorizationDuration":0.6201669999999808,"ActivityProjectionCount":1,"ActivityFeedbackReadDuration":0.04454099999998107,"ActivitySnapshotReadDuration":0.13683300000002419,"ResponseHeadersDuration":1.0903750000000514,"ResponseBytes":4584}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with persistent subscriptions
+{"event":"rat.performance","Operation":"session-input","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802370785,"RequestCount":1,"RequestDuration":4.407167000000015,"AuthorizationCount":4,"AuthorizationDuration":0.3441250000000764,"SubmissionContractDuration":0.4082080000000019,"SubmissionReadDuration":0.10454199999998082,"SubmissionValidationDuration":0.10212500000000091,"SubmissionConfigurationDuration":0.015625,"SubmissionPlanningDuration":0.15262500000000045,"SubmissionRateLimitDuration":0.5139999999999532,"SubmissionCommitDuration":0.33637499999997544,"SubmissionAcceptedDuration":2.909417000000019,"ResponseHeadersDuration":4.020417000000009}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with persistent subscriptions
+{"event":"rat.performance","Operation":"session-input","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802370790,"RequestCount":1,"RequestDuration":2.783625000000029,"AuthorizationCount":4,"AuthorizationDuration":0.6247089999999957,"SubmissionContractDuration":0.01599999999996271,"SubmissionReadDuration":0.0897499999999809,"SubmissionValidationDuration":0.34375,"SubmissionConfigurationDuration":0.00695899999999483,"SubmissionPlanningDuration":0.07779199999998809,"SubmissionRateLimitDuration":0.4027919999999767,"SubmissionCommitDuration":0.3341249999999718,"SubmissionAcceptedDuration":2.0195420000000013,"ResponseHeadersDuration":2.6718340000000467}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with persistent subscriptions
+{"event":"rat.performance","Operation":"session-input","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802370794,"RequestCount":1,"RequestDuration":2.2152090000000157,"AuthorizationCount":4,"AuthorizationDuration":0.3282089999999016,"SubmissionContractDuration":0.014791999999999916,"SubmissionReadDuration":0.08579199999996945,"SubmissionValidationDuration":0.07158300000003237,"SubmissionConfigurationDuration":0.0036249999999995453,"SubmissionPlanningDuration":0.0666659999999979,"SubmissionRateLimitDuration":0.4188750000000141,"SubmissionCommitDuration":0.2636250000000473,"SubmissionAcceptedDuration":1.5774169999999685,"ResponseHeadersDuration":2.1323750000000246}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with persistent subscriptions
+{"event":"rat.performance","Operation":"session-input","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371123,"RequestCount":1,"RequestDuration":2.5736249999999927,"AuthorizationCount":3,"AuthorizationDuration":0.2909579999999323,"SubmissionContractDuration":0.11012499999992542,"SubmissionReadDuration":0.13108299999998962,"SubmissionValidationDuration":0.08629199999995762,"SubmissionConfigurationDuration":0.003917000000001281,"SubmissionPlanningDuration":0.07866599999999835,"SubmissionRateLimitDuration":0.5903749999999945,"SubmissionCommitDuration":0.26937500000008185,"SubmissionAcceptedDuration":1.3921250000000782,"ResponseHeadersDuration":2.300207999999998}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with persistent subscriptions
+{"event":"rat.performance","Operation":"session-input","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371125,"RequestCount":1,"RequestDuration":1.6694590000000744,"AuthorizationCount":3,"AuthorizationDuration":0.21354199999996126,"SubmissionContractDuration":0.017250000000103682,"SubmissionReadDuration":0.095833999999968,"SubmissionValidationDuration":0.06933399999991252,"SubmissionConfigurationDuration":0.003291999999987638,"SubmissionPlanningDuration":0.19070800000008603,"SubmissionRateLimitDuration":0.32987500000001546,"SubmissionCommitDuration":0.256040999999982,"SubmissionAcceptedDuration":1.0593750000000455,"ResponseHeadersDuration":1.5971250000000055}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with persistent subscriptions
+{"event":"rat.performance","Operation":"session-input","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371127,"RequestCount":1,"RequestDuration":1.7381249999999682,"AuthorizationCount":3,"AuthorizationDuration":0.2092080000001033,"SubmissionContractDuration":0.19633399999997891,"SubmissionReadDuration":0.10379199999999855,"SubmissionValidationDuration":0.06770800000003874,"SubmissionConfigurationDuration":0.003166000000078384,"SubmissionPlanningDuration":0.10845800000004147,"SubmissionRateLimitDuration":0.33195900000009715,"SubmissionCommitDuration":0.2705839999999853,"SubmissionAcceptedDuration":1.1718339999999898,"ResponseHeadersDuration":1.6676669999999376}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with persistent subscriptions
+{"event":"rat.performance","Operation":"activity-snapshot","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371454,"RequestCount":1,"RequestDuration":1.564834000000019,"AuthorizationCount":8,"AuthorizationDuration":0.7449160000005577,"ActivityProjectionCount":1,"ActivityFeedbackReadDuration":0.03262500000005275,"ActivitySnapshotReadDuration":0.19316600000001927,"ResponseHeadersDuration":0.933458999999857,"ResponseBytes":12835}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with persistent subscriptions
+{"event":"rat.performance","Operation":"session-input","Outcome":"client-error","Deployment":"local","Component":"collaboration","StartedAt":1794802371457,"RequestCount":1,"RequestDuration":0.7814169999999194,"AuthorizationCount":1,"AuthorizationDuration":0.14245899999991707,"ResponseHeadersDuration":0.5352499999999054,"ResponseBytes":149}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with persistent subscriptions
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371458,"RequestCount":1,"RequestDuration":1.4484999999999673,"AuthorizationCount":8,"AuthorizationDuration":0.6799190000001545,"ResponseHeadersDuration":0.921916999999894,"ResponseBytes":100}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with persistent subscriptions
+{"event":"rat.performance","Operation":"session-input","Outcome":"client-error","Deployment":"local","Component":"collaboration","StartedAt":1794802371460,"RequestCount":1,"RequestDuration":0.6396669999999176,"AuthorizationCount":1,"AuthorizationDuration":0.0929590000000644,"ResponseHeadersDuration":0.42708299999981136,"ResponseBytes":134}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with persistent subscriptions
+{"event":"rat.performance","Operation":"session-input","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371461,"RequestCount":1,"RequestDuration":1.2593339999998534,"AuthorizationCount":3,"AuthorizationDuration":0.18170800000007148,"SubmissionContractDuration":0.02529099999992468,"SubmissionReadDuration":0.14579200000002857,"SubmissionValidationDuration":0.06254200000012133,"SubmissionAcceptedDuration":0.28025000000002365,"ResponseHeadersDuration":0.9319169999998849}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with persistent subscriptions
+{"event":"rat.performance","Operation":"activity-snapshot","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371462,"RequestCount":1,"RequestDuration":1.2285000000001673,"AuthorizationCount":8,"AuthorizationDuration":0.6046679999999469,"ActivityProjectionCount":1,"ActivityFeedbackReadDuration":0.025374999999939973,"ActivitySnapshotReadDuration":0.17470800000000963,"ResponseHeadersDuration":0.7651660000001357,"ResponseBytes":12835}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with persistent subscriptions
+{"event":"rat.performance","Operation":"activity-stream","Outcome":"aborted","Deployment":"local","Component":"collaboration","StartedAt":1794802370672,"RequestCount":1,"RequestDuration":801.415041,"AuthorizationCount":13,"AuthorizationDuration":0.8685809999998924,"ActivityEventCount":5,"ResponseHeadersDuration":0.3180409999999938,"ResponseBytes":50623,"ActivityPollCount":35}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with persistent subscriptions
+{"event":"rat.performance","Operation":"activity-stream","Outcome":"aborted","Deployment":"local","Component":"collaboration","StartedAt":1794802370670,"RequestCount":1,"RequestDuration":804.1572920000001,"AuthorizationCount":13,"AuthorizationDuration":0.9382910000001061,"ActivityProjectionCount":36,"ResponseHeadersDuration":0.789792000000034,"ActivityFeedbackReadDuration":5.003083999999774,"ActivitySnapshotReadDuration":6.21287400000034,"ActivityEventCount":5,"ResponseBytes":50623,"ActivityPollCount":35}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371481,"RequestCount":1,"RequestDuration":0.8536250000001928,"ResponseHeadersDuration":0.6044170000000122,"ResponseBytes":96}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371483,"RequestCount":1,"RequestDuration":1.499416999999994,"AuthorizationCount":8,"AuthorizationDuration":0.6692519999999149,"ResponseHeadersDuration":1.0391250000000127,"ResponseBytes":201}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371486,"RequestCount":1,"RequestDuration":1.18425000000002,"AuthorizationCount":8,"AuthorizationDuration":0.5339159999998628,"ResponseHeadersDuration":0.8022080000000642,"ResponseBytes":196}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371487,"RequestCount":1,"RequestDuration":1.1531669999999394,"AuthorizationCount":8,"AuthorizationDuration":0.4952059999998255,"ResponseHeadersDuration":0.796916999999894,"ResponseBytes":196}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371489,"RequestCount":1,"RequestDuration":1.396792000000005,"AuthorizationCount":8,"AuthorizationDuration":0.5800390000001698,"ResponseHeadersDuration":0.9772089999999025,"ResponseBytes":196}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371491,"RequestCount":1,"RequestDuration":1.1022089999999025,"AuthorizationCount":8,"AuthorizationDuration":0.503458000000137,"ResponseHeadersDuration":0.7484589999999116,"ResponseBytes":190}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371492,"RequestCount":1,"RequestDuration":1.0004999999998745,"AuthorizationCount":8,"AuthorizationDuration":0.47320799999988594,"ResponseHeadersDuration":0.6664589999998043,"ResponseBytes":190}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371494,"RequestCount":1,"RequestDuration":1.0408330000000205,"AuthorizationCount":8,"AuthorizationDuration":0.47321000000010827,"ResponseHeadersDuration":0.6892920000000231,"ResponseBytes":203}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371495,"RequestCount":1,"RequestDuration":1.4225420000000213,"AuthorizationCount":7,"AuthorizationDuration":0.4895840000001499,"ResponseHeadersDuration":0.984958000000006,"ResponseBytes":394}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371497,"RequestCount":1,"RequestDuration":1.1952909999999974,"AuthorizationCount":8,"AuthorizationDuration":0.5483749999996235,"ResponseHeadersDuration":0.7918749999998909,"ResponseBytes":162}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"session-create","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371498,"RequestCount":1,"RequestDuration":2.533665999999812,"AuthorizationCount":7,"AuthorizationDuration":0.5010419999998703,"ResponseHeadersDuration":2.1569999999999254,"ResponseBytes":577}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"activity-snapshot","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371505,"RequestCount":1,"RequestDuration":0.8663329999999405,"AuthorizationCount":8,"AuthorizationDuration":0.45020900000008623,"ActivityProjectionCount":1,"ActivityFeedbackReadDuration":0.026583999999957086,"ActivitySnapshotReadDuration":0.06862499999988358,"ResponseHeadersDuration":0.5143329999998514,"ResponseBytes":4584}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371506,"RequestCount":1,"RequestDuration":0.45345799999995506,"AuthorizationCount":1,"AuthorizationDuration":0.045084000000088054,"ResponseHeadersDuration":0.2653330000000551,"ResponseBytes":171}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"activity-snapshot","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371507,"RequestCount":1,"RequestDuration":0.7923749999999927,"AuthorizationCount":8,"AuthorizationDuration":0.41483300000027157,"ActivityProjectionCount":1,"ActivityFeedbackReadDuration":0.020332999999936874,"ActivitySnapshotReadDuration":0.07066699999995762,"ResponseHeadersDuration":0.45420800000010786,"ResponseBytes":4469}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371508,"RequestCount":1,"RequestDuration":0.3519579999999678,"AuthorizationCount":1,"AuthorizationDuration":0.042416000000002896,"ResponseHeadersDuration":0.17983299999991686,"ResponseBytes":171}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371509,"RequestCount":1,"RequestDuration":0.6657920000000104,"AuthorizationCount":6,"AuthorizationDuration":0.3537509999998747,"ResponseHeadersDuration":0.34970799999996416,"ResponseBytes":60}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"activity-snapshot","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371510,"RequestCount":1,"RequestDuration":0.749042000000145,"AuthorizationCount":8,"AuthorizationDuration":0.41195799999968585,"ActivityProjectionCount":1,"ActivityFeedbackReadDuration":0.020374999999830834,"ActivitySnapshotReadDuration":0.06366700000012315,"ResponseHeadersDuration":0.4162499999999909,"ResponseBytes":4469}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371511,"RequestCount":1,"RequestDuration":0.6175000000000637,"AuthorizationCount":6,"AuthorizationDuration":0.3513740000003054,"ResponseHeadersDuration":0.265625,"ResponseBytes":60}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"session-input","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371618,"RequestCount":1,"RequestDuration":2.6375000000000455,"AuthorizationCount":4,"AuthorizationDuration":0.2994579999999587,"SubmissionContractDuration":0.027833000000100583,"SubmissionReadDuration":0.0677090000001499,"SubmissionValidationDuration":0.06645800000001145,"SubmissionConfigurationDuration":0.004249999999956344,"SubmissionPlanningDuration":0.0591669999998885,"SubmissionRateLimitDuration":0.4950420000000122,"SubmissionCommitDuration":0.4134159999998701,"SubmissionAcceptedDuration":1.7249589999998989,"ResponseHeadersDuration":2.392667000000074}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"session-input","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371621,"RequestCount":1,"RequestDuration":2.037166999999954,"AuthorizationCount":4,"AuthorizationDuration":0.2522489999998925,"SubmissionContractDuration":0.1675000000000182,"SubmissionReadDuration":0.06550000000015643,"SubmissionValidationDuration":0.0702080000000933,"SubmissionConfigurationDuration":0.003416999999899417,"SubmissionPlanningDuration":0.04116599999997561,"SubmissionRateLimitDuration":0.4065419999999449,"SubmissionCommitDuration":0.20524999999997817,"SubmissionAcceptedDuration":1.4672499999999218,"ResponseHeadersDuration":1.968791999999894}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"session-input","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371623,"RequestCount":1,"RequestDuration":1.7587080000000697,"AuthorizationCount":4,"AuthorizationDuration":0.23137599999995473,"SubmissionContractDuration":0.012791999999990367,"SubmissionReadDuration":0.06416600000011385,"SubmissionValidationDuration":0.053916999999955806,"SubmissionConfigurationDuration":0.003250000000207365,"SubmissionPlanningDuration":0.02962500000012369,"SubmissionRateLimitDuration":0.2868339999999989,"SubmissionCommitDuration":0.2137079999999969,"SubmissionAcceptedDuration":1.2663330000000315,"ResponseHeadersDuration":1.6926249999999072}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"session-input","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371945,"RequestCount":1,"RequestDuration":1.9075410000000375,"AuthorizationCount":3,"AuthorizationDuration":0.21241699999995944,"SubmissionContractDuration":0.01700000000005275,"SubmissionReadDuration":0.10429199999998673,"SubmissionValidationDuration":0.06437499999992724,"SubmissionConfigurationDuration":0.004666000000042914,"SubmissionPlanningDuration":0.048583000000007814,"SubmissionRateLimitDuration":0.4351249999999709,"SubmissionCommitDuration":0.19145899999989524,"SubmissionAcceptedDuration":0.9767500000000382,"ResponseHeadersDuration":1.6702080000000024}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"session-input","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371947,"RequestCount":1,"RequestDuration":1.699624999999969,"AuthorizationCount":3,"AuthorizationDuration":0.19275000000038744,"SubmissionContractDuration":0.007834000000002561,"SubmissionReadDuration":0.09041700000011588,"SubmissionValidationDuration":0.05637499999988904,"SubmissionConfigurationDuration":0.003165999999964697,"SubmissionPlanningDuration":0.029541999999992186,"SubmissionRateLimitDuration":0.3117080000001806,"SubmissionCommitDuration":0.22670799999991686,"SubmissionAcceptedDuration":0.8013329999998859,"ResponseHeadersDuration":1.6319590000000517}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"session-input","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802371949,"RequestCount":1,"RequestDuration":1.274458999999979,"AuthorizationCount":3,"AuthorizationDuration":0.19475100000022394,"SubmissionContractDuration":0.006499999999959982,"SubmissionReadDuration":0.1016669999999067,"SubmissionValidationDuration":0.05262500000003456,"SubmissionConfigurationDuration":0.0027500000001055014,"SubmissionPlanningDuration":0.026250000000118234,"SubmissionRateLimitDuration":0.2512500000000273,"SubmissionCommitDuration":0.21079099999997197,"SubmissionAcceptedDuration":0.7306660000001557,"ResponseHeadersDuration":1.2073339999999462}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"activity-snapshot","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802372264,"RequestCount":1,"RequestDuration":1.6332500000000891,"AuthorizationCount":8,"AuthorizationDuration":0.7398759999998674,"ActivityProjectionCount":1,"ActivityFeedbackReadDuration":0.03395799999998417,"ActivitySnapshotReadDuration":0.21787499999982174,"ResponseHeadersDuration":1.046583999999939,"ResponseBytes":12835}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"session-input","Outcome":"client-error","Deployment":"local","Component":"collaboration","StartedAt":1794802372267,"RequestCount":1,"RequestDuration":0.8547909999999774,"AuthorizationCount":1,"AuthorizationDuration":0.11033399999996618,"ResponseHeadersDuration":0.4768330000001697,"ResponseBytes":149}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802372268,"RequestCount":1,"RequestDuration":1.626792000000023,"AuthorizationCount":8,"AuthorizationDuration":0.7589570000000094,"ResponseHeadersDuration":1.0437500000000455,"ResponseBytes":100}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"session-input","Outcome":"client-error","Deployment":"local","Component":"collaboration","StartedAt":1794802372270,"RequestCount":1,"RequestDuration":0.6480839999999262,"AuthorizationCount":1,"AuthorizationDuration":0.08504199999993034,"ResponseHeadersDuration":0.41325000000006185,"ResponseBytes":134}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"session-input","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802372271,"RequestCount":1,"RequestDuration":1.129666000000043,"AuthorizationCount":3,"AuthorizationDuration":0.18466800000010153,"SubmissionContractDuration":0.010708000000022366,"SubmissionReadDuration":0.13441600000010112,"SubmissionValidationDuration":0.06037500000002183,"SubmissionAcceptedDuration":0.2516250000001037,"ResponseHeadersDuration":0.816915999999992}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"activity-snapshot","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802372273,"RequestCount":1,"RequestDuration":1.1831660000000284,"AuthorizationCount":8,"AuthorizationDuration":0.548832000000175,"ActivityProjectionCount":1,"ActivityFeedbackReadDuration":0.026959000000033484,"ActivitySnapshotReadDuration":0.1710840000000644,"ResponseHeadersDuration":0.7366660000000138,"ResponseBytes":12835}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"activity-stream","Outcome":"aborted","Deployment":"local","Component":"collaboration","StartedAt":1794802371564,"RequestCount":1,"RequestDuration":714.8493329999999,"AuthorizationCount":11,"AuthorizationDuration":0.6870819999999185,"ResponseHeadersDuration":0.3403329999998732,"ActivityPollCount":32,"ActivityEventCount":4,"ResponseBytes":45889,"ActivityProjectionCount":1,"ActivityFeedbackReadDuration":0.09508400000004258,"ActivitySnapshotReadDuration":0.1251249999997981}
+
+stdout | tests/performance/multiplayer.test.ts > measures exact correlated messages over real HTTP/SQLite with desktop subscriptions
+{"event":"rat.performance","Operation":"activity-stream","Outcome":"aborted","Deployment":"local","Component":"collaboration","StartedAt":1794802371563,"RequestCount":1,"RequestDuration":716.1108340000001,"AuthorizationCount":11,"AuthorizationDuration":0.8214569999995547,"ActivityProjectionCount":32,"ResponseHeadersDuration":0.4470420000000104,"ActivityFeedbackReadDuration":4.031042000000298,"ActivitySnapshotReadDuration":4.522294999999758,"ActivityPollCount":32,"ActivityEventCount":4,"ResponseBytes":45889}
+
+stdout | tests/performance/multiplayer.test.ts > retains timed-out output samples and fails correctness instead of treating accepted state as agent progress
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802372286,"RequestCount":1,"RequestDuration":0.7545840000000226,"ResponseHeadersDuration":0.5227499999998599,"ResponseBytes":96}
+
+stdout | tests/performance/multiplayer.test.ts > retains timed-out output samples and fails correctness instead of treating accepted state as agent progress
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802372287,"RequestCount":1,"RequestDuration":1.2972500000000764,"AuthorizationCount":8,"AuthorizationDuration":0.575624000000289,"ResponseHeadersDuration":0.865500000000111,"ResponseBytes":201}
+
+stdout | tests/performance/multiplayer.test.ts > retains timed-out output samples and fails correctness instead of treating accepted state as agent progress
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802372289,"RequestCount":1,"RequestDuration":1.1213330000000497,"AuthorizationCount":8,"AuthorizationDuration":0.5141259999993508,"ResponseHeadersDuration":0.747333000000026,"ResponseBytes":196}
+
+stdout | tests/performance/multiplayer.test.ts > retains timed-out output samples and fails correctness instead of treating accepted state as agent progress
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802372291,"RequestCount":1,"RequestDuration":1.117291000000023,"AuthorizationCount":8,"AuthorizationDuration":0.4937910000003285,"ResponseHeadersDuration":0.7551249999999072,"ResponseBytes":190}
+
+stdout | tests/performance/multiplayer.test.ts > retains timed-out output samples and fails correctness instead of treating accepted state as agent progress
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802372292,"RequestCount":1,"RequestDuration":1.1766670000001795,"AuthorizationCount":8,"AuthorizationDuration":0.4922910000000229,"ResponseHeadersDuration":0.8197090000001026,"ResponseBytes":203}
+
+stdout | tests/performance/multiplayer.test.ts > retains timed-out output samples and fails correctness instead of treating accepted state as agent progress
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802372294,"RequestCount":1,"RequestDuration":1.1797500000000127,"AuthorizationCount":7,"AuthorizationDuration":0.42329099999983555,"ResponseHeadersDuration":0.8467080000000351,"ResponseBytes":394}
+
+stdout | tests/performance/multiplayer.test.ts > retains timed-out output samples and fails correctness instead of treating accepted state as agent progress
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802372295,"RequestCount":1,"RequestDuration":1.02150000000006,"AuthorizationCount":8,"AuthorizationDuration":0.45812499999988177,"ResponseHeadersDuration":0.6982080000000224,"ResponseBytes":162}
+
+stdout | tests/performance/multiplayer.test.ts > retains timed-out output samples and fails correctness instead of treating accepted state as agent progress
+{"event":"rat.performance","Operation":"session-create","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802372297,"RequestCount":1,"RequestDuration":2.486208999999917,"AuthorizationCount":7,"AuthorizationDuration":0.47008300000038616,"ResponseHeadersDuration":2.1137089999999716,"ResponseBytes":577}
+
+stdout | tests/performance/multiplayer.test.ts > retains timed-out output samples and fails correctness instead of treating accepted state as agent progress
+{"event":"rat.performance","Operation":"activity-snapshot","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802372604,"RequestCount":1,"RequestDuration":1.7762499999998909,"AuthorizationCount":8,"AuthorizationDuration":0.8901250000003529,"ActivityProjectionCount":1,"ActivityFeedbackReadDuration":0.05733300000019881,"ActivitySnapshotReadDuration":0.11599999999998545,"ResponseHeadersDuration":1.0920000000000982,"ResponseBytes":2556}
+
+stdout | tests/performance/multiplayer.test.ts > retains timed-out output samples and fails correctness instead of treating accepted state as agent progress
+{"event":"rat.performance","Operation":"session-input","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802372719,"RequestCount":1,"RequestDuration":2.9804590000003373,"AuthorizationCount":4,"AuthorizationDuration":0.3437919999996666,"SubmissionContractDuration":0.016415999999935593,"SubmissionReadDuration":0.07804200000009587,"SubmissionValidationDuration":0.0781659999997828,"SubmissionConfigurationDuration":0.005000000000109139,"SubmissionPlanningDuration":0.062207999999827734,"SubmissionRateLimitDuration":0.47441699999990306,"SubmissionCommitDuration":0.38916599999993196,"SubmissionAcceptedDuration":1.8731659999998556,"ResponseHeadersDuration":2.7040420000002996}
+
+stdout | tests/performance/multiplayer.test.ts > retains timed-out output samples and fails correctness instead of treating accepted state as agent progress
+{"event":"rat.performance","Operation":"activity-snapshot","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802372822,"RequestCount":1,"RequestDuration":1.6502080000000205,"AuthorizationCount":8,"AuthorizationDuration":0.7959190000001399,"ActivityProjectionCount":1,"ActivityFeedbackReadDuration":0.0722089999999298,"ActivitySnapshotReadDuration":0.11162500000000364,"ResponseHeadersDuration":0.9730829999998605,"ResponseBytes":4296}
+
+stdout | tests/performance/multiplayer.test.ts > retains timed-out output samples and fails correctness instead of treating accepted state as agent progress
+{"event":"rat.performance","Operation":"session-input","Outcome":"client-error","Deployment":"local","Component":"collaboration","StartedAt":1794802372824,"RequestCount":1,"RequestDuration":0.7697499999999309,"AuthorizationCount":1,"AuthorizationDuration":0.11395799999991141,"ResponseHeadersDuration":0.4901669999999285,"ResponseBytes":149}
+
+stdout | tests/performance/multiplayer.test.ts > retains timed-out output samples and fails correctness instead of treating accepted state as agent progress
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802372826,"RequestCount":1,"RequestDuration":1.5878750000001673,"AuthorizationCount":8,"AuthorizationDuration":0.768207999999504,"ResponseHeadersDuration":1.0306250000003274,"ResponseBytes":100}
+
+stdout | tests/performance/multiplayer.test.ts > retains timed-out output samples and fails correctness instead of treating accepted state as agent progress
+{"event":"rat.performance","Operation":"session-input","Outcome":"client-error","Deployment":"local","Component":"collaboration","StartedAt":1794802372828,"RequestCount":1,"RequestDuration":0.674750000000131,"AuthorizationCount":1,"AuthorizationDuration":0.08995800000002419,"ResponseHeadersDuration":0.4246250000001055,"ResponseBytes":134}
+
+stdout | tests/performance/multiplayer.test.ts > retains timed-out output samples and fails correctness instead of treating accepted state as agent progress
+{"event":"rat.performance","Operation":"session-input","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802372829,"RequestCount":1,"RequestDuration":0.793583000000126,"AuthorizationCount":3,"AuthorizationDuration":0.22354200000017954,"SubmissionContractDuration":0.012749999999869033,"SubmissionReadDuration":0.10237499999993815,"SubmissionValidationDuration":0.09291699999994307,"SubmissionAcceptedDuration":0.25537500000018554,"ResponseHeadersDuration":0.7337080000002061}
+
+stdout | tests/performance/multiplayer.test.ts > retains timed-out output samples and fails correctness instead of treating accepted state as agent progress
+{"event":"rat.performance","Operation":"activity-snapshot","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802372830,"RequestCount":1,"RequestDuration":1.1706250000002,"AuthorizationCount":8,"AuthorizationDuration":0.5875409999989643,"ActivityProjectionCount":1,"ActivityFeedbackReadDuration":0.06183299999975134,"ActivitySnapshotReadDuration":0.08808300000009694,"ResponseHeadersDuration":0.7132080000001224,"ResponseBytes":4296}
+
+stdout | tests/performance/multiplayer.test.ts > retains timed-out output samples and fails correctness instead of treating accepted state as agent progress
+{"event":"rat.performance","Operation":"activity-stream","Outcome":"aborted","Deployment":"local","Component":"collaboration","StartedAt":1794802372606,"RequestCount":1,"RequestDuration":227.07108400000016,"AuthorizationCount":7,"AuthorizationDuration":0.6097080000004098,"ActivityProjectionCount":20,"ResponseHeadersDuration":0.6439589999999953,"ActivityFeedbackReadDuration":1.2988320000004023,"ActivitySnapshotReadDuration":2.192376000000422,"ActivityEventCount":2,"ResponseBytes":7152,"ActivityPollCount":19}
+
+stdout | tests/performance/multiplayer.test.ts > requires exact message content and authenticated receipt ownership, and cleans up its private SQLite directory
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802373032,"RequestCount":1,"RequestDuration":1.1622090000000753,"ResponseHeadersDuration":0.8215839999998025,"ResponseBytes":96}
+
+stdout | tests/performance/multiplayer.test.ts > requires exact message content and authenticated receipt ownership, and cleans up its private SQLite directory
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802373034,"RequestCount":1,"RequestDuration":1.8755420000002232,"AuthorizationCount":8,"AuthorizationDuration":0.8243340000003627,"ResponseHeadersDuration":1.3572920000001432,"ResponseBytes":201}
+
+stdout | tests/performance/multiplayer.test.ts > requires exact message content and authenticated receipt ownership, and cleans up its private SQLite directory
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802373037,"RequestCount":1,"RequestDuration":1.3550410000002557,"AuthorizationCount":8,"AuthorizationDuration":0.6160830000003443,"ResponseHeadersDuration":0.925916000000143,"ResponseBytes":196}
+
+stdout | tests/performance/multiplayer.test.ts > requires exact message content and authenticated receipt ownership, and cleans up its private SQLite directory
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802373038,"RequestCount":1,"RequestDuration":1.292207999999846,"AuthorizationCount":8,"AuthorizationDuration":0.5533340000001772,"ResponseHeadersDuration":0.8784999999998035,"ResponseBytes":190}
+
+stdout | tests/performance/multiplayer.test.ts > requires exact message content and authenticated receipt ownership, and cleans up its private SQLite directory
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802373040,"RequestCount":1,"RequestDuration":1.3282079999999041,"AuthorizationCount":8,"AuthorizationDuration":0.591417000000547,"ResponseHeadersDuration":0.88799999999992,"ResponseBytes":203}
+
+stdout | tests/performance/multiplayer.test.ts > requires exact message content and authenticated receipt ownership, and cleans up its private SQLite directory
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802373043,"RequestCount":1,"RequestDuration":1.6927919999998267,"AuthorizationCount":7,"AuthorizationDuration":0.5222080000007736,"ResponseHeadersDuration":1.2963340000001153,"ResponseBytes":394}
+
+stdout | tests/performance/multiplayer.test.ts > requires exact message content and authenticated receipt ownership, and cleans up its private SQLite directory
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802373045,"RequestCount":1,"RequestDuration":1.1557079999997768,"AuthorizationCount":8,"AuthorizationDuration":0.5138729999998759,"ResponseHeadersDuration":0.7894999999998618,"ResponseBytes":162}
+
+stdout | tests/performance/multiplayer.test.ts > requires exact message content and authenticated receipt ownership, and cleans up its private SQLite directory
+{"event":"rat.performance","Operation":"session-create","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802373047,"RequestCount":1,"RequestDuration":2.678124999999909,"AuthorizationCount":7,"AuthorizationDuration":0.5333749999999782,"ResponseHeadersDuration":2.230290999999852,"ResponseBytes":577}
+
+stdout | tests/performance/multiplayer.test.ts > requires exact message content and authenticated receipt ownership, and cleans up its private SQLite directory
+{"event":"rat.performance","Operation":"session-input","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802373064,"RequestCount":1,"RequestDuration":1.74087499999996,"AuthorizationCount":4,"AuthorizationDuration":0.22695800000064992,"SubmissionContractDuration":0.009000000000014552,"SubmissionReadDuration":0.0599170000000413,"SubmissionValidationDuration":0.05495900000005349,"SubmissionConfigurationDuration":0.003250000000207365,"SubmissionPlanningDuration":0.033791999999721156,"SubmissionRateLimitDuration":0.2504999999996471,"SubmissionCommitDuration":0.2510419999998703,"SubmissionAcceptedDuration":1.0628749999996217,"ResponseHeadersDuration":1.5501659999999902}
+
+stdout | tests/performance/multiplayer.test.ts > requires exact message content and authenticated receipt ownership, and cleans up its private SQLite directory
+{"event":"rat.performance","Operation":"activity-snapshot","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802373066,"RequestCount":1,"RequestDuration":0.9825829999999769,"AuthorizationCount":8,"AuthorizationDuration":0.5091269999998076,"ActivityProjectionCount":1,"ActivityFeedbackReadDuration":0.0470420000001468,"ActivitySnapshotReadDuration":0.07087499999988722,"ResponseHeadersDuration":0.5856659999999465,"ResponseBytes":4176}
+
+ ✓ tests/performance/multiplayer.test.ts (8 tests) 2772ms
+   ✓ measures exact correlated messages over real HTTP/SQLite with persistent subscriptions  874ms
+   ✓ measures exact correlated messages over real HTTP/SQLite with desktop subscriptions  805ms
+   ✓ retains timed-out output samples and fails correctness instead of treating accepted state as agent progress  745ms
+   ✓ requires exact message content and authenticated receipt ownership, and cleans up its private SQLite directory  342ms
+ ✓ tests/agents/environment-mcp.test.ts (6 tests) 2718ms
+   ✓ MCP connections from the environment > resumes interrupted notifications at their event cursor without repeating a tool POST  2341ms
+stderr | tests/agents/native-process-lifetime.test.ts > keeps an environment command process alive across completed root Turns
+{"message":"Native harness initialized","purpose":"session","ordinal":1,"elapsedMs":113}
+
+ ✓ tests/agents/native-process-lifetime.test.ts (1 test) 2552ms
+   ✓ keeps an environment command process alive across completed root Turns  2551ms
+stdout | tests/agents/session-share.test.ts > moves the full Plan history with the Session and remaps source receipts without changing message or result identity
+{"event":"rat.performance","Operation":"share-transfer","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802379265,"RequestCount":1,"RequestDuration":15.857334000000009,"ShareQuiesceDuration":3.907624999999996,"ShareArchiveBytes":22,"ShareWorkspaceBytes":0,"ShareUploadDuration":4.286583000000007,"ShareStageDuration":4.562290999999988,"ShareReleaseDuration":0.12387499999999818,"ShareActivateDuration":1.27158399999999}
+
+stdout | tests/agents/session-share.test.ts > recovers stage_reply without reviving the source or replaying completed work
+{"event":"rat.performance","Operation":"share-transfer","Outcome":"error","Deployment":"local","Component":"collaboration","StartedAt":1794802379321,"RequestCount":1,"RequestDuration":3.5852499999999736,"ShareQuiesceDuration":1.3024580000000014,"ShareArchiveBytes":22,"ShareWorkspaceBytes":0,"ShareUploadDuration":0.8908749999999941,"ShareStageDuration":0.774833000000001}
+
+stdout | tests/agents/session-share.test.ts > recovers stage_reply without reviving the source or replaying completed work
+{"event":"rat.performance","Operation":"share-transfer","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802379375,"RequestCount":1,"RequestDuration":3.326334000000031,"ShareArchiveBytes":22,"ShareWorkspaceBytes":0,"ShareStageDuration":1.852374999999995,"ShareReleaseDuration":0.07125000000002046,"ShareActivateDuration":0.653583000000026}
+
+stdout | tests/agents/session-share.test.ts > recovers before_release without reviving the source or replaying completed work
+{"event":"rat.performance","Operation":"share-transfer","Outcome":"error","Deployment":"local","Component":"collaboration","StartedAt":1794802379737,"RequestCount":1,"RequestDuration":5.35408300000006,"ShareQuiesceDuration":1.6626670000000559,"ShareArchiveBytes":22,"ShareWorkspaceBytes":0,"ShareUploadDuration":0.8254170000000158,"ShareStageDuration":1.855874999999969,"ShareReleaseDuration":0.07458300000007512}
+
+stdout | tests/agents/session-share.test.ts > recovers before_release without reviving the source or replaying completed work
+{"event":"rat.performance","Operation":"share-transfer","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802379791,"RequestCount":1,"RequestDuration":2.260874999999942,"ShareReleaseDuration":0.2878339999999753,"ShareActivateDuration":1.219916000000012}
+
+stdout | tests/agents/session-share.test.ts > recovers release_reply without reviving the source or replaying completed work
+{"event":"rat.performance","Operation":"share-transfer","Outcome":"error","Deployment":"local","Component":"collaboration","StartedAt":1794802380161,"RequestCount":1,"RequestDuration":29.93716600000016,"ShareQuiesceDuration":16.796707999999853,"ShareArchiveBytes":22,"ShareWorkspaceBytes":0,"ShareUploadDuration":0.7112089999998261,"ShareStageDuration":1.3331249999998818,"ShareReleaseDuration":0.09129200000006676}
+
+stdout | tests/agents/session-share.test.ts > recovers release_reply without reviving the source or replaying completed work
+{"event":"rat.performance","Operation":"share-transfer","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802380228,"RequestCount":1,"RequestDuration":3.81899999999996,"ShareReleaseDuration":0.2668750000000273,"ShareActivateDuration":2.5699999999999363}
+
+stdout | tests/agents/session-share.test.ts > recovers activation_reply without reviving the source or replaying completed work
+{"event":"rat.performance","Operation":"share-transfer","Outcome":"error","Deployment":"local","Component":"collaboration","StartedAt":1794802380589,"RequestCount":1,"RequestDuration":6.066084000000046,"ShareQuiesceDuration":1.5623749999999745,"ShareArchiveBytes":22,"ShareWorkspaceBytes":0,"ShareUploadDuration":0.8064170000000104,"ShareStageDuration":1.6749580000000606,"ShareReleaseDuration":0.08904200000006313,"ShareActivateDuration":0.7573749999999109}
+
+stdout | tests/agents/session-share.test.ts > recovers activation_reply without reviving the source or replaying completed work
+{"event":"rat.performance","Operation":"share-transfer","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802380642,"RequestCount":1,"RequestDuration":1.5210420000000795,"ShareReleaseDuration":0.13745799999992414,"ShareActivateDuration":0.6839580000000751}
+
+stdout | tests/agents/session-share.test.ts > waits for accepted work and rejects new input, then requires positive source shutdown before staging
+{"event":"rat.performance","Operation":"share-transfer","Outcome":"error","Deployment":"local","Component":"collaboration","StartedAt":1794802381002,"RequestCount":1,"RequestDuration":1.2410420000001068}
+
+stdout | tests/agents/session-share.test.ts > atomically retires a staged operation before release and permits a fresh local Turn
+{"event":"rat.performance","Operation":"share-transfer","Outcome":"error","Deployment":"local","Component":"collaboration","StartedAt":1794802381056,"RequestCount":1,"RequestDuration":4.370458000000099,"ShareQuiesceDuration":1.5330840000001444,"ShareArchiveBytes":22,"ShareWorkspaceBytes":0,"ShareUploadDuration":0.6291250000001583,"ShareStageDuration":1.0064169999998285,"ShareReleaseDuration":0.07266599999979917}
+
+stdout | tests/agents/session-share.test.ts > never aborts after a lost source release acknowledgement
+{"event":"rat.performance","Operation":"share-transfer","Outcome":"error","Deployment":"local","Component":"collaboration","StartedAt":1794802381112,"RequestCount":1,"RequestDuration":3.200249999999869,"ShareQuiesceDuration":1.0486249999999018,"ShareArchiveBytes":22,"ShareWorkspaceBytes":0,"ShareUploadDuration":0.4277500000002874,"ShareStageDuration":0.9153330000003734,"ShareReleaseDuration":0.09499999999979991}
+
+stdout | tests/agents/session-share.test.ts > linearizes explicit abort against irreversible release on the same durable source fence
+{"event":"rat.performance","Operation":"share-transfer","Outcome":"error","Deployment":"local","Component":"collaboration","StartedAt":1794802381166,"RequestCount":1,"RequestDuration":3.9115420000002814,"ShareQuiesceDuration":1.453457999999955,"ShareArchiveBytes":22,"ShareWorkspaceBytes":0,"ShareUploadDuration":0.5670420000001286,"ShareStageDuration":1.0290829999999005,"ShareReleaseDuration":0.055917000000135886}
+
+stdout | tests/agents/session-share.test.ts > labels forged source identities and admission as imported while future input retains authenticated attribution
+{"event":"rat.performance","Operation":"share-transfer","Outcome":"error","Deployment":"local","Component":"collaboration","StartedAt":1794802381220,"RequestCount":1,"RequestDuration":3.997292000000016,"ShareQuiesceDuration":1.6026670000001104,"ShareArchiveBytes":22,"ShareWorkspaceBytes":0,"ShareUploadDuration":0.7296249999999418,"ShareStageDuration":0.779540999999881,"ShareReleaseDuration":0.055041000000073836}
+
+stdout | tests/agents/session-share.test.ts > retires destination authority before returning local and permits a new Share to the same space
+{"event":"rat.performance","Operation":"share-transfer","Outcome":"error","Deployment":"local","Component":"collaboration","StartedAt":1794802381578,"RequestCount":1,"RequestDuration":3.027708000000075,"ShareQuiesceDuration":1.1266249999998763,"ShareArchiveBytes":22,"ShareWorkspaceBytes":0,"ShareUploadDuration":0.4426250000001346,"ShareStageDuration":0.6482500000001892,"ShareReleaseDuration":0.04937500000005457}
+
+stdout | tests/agents/session-share.test.ts > retires destination authority before returning local and permits a new Share to the same space
+{"event":"rat.performance","Operation":"share-transfer","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802381631,"RequestCount":1,"RequestDuration":3.2049590000001444,"ShareQuiesceDuration":0.8584590000000389,"ShareArchiveBytes":22,"ShareWorkspaceBytes":0,"ShareUploadDuration":0.31633300000021336,"ShareStageDuration":0.4918330000000424,"ShareReleaseDuration":0.0746249999997417,"ShareActivateDuration":0.5666249999999309}
+
+stdout | tests/agents/session-share.test.ts > keeps source fenced across a lost destination retirement reply and resolves it after restart
+{"event":"rat.performance","Operation":"share-transfer","Outcome":"error","Deployment":"local","Component":"collaboration","StartedAt":1794802381684,"RequestCount":1,"RequestDuration":2.3265840000003664,"ShareQuiesceDuration":0.7938340000000608,"ShareArchiveBytes":22,"ShareWorkspaceBytes":0,"ShareUploadDuration":0.36983299999974406,"ShareStageDuration":0.5195840000001226,"ShareReleaseDuration":0.04275000000006912}
+
+stdout | tests/agents/session-share.test.ts > tombstones an unseen destination operation so a delayed stage cannot claim its Session
+{"event":"rat.performance","Operation":"share-transfer","Outcome":"error","Deployment":"local","Component":"collaboration","StartedAt":1794802381740,"RequestCount":1,"RequestDuration":2.4174159999997755,"ShareQuiesceDuration":0.7470830000002024,"ShareArchiveBytes":22,"ShareWorkspaceBytes":0,"ShareUploadDuration":0.43287499999996726,"ShareStageDuration":0.5587080000000242,"ShareReleaseDuration":0.047541000000364875}
+
+stdout | tests/agents/session-share.test.ts > linearizes destination retirement against activation without leaving both runnable and reusable authority
+{"event":"rat.performance","Operation":"share-transfer","Outcome":"error","Deployment":"local","Component":"collaboration","StartedAt":1794802381794,"RequestCount":1,"RequestDuration":2.627292000000125,"ShareQuiesceDuration":0.9165830000001733,"ShareArchiveBytes":22,"ShareWorkspaceBytes":0,"ShareUploadDuration":0.4042080000003807,"ShareStageDuration":0.6216660000000047,"ShareReleaseDuration":0.04604199999994307}
+
+stdout | tests/agents/session-share.test.ts > rejects an in-flight stage when retirement commits during destination admission
+{"event":"rat.performance","Operation":"share-transfer","Outcome":"error","Deployment":"local","Component":"collaboration","StartedAt":1794802381849,"RequestCount":1,"RequestDuration":2.177624999999807,"ShareQuiesceDuration":0.7202080000001843,"ShareArchiveBytes":22,"ShareWorkspaceBytes":0,"ShareUploadDuration":0.3281669999996666,"ShareStageDuration":0.5132079999998496,"ShareReleaseDuration":0.040500000000065484}
+
+ ✓ tests/agents/session-share.test.ts (15 tests) 2641ms
+   ✓ recovers stage_reply without reviving the source or replaying completed work  415ms
+   ✓ recovers before_release without reviving the source or replaying completed work  424ms
+   ✓ recovers release_reply without reviving the source or replaying completed work  428ms
+   ✓ recovers activation_reply without reviving the source or replaying completed work  412ms
+   ✓ labels forged source identities and admission as imported while future input retains authenticated attribution  358ms
+ ✓ tests/pi/managed-effects.test.ts (4 tests) 2229ms
+   ✓ Pi managed effect boundary > enforces the filesystem sandbox with disabled networking and targets cancellation without inference  726ms
+   ✓ Pi managed effect boundary > enforces the filesystem sandbox with restricted networking and targets cancellation without inference  698ms
+   ✓ Pi managed effect boundary > enforces the filesystem sandbox with enabled networking and targets cancellation without inference  704ms
+(node:14216) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/agents/local-native-changes.test.ts (9 tests) 1742ms
+   ✓ reconciles rollback without executing it again against a changed previous release  340ms
+   ✓ keeps the pinned host and pending selection after a failed update and needs a fresh retry ID  423ms
+ ✓ tests/agents/team-authorization.test.ts (13 tests) 2087ms
+   ✓ team router > emits role downgrades while idle and closes visibility after revocation  2005ms
+stderr | tests/agents/native-tools.test.ts > initializes native web search with public defaults: {"type":"web_search"}
+{"message":"Native harness initialized","purpose":"session","ordinal":1,"elapsedMs":85}
+
+stderr | tests/agents/native-tools.test.ts > initializes native web search with public defaults: {"type":"web_search","allowed_domains":["openai.com"]}
+{"message":"Native harness initialized","purpose":"session","ordinal":2,"elapsedMs":87}
+
+stderr | tests/agents/native-tools.test.ts > initializes native web search with public defaults: {"type":"web_search","location":{"country":"US"}}
+{"message":"Native harness initialized","purpose":"session","ordinal":3,"elapsedMs":80}
+
+stderr | tests/agents/native-tools.test.ts > executes a 'programmatic' application function through 'fixture' and retains its required action
+{"message":"Native harness initialized","purpose":"session","ordinal":4,"elapsedMs":87}
+
+stderr | tests/agents/native-tools.test.ts > executes a 'deferred' application function through 'fixture' and retains its required action
+{"message":"Native harness initialized","purpose":"session","ordinal":5,"elapsedMs":91}
+
+stderr | tests/agents/native-tools.test.ts > executes a 'programmatic' application function through 'amazon-bedrock' and retains its required action
+{"message":"Native harness initialized","purpose":"session","ordinal":6,"elapsedMs":100}
+
+stderr | tests/agents/native-tools.test.ts > executes a 'deferred' application function through 'amazon-bedrock' and retains its required action
+{"message":"Native harness initialized","purpose":"session","ordinal":7,"elapsedMs":97}
+
+ ✓ tests/agents/native-tools.test.ts (7 tests) 1386ms
+   ✓ executes a 'programmatic' application function through 'fixture' and retains its required action  528ms
+stderr | tests/agents/native-session-settings.test.ts > changes supported settings on the same official native thread from initial tier auto
+{"message":"Native harness initialized","purpose":"session","ordinal":1,"elapsedMs":99}
+
+stderr | tests/agents/native-session-settings.test.ts > changes supported settings on the same official native thread from initial tier priority
+{"message":"Native harness initialized","purpose":"session","ordinal":2,"elapsedMs":96}
+
+ ✓ tests/agents/native-session-settings.test.ts (2 tests) 799ms
+   ✓ changes supported settings on the same official native thread from initial tier auto  414ms
+   ✓ changes supported settings on the same official native thread from initial tier priority  384ms
+ ✓ tests/runner/workspace-git.test.ts (9 tests) 1362ms
+stderr | tests/agents/files-and-skills.test.ts > uploaded files, skills, and managed setup > versions skills, preserves archive paths, pins environment inputs, and prepares the workspace once
+{"message":"Native harness initialized","purpose":"setup","ordinal":1,"elapsedMs":92}
+
+stderr | tests/agents/files-and-skills.test.ts > uploaded files, skills, and managed setup > versions skills, preserves archive paths, pins environment inputs, and prepares the workspace once
+{"message":"Native harness initialized","purpose":"setup","ordinal":2,"elapsedMs":85}
+
+stderr | tests/agents/files-and-skills.test.ts > uploaded files, skills, and managed setup > versions skills, preserves archive paths, pins environment inputs, and prepares the workspace once
+{"message":"Native harness initialized","purpose":"setup","ordinal":3,"elapsedMs":85}
+
+stderr | tests/agents/files-and-skills.test.ts > uploaded files, skills, and managed setup > versions skills, preserves archive paths, pins environment inputs, and prepares the workspace once
+{"message":"Native harness initialized","purpose":"setup","ordinal":4,"elapsedMs":89}
+
+ ✓ tests/agents/files-and-skills.test.ts (4 tests) 1229ms
+   ✓ uploaded files, skills, and managed setup > accepts Unicode skill names and per-file limits even when the archive expands beyond 50 MiB  654ms
+   ✓ uploaded files, skills, and managed setup > versions skills, preserves archive paths, pins environment inputs, and prepares the workspace once  565ms
+ ✓ tests/scripts/aws-quickstart.test.ts (17 tests) 833ms
+   ✓ AWS quickstart > rejects a mock Agents deployment before any credential transfer or AWS changes  417ms
+   ✓ AWS quickstart > previews a configured alert without AWS credentials or deployment tools  407ms
+ ✓ tests/lambdas/control-space-bootstrap.test.ts (2 tests) 909ms
+   ✓ bootstraps through API Gateway using IAM identity and ignores caller-supplied ownership headers  909ms
+ ✓ tests/agents/native-managed-policy.test.ts (9 tests) 991ms
+(node:16778) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/agents/local-workspace.test.ts > local workspace using the production API and native harness > streams a real native Turn, resumes saved history after restart, and protects loopback authentication
+{"message":"Native harness initialized","purpose":"session","ordinal":2,"elapsedMs":96}
+
+stderr | tests/agents/local-workspace.test.ts > local workspace using the production API and native harness > streams a real native Turn, resumes saved history after restart, and protects loopback authentication
+{"message":"Native harness initialized","purpose":"session","ordinal":3,"elapsedMs":56}
+
+stderr | tests/agents/local-workspace.test.ts > local workspace using the production API and native harness > streams a real native Turn, resumes saved history after restart, and protects loopback authentication
+{"message":"Native harness initialized","purpose":"session","ordinal":4,"elapsedMs":77}
+
+stderr | tests/agents/local-workspace.test.ts > local workspace using the production API and native harness > streams a real native Turn, resumes saved history after restart, and protects loopback authentication
+{"message":"Native harness initialized","purpose":"session","ordinal":5,"elapsedMs":63}
+
+ ✓ tests/agents/local-workspace.test.ts (4 tests) 1401ms
+   ✓ local workspace using the production API and native harness > streams a real native Turn, resumes saved history after restart, and protects loopback authentication  1161ms
+ ✓ tests/pi/engine.test.ts (20 tests) 1386ms
+   ✓ Pi committed streaming identity > streams one message ID from incremental native partials through completion and read-only reopen  517ms
+   ✓ Pi committed streaming identity > finalizes an interrupted partial under its original ID and gives a divergent retry a new ID  521ms
+ ✓ tests/agents/artifact-boundaries.test.ts (9 tests) 1358ms
+   ✓ captures the exact 200 MiB per-file and 500 MiB aggregate boundaries in bounded reads  1350ms
+ ✓ tests/agents/local-workspace-connection.test.ts (9 tests) 1270ms
+   ✓ preserves the startup failure when no authenticated owner becomes available  1021ms
+ ✓ tests/simulation/time-travel-baseline.test.ts (1 test) 1164ms
+   ✓ preserves the complete demo with fixed provenance  1164ms
+ ✓ tests/agents/session-steer-recovery.test.ts (7 tests) 1238ms
+   ✓ moves definitively rejected simultaneous inputs in order without changing receipts, messages, actors or settings  314ms
+   ✓ retains an ambiguous steer and never creates a successor just because its Turn later completes  305ms
+   ✓ starts rehomed older input before steering a newer accepted input to that Turn  609ms
+stdout | tests/agents/environment-credential-proxy.test.ts > scrubs echoed secrets from plain response headers and streaming bodies
+{"_aws":{"Timestamp":1794802408202,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"CredentialEchoScrubbed","Unit":"Count"}]}]},"Deployment":"local","Component":"runner","CredentialEchoScrubbed":1}
+
+stdout | tests/agents/environment-credential-proxy.test.ts > scrubs echoed secrets from plain response headers and streaming bodies
+{"_aws":{"Timestamp":1794802408204,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"CredentialEchoScrubbed","Unit":"Count"}]}]},"Deployment":"local","Component":"runner","CredentialEchoScrubbed":3}
+
+stdout | tests/agents/environment-credential-proxy.test.ts > scrubs echoed secrets from gzip response headers and streaming bodies
+{"_aws":{"Timestamp":1794802408257,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"CredentialEchoScrubbed","Unit":"Count"}]}]},"Deployment":"local","Component":"runner","CredentialEchoScrubbed":1}
+
+stdout | tests/agents/environment-credential-proxy.test.ts > scrubs echoed secrets from gzip response headers and streaming bodies
+{"_aws":{"Timestamp":1794802408258,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"CredentialEchoScrubbed","Unit":"Count"}]}]},"Deployment":"local","Component":"runner","CredentialEchoScrubbed":3}
+
+stdout | tests/agents/environment-credential-proxy.test.ts > scrubs echoed secrets from br response headers and streaming bodies
+{"_aws":{"Timestamp":1794802408311,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"CredentialEchoScrubbed","Unit":"Count"}]}]},"Deployment":"local","Component":"runner","CredentialEchoScrubbed":1}
+
+stdout | tests/agents/environment-credential-proxy.test.ts > scrubs echoed secrets from br response headers and streaming bodies
+{"_aws":{"Timestamp":1794802408311,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"CredentialEchoScrubbed","Unit":"Count"}]}]},"Deployment":"local","Component":"runner","CredentialEchoScrubbed":3}
+
+stdout | tests/agents/environment-credential-proxy.test.ts > scrubs echoed secrets from deflate response headers and streaming bodies
+{"_aws":{"Timestamp":1794802408361,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"CredentialEchoScrubbed","Unit":"Count"}]}]},"Deployment":"local","Component":"runner","CredentialEchoScrubbed":1}
+
+stdout | tests/agents/environment-credential-proxy.test.ts > scrubs echoed secrets from deflate response headers and streaming bodies
+{"_aws":{"Timestamp":1794802408361,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"CredentialEchoScrubbed","Unit":"Count"}]}]},"Deployment":"local","Component":"runner","CredentialEchoScrubbed":3}
+
+ ✓ tests/agents/environment-credential-proxy.test.ts (14 tests) 1031ms
+(node:18234) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/agents/local-native-startup.test.ts (5 tests) 984ms
+   ✓ keeps persisted Turn receipts undispatched until startup selects a release  320ms
+ ✓ tests/adapters/codex-startup-probe-output.test.ts (33 tests) 756ms
+   ✓ runs the inert Python proc fixtures through the normal test suite  672ms
+{"level":"info","message":"Lambda MicroVM lifecycle server listening","port":8080}
+{"level":"info","message":"Codex image validation child exited","code":0,"signal":null}
+{"level":"info","message":"Codex image validation completed","status":"passed","elapsedMs":1040}
+{"level":"info","message":"Lambda MicroVM lifecycle server listening","port":8080}
+{"level":"info","message":"Codex image validation child exited","code":1,"signal":null}
+{"level":"info","message":"Codex image validation completed","status":"failed","elapsedMs":1}
+{"level":"warn","message":"lifecycle operation failed","operation":"validate","error":"Image validation failed"}
+{"level":"warn","message":"lifecycle operation failed","operation":"validate","error":"Image validation failed"}
+{"level":"info","message":"Lambda MicroVM lifecycle server listening","port":8080}
+{"level":"info","message":"agent runner started","runId":"active-validation-test","microvmId":"active-validation-test-vm","pid":423,"startupDurationMs":0,"storageMountDurationMs":0,"storagePreparationDurationMs":0,"storageAlreadyMounted":false}
+{"level":"warn","message":"lifecycle operation failed","operation":"validate","error":"Image validation is unavailable while a Run is active"}
+{"level":"info","message":"Lambda MicroVM lifecycle server listening","port":8080}
+{"level":"info","message":"Codex image validation completed","status":"failed","elapsedMs":0}
+{"level":"warn","message":"lifecycle operation failed","operation":"validate","error":"Image validation failed"}
+{"level":"info","message":"Lambda MicroVM lifecycle server listening","port":8080}
+{"level":"info","message":"Codex image validation child exited","code":0,"signal":null}
+{"level":"info","message":"Codex image validation cleanup failed"}
+{"level":"info","message":"Codex image validation completed","status":"failed","elapsedMs":0}
+{"level":"warn","message":"lifecycle operation failed","operation":"validate","error":"Image validation failed"}
+{"level":"info","message":"Lambda MicroVM lifecycle server listening","port":8080}
+{"level":"info","message":"Codex image validation deadline exceeded"}
+{"level":"info","message":"Codex image validation completed","status":"failed","elapsedMs":180000}
+{"level":"warn","message":"lifecycle operation failed","operation":"validate","error":"Image validation failed"}
+ ✓ tests/microvm/runtime-validation.test.ts (6 tests) 1117ms
+   ✓ keeps ready cheap and returns validate success only after an isolated Codex initialize process exits  1107ms
+ ✓ tests/adapters/local-native-verifier.test.ts (41 tests) 901ms
+ ✓ tests/agents/local-turn-admission.test.ts (23 tests) 794ms
+stderr | tests/performance-aws/startup-responses-proxy.test.ts > runs the built-in Amazon Bedrock provider against a deterministic loopback Responses fixture
+{"message":"Native harness initialized","purpose":"session","ordinal":1,"elapsedMs":88}
+
+ ✓ tests/performance-aws/startup-responses-proxy.test.ts (3 tests) 602ms
+   ✓ adds the same bounded overlay without changing other source ZIP entries or modes  451ms
+ ✓ tests/simulation/client-team.test.ts (10 tests) 590ms
+ ✓ tests/simulation/shared-workspace-demo-guards.test.ts (4 tests) 639ms
+   ✓ shared workspace demo guards > applies the exhausted Turn limit to normalized local and AWS inference routes  352ms
+ ✓ tests/runner/process.test.ts (11 tests) 728ms
+   ✓ runProcess > disposes at exit even while a descendant holds stdout open  447ms
+ ✓ tests/runner/git-fetch-probe-output.test.ts (25 tests) 444ms
+   ✓ runs the inert Python Git fixtures through the normal test suite  364ms
+ ✓ tests/agents/session-workspace.test.ts (10 tests) 657ms
+   ✓ resolves an element from the frozen capture after another collaborator navigates  312ms
+   ✓ shares one durable annotated page with attributed feedback, agent input, resolve/reopen and idempotency  322ms
+ ✓ tests/lambdas/control-schedules.test.ts (1 test) 403ms
+   ✓ administers schedule definitions through the real control composition without delivery, secret reads or Scheduler effects  402ms
+(node:21380) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/agents/local-pi.test.ts (1 test) 658ms
+   ✓ runs local Pi through HTTP and SQLite, recovers a pending function after restart, and keeps its runtime pin  657ms
+ ✓ tests/scripts/build-native-release.test.ts (21 tests) 537ms
+ ✓ tests/scripts/codex-runtime-artifact.test.ts (49 tests) 555ms
+ ✓ tests/agents/local-pi-transport.test.ts (1 test) 478ms
+   ✓ delivers cancellation concurrently through the real remote MCP transport  478ms
+stderr | tests/agents/native-session-fork.test.ts > forks a copied CODEX_HOME at a new absolute path through the captured Turn with fresh policy
+{"message":"Native harness initialized","purpose":"session","ordinal":1,"elapsedMs":85}
+
+stderr | tests/agents/native-session-fork.test.ts > forks a copied CODEX_HOME at a new absolute path through the captured Turn with fresh policy
+{"message":"Native harness initialized","purpose":"session","ordinal":2,"elapsedMs":115}
+
+stderr | tests/agents/native-session-fork.test.ts > forks a copied CODEX_HOME at a new absolute path through the captured Turn with fresh policy
+{"message":"Native harness initialized","purpose":"session","ordinal":3,"elapsedMs":49}
+
+ ✓ tests/agents/native-session-fork.test.ts (1 test) 440ms
+   ✓ forks a copied CODEX_HOME at a new absolute path through the captured Turn with fresh policy  439ms
+ ✓ tests/simulation/native-workspace-admission.test.ts (16 tests) 445ms
+ ✓ tests/agents/local-transfer.test.ts (5 tests) 480ms
+ ✓ tests/lambdas/control-source-policy.test.ts (9 tests) 397ms
+   ✓ updates only policy using the authenticated owner and preserves the existing binding response  395ms
+ ✓ tests/lambdas/webhook-composition.test.ts (3 tests) 391ms
+   ✓ rejects an invalid github signature through the real ingress composition without worker configuration  386ms
+ ✓ tests/agents/session-workspace-regressions.test.ts (5 tests) 386ms
+   ✓ keeps large image discussions readable before and after dispatch  376ms
+stdout | tests/agents/session-tools.test.ts > session MCP capabilities > remembers refreshed service MCP bearer values in the host output redactor
+{"_aws":{"Timestamp":1794802426870,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"OutputRedactions","Unit":"Count"}]}]},"Deployment":"local","Component":"runner","OutputRedactions":2}
+
+ ✓ tests/agents/session-tools.test.ts (7 tests) 280ms
+(node:21683) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/agents/local-pi-managed.test.ts (11 tests) 364ms
+stderr | tests/pi/managed-recovery.test.ts > preserves a Pi workspace and setup identity only after verified termination, including a failed environment
+{"message":"Native harness initialized","purpose":"setup","ordinal":1,"elapsedMs":86}
+
+stderr | tests/pi/managed-recovery.test.ts > preserves a Pi workspace and setup identity only after verified termination, including a failed environment
+{"message":"Native harness initialized","purpose":"setup","ordinal":2,"elapsedMs":89}
+
+ ✓ tests/pi/managed-recovery.test.ts (1 test) 295ms
+stderr | tests/runner/hosted-setup-storage.test.ts > keeps native setup databases on worker-local storage outside the durable home
+{"message":"Native harness initialized","purpose":"setup","ordinal":1,"elapsedMs":97}
+
+stderr | tests/runner/hosted-setup-storage.test.ts > keeps native setup databases on worker-local storage outside the durable home
+{"message":"Native harness initialized","purpose":"setup","ordinal":2,"elapsedMs":94}
+
+ ✓ tests/runner/hosted-setup-storage.test.ts (1 test) 281ms
+stderr | tests/runner/checkpoint-adoption.test.ts > preserves modified workspace inputs and skips setup when a trusted checkpoint is adopted
+{"message":"Native harness initialized","purpose":"setup","ordinal":1,"elapsedMs":93}
+
+stderr | tests/runner/checkpoint-adoption.test.ts > preserves modified workspace inputs and skips setup when a trusted checkpoint is adopted
+{"message":"Native harness initialized","purpose":"setup","ordinal":2,"elapsedMs":99}
+
+ ✓ tests/runner/checkpoint-adoption.test.ts (1 test) 300ms
+stderr | tests/agents/native-sqlite-recovery.test.ts > resumes a durable native rollout after replacing worker-local SQLite databases
+{"message":"Native harness initialized","purpose":"session","ordinal":1,"elapsedMs":101}
+
+stderr | tests/agents/native-sqlite-recovery.test.ts > resumes a durable native rollout after replacing worker-local SQLite databases
+{"message":"Native harness initialized","purpose":"session","ordinal":2,"elapsedMs":75}
+
+ ✓ tests/agents/native-sqlite-recovery.test.ts (1 test) 288ms
+ ✓ tests/adapters/local-native-installation-progress.test.ts (3 tests) 378ms
+stderr | tests/agents/native-item-events.test.ts > retains native Item boundaries with interruption=false
+{"message":"Native harness initialized","purpose":"session","ordinal":1,"elapsedMs":83}
+
+stderr | tests/agents/native-item-events.test.ts > retains native Item boundaries with interruption=true
+{"message":"Native harness initialized","purpose":"session","ordinal":2,"elapsedMs":86}
+
+ ✓ tests/agents/native-item-events.test.ts (2 tests) 310ms
+stderr | tests/agents/native-bedrock-auth.test.ts > refreshes native Bedrock command authentication on a reused Session after a 401
+{"message":"Native harness initialized","purpose":"session","ordinal":1,"elapsedMs":88}
+
+ ✓ tests/agents/native-bedrock-auth.test.ts (1 test) 225ms
+ ✓ tests/simulation/time-travel.test.ts (11 tests) 308ms
+ ✓ tests/scripts/check-architecture.test.ts (11 tests) 312ms
+ ✓ tests/agents/managed-executor.test.ts (1 test) 281ms
+ ✓ tests/pi/packaged-child.test.ts (1 test) 284ms
+stdout | tests/runner/codex-app-server.test.ts > Codex app-server notifications > keeps the verified managed profile at every native boundary (fallback)
+{"_aws":{"Timestamp":1794802433889,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"CodexThreadResumeFallback","Unit":"Count"}]}]},"Deployment":"local","Component":"runner","CodexThreadResumeFallback":1}
+
+ ✓ tests/runner/codex-app-server.test.ts (14 tests) 330ms
+ ✓ tests/infra/ec2-worker-bootstrap.test.ts (3 tests) 253ms
+(node:22229) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/agents/local-native-shutdown.test.ts (3 tests) 289ms
+(node:22231) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/agents/local-runtime-port.test.ts (10 tests) 291ms
+stdout | tests/agents/session-journal.test.ts > durable session journal > redacts token-shaped JSON keys without overwriting colliding tool results
+{"_aws":{"Timestamp":1794802436052,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"OutputRedactions","Unit":"Count"}]}]},"Deployment":"local","Component":"runner","OutputRedactions":2}
+
+stdout | tests/agents/session-journal.test.ts > durable session journal > redacts planted output and partial text deltas before saving Session Items
+{"_aws":{"Timestamp":1794802436053,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"OutputRedactions","Unit":"Count"}]}]},"Deployment":"local","Component":"runner","OutputRedactions":1}
+
+stdout | tests/agents/session-journal.test.ts > durable session journal > redacts planted output and partial text deltas before saving Session Items
+{"_aws":{"Timestamp":1794802436054,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"OutputRedactions","Unit":"Count"}]}]},"Deployment":"local","Component":"runner","OutputRedactions":1}
+
+ ✓ tests/agents/session-journal.test.ts (8 tests) 242ms
+ ✓ tests/runner/local-pi-effects.test.ts (6 tests) 224ms
+ ✓ tests/adapters/local-native-probe-storage.test.ts (10 tests) 249ms
+ ✓ tests/agents/workspace-transfer.test.ts (6 tests) 183ms
+stderr | tests/agents/native-admission.test.ts > keeps the exact child limit when two active parents spawn nested children (attempt 1)
+{"message":"Native harness initialized","purpose":"session","ordinal":1,"elapsedMs":87}
+
+ ✓ tests/agents/native-admission.test.ts (1 test) 196ms
+ ✓ tests/runner/fork-workspace.test.ts (5 tests) 197ms
+ ✓ tests/domain/agents-api-validation.test.ts (3 tests) 220ms
+(node:22487) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/agents/local-codex-selection.test.ts > pins account, model, Session and file callers to one host despite ambient binary changes
+{"message":"Native harness initialized","purpose":"session","ordinal":3,"elapsedMs":25}
+
+ ✓ tests/agents/local-codex-selection.test.ts (2 tests) 210ms
+stdout | tests/agents/http-transport.test.ts > independent HTTP transport > records a completed empty 204 response with its HTTP outcome
+{"event":"rat.performance","Operation":"session-input","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802439501,"RequestCount":1,"RequestDuration":4.178167000000002,"ResponseHeadersDuration":3.845249999999993}
+
+stdout | tests/agents/http-transport.test.ts > independent HTTP transport > records a completed empty 403 response with its HTTP outcome
+{"event":"rat.performance","Operation":"session-input","Outcome":"client-error","Deployment":"local","Component":"collaboration","StartedAt":1794802439509,"RequestCount":1,"RequestDuration":0.4689170000000331,"ResponseHeadersDuration":0.3897079999999846}
+
+stdout | tests/agents/http-transport.test.ts > independent HTTP transport > accepts standard SDK uploads larger than a Lambda request and enforces scoped expiring bearer keys
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802439523,"RequestCount":1,"RequestDuration":25.25966699999998,"ResponseHeadersDuration":23.766374999999982,"ResponseBytes":168}
+
+stdout | tests/agents/http-transport.test.ts > independent HTTP transport > accepts standard SDK uploads larger than a Lambda request and enforces scoped expiring bearer keys
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802439553,"RequestCount":1,"RequestDuration":9.85975000000002,"ResponseHeadersDuration":1.2989170000000172,"ResponseBytes":8388608}
+
+stdout | tests/agents/http-transport.test.ts > independent HTTP transport > accepts standard SDK uploads larger than a Lambda request and enforces scoped expiring bearer keys
+{"event":"rat.performance","Operation":"other","Outcome":"client-error","Deployment":"local","Component":"collaboration","StartedAt":1794802439569,"RequestCount":1,"RequestDuration":1.3182919999999854,"ResponseHeadersDuration":0.8034579999999778,"ResponseBytes":115}
+
+stdout | tests/agents/http-transport.test.ts > independent HTTP transport > accepts standard SDK uploads larger than a Lambda request and enforces scoped expiring bearer keys
+{"event":"rat.performance","Operation":"other","Outcome":"client-error","Deployment":"local","Component":"collaboration","StartedAt":1794802439572,"RequestCount":1,"RequestDuration":0.5069169999999872,"ResponseHeadersDuration":0.12287500000002183,"ResponseBytes":119}
+
+stdout | tests/agents/http-transport.test.ts > Lambda Web Function HTTP binding > uses only the regional endpoint Host for discovery and bearer audience
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802439582,"RequestCount":1,"RequestDuration":0.5972500000000309,"ResponseHeadersDuration":0.198332999999991,"ResponseBytes":152}
+
+stdout | tests/agents/http-transport.test.ts > Lambda Web Function HTTP binding > uses only the regional endpoint Host for discovery and bearer audience
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802439583,"RequestCount":1,"RequestDuration":0.5649589999999876,"ResponseHeadersDuration":0.27279199999998127,"ResponseBytes":76}
+
+stdout | tests/agents/http-transport.test.ts > Lambda Web Function HTTP binding > uses only the regional endpoint Host for discovery and bearer audience
+{"event":"rat.performance","Operation":"other","Outcome":"client-error","Deployment":"local","Component":"collaboration","StartedAt":1794802439584,"RequestCount":1,"RequestDuration":0.6813750000000027,"ResponseHeadersDuration":0.13650000000001228,"ResponseBytes":128}
+
+stdout | tests/agents/http-transport.test.ts > Lambda Web Function HTTP binding > uses only the regional endpoint Host for discovery and bearer audience
+{"event":"rat.performance","Operation":"other","Outcome":"client-error","Deployment":"local","Component":"collaboration","StartedAt":1794802439586,"RequestCount":1,"RequestDuration":0.3584579999999846,"ResponseHeadersDuration":0.08020799999997053,"ResponseBytes":128}
+
+stdout | tests/agents/http-transport.test.ts > Lambda Web Function HTTP binding > keeps concurrent event streams and input requests bound to their own bearer identities and cancels streams
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802439589,"RequestCount":1,"RequestDuration":0.5749999999999886,"ResponseHeadersDuration":0.24970799999999826,"ResponseBytes":40}
+
+stdout | tests/agents/http-transport.test.ts > Lambda Web Function HTTP binding > keeps concurrent event streams and input requests bound to their own bearer identities and cancels streams
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802439590,"RequestCount":1,"RequestDuration":0.44008300000001555,"ResponseHeadersDuration":0.19120800000001736,"ResponseBytes":36}
+
+stdout | tests/agents/http-transport.test.ts > Lambda Web Function HTTP binding > keeps concurrent event streams and input requests bound to their own bearer identities and cancels streams
+{"event":"rat.performance","Operation":"other","Outcome":"aborted","Deployment":"local","Component":"collaboration","StartedAt":1794802439588,"RequestCount":1,"RequestDuration":4.353875000000016,"ResponseHeadersDuration":0.15874999999999773,"ResponseBytes":11}
+
+stdout | tests/agents/http-transport.test.ts > Lambda Web Function HTTP binding > keeps concurrent event streams and input requests bound to their own bearer identities and cancels streams
+{"event":"rat.performance","Operation":"other","Outcome":"aborted","Deployment":"local","Component":"collaboration","StartedAt":1794802439587,"RequestCount":1,"RequestDuration":5.098291999999958,"ResponseHeadersDuration":0.1677090000000021,"ResponseBytes":13}
+
+stdout | tests/agents/http-transport.test.ts > Lambda Web Function HTTP binding > admits one large upload while keeping normal API and SSE traffic available, then releases capacity after failure and cancellation
+{"event":"rat.performance","Operation":"other","Outcome":"client-error","Deployment":"local","Component":"collaboration","StartedAt":1794802439649,"RequestCount":1,"RequestDuration":0.41091699999998355,"ResponseHeadersDuration":0.13658399999997073,"ResponseBytes":131}
+
+stdout | tests/agents/http-transport.test.ts > Lambda Web Function HTTP binding > admits one large upload while keeping normal API and SSE traffic available, then releases capacity after failure and cancellation
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802439650,"RequestCount":1,"RequestDuration":0.4000419999999849,"ResponseHeadersDuration":0.14412499999997408,"ResponseBytes":17}
+
+stdout | tests/agents/http-transport.test.ts > Lambda Web Function HTTP binding > admits one large upload while keeping normal API and SSE traffic available, then releases capacity after failure and cancellation
+{"event":"rat.performance","Operation":"other","Outcome":"server-error","Deployment":"local","Component":"collaboration","StartedAt":1794802439646,"RequestCount":1,"RequestDuration":5.984041999999988,"ResponseHeadersDuration":5.784707999999966,"ResponseBytes":105}
+
+stdout | tests/agents/http-transport.test.ts > Lambda Web Function HTTP binding > admits one large upload while keeping normal API and SSE traffic available, then releases capacity after failure and cancellation
+{"event":"rat.performance","Operation":"other","Outcome":"aborted","Deployment":"local","Component":"collaboration","StartedAt":1794802439651,"RequestCount":1,"RequestDuration":1.8096249999999827,"ResponseHeadersDuration":0.1214589999999589,"ResponseBytes":13}
+
+stdout | tests/agents/http-transport.test.ts > Lambda Web Function HTTP binding > admits one large upload while keeping normal API and SSE traffic available, then releases capacity after failure and cancellation
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802439653,"RequestCount":1,"RequestDuration":1.692292000000009,"ResponseHeadersDuration":1.5137090000000057,"ResponseBytes":17}
+
+stdout | tests/agents/http-transport.test.ts > Lambda Web Function HTTP binding > admits one large upload while keeping normal API and SSE traffic available, then releases capacity after failure and cancellation
+{"event":"rat.performance","Operation":"other","Outcome":"aborted","Deployment":"local","Component":"collaboration","StartedAt":1794802439655,"RequestCount":1,"RequestDuration":1.3611669999999663,"ResponseHeadersDuration":0.707917000000009}
+
+stdout | tests/agents/http-transport.test.ts > Lambda Web Function HTTP binding > admits one large upload while keeping normal API and SSE traffic available, then releases capacity after failure and cancellation
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802439656,"RequestCount":1,"RequestDuration":3.2243330000000014,"ResponseHeadersDuration":3.00487499999997,"ResponseBytes":17}
+
+stdout | tests/agents/http-transport.test.ts > Lambda Web Function HTTP binding > does not reject while reporting an upload error after the client disconnects during cleanup
+{"event":"rat.performance","Operation":"other","Outcome":"aborted","Deployment":"local","Component":"collaboration","StartedAt":1794802439661,"RequestCount":1,"RequestDuration":0.3192500000000109}
+
+ ✓ tests/agents/http-transport.test.ts (10 tests) 194ms
+ ✓ tests/scripts/javascript-notices.test.ts (14 tests) 158ms
+ ✓ tests/agents/vault-oauth.test.ts (5 tests) 214ms
+ ✓ tests/runner/workspace.test.ts (4 tests) 173ms
+ ✓ tests/adapters/oidc-authenticator.test.ts (4 tests) 177ms
+ ✓ tests/scripts/native-guest-inputs.test.ts (12 tests) 184ms
+ ✓ tests/scripts/aws-e2e-common.test.ts (10 tests) 201ms
+ ✓ tests/adapters/dynamo-agents-store.test.ts (21 tests) 179ms
+ ✓ tests/simulation/client-team-invites.test.ts (8 tests) 194ms
+ ✓ tests/agents/local-session-recovery.test.ts (15 tests) 141ms
+ ✓ tests/runner/local-subscription-login.test.ts (2 tests) 160ms
+ ✓ tests/agents/contract-boundaries.test.ts (5 tests) 139ms
+ ✓ tests/simulation/native-vm-prototype.test.ts (3 tests) 111ms
+stderr | tests/adapters/codex-rpc-checkpoint.test.ts > rejects a missing executable without an uncaught broken-pipe error in the host
+{"message":"Native harness process failed to start"}
+
+ ✓ tests/adapters/codex-rpc-checkpoint.test.ts (7 tests) 148ms
+ ✓ tests/agents/installed-cloud-transfer.test.mjs (24 tests) 131ms
+ ✓ tests/adapters/local-runtime-setup.test.ts (16 tests) 125ms
+ ✓ tests/adapters/cloudfront-publications.test.ts (4 tests) 128ms
+ ✓ tests/performance-cost/cost.test.ts (20 tests) 112ms
+stdout | tests/pi/native-redaction.test.ts > Pi native document redaction > redacts a credential split across Chord appends before persisting replayable document history
+{"_aws":{"Timestamp":1794802445432,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"OutputRedactions","Unit":"Count"}]}]},"Deployment":"local","Component":"runner","OutputRedactions":1}
+
+stdout | tests/pi/native-redaction.test.ts > Pi native document redaction > redacts a credential split across Chord appends before persisting replayable document history
+{"_aws":{"Timestamp":1794802445432,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"OutputRedactions","Unit":"Count"}]}]},"Deployment":"local","Component":"runner","OutputRedactions":1}
+
+stdout | tests/pi/native-redaction.test.ts > Pi native document redaction > rebuilds later operations against the raw document and resumes from the redacted persisted document
+{"_aws":{"Timestamp":1794802445433,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"OutputRedactions","Unit":"Count"}]}]},"Deployment":"local","Component":"runner","OutputRedactions":1}
+
+stdout | tests/pi/native-redaction.test.ts > Pi native document redaction > redacts a credential that finishes streaming after recovery
+{"_aws":{"Timestamp":1794802445434,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"OutputRedactions","Unit":"Count"}]}]},"Deployment":"local","Component":"runner","OutputRedactions":1}
+
+stdout | tests/pi/native-redaction.test.ts > Pi native document redaction > redacts a credential that finishes streaming after recovery
+{"_aws":{"Timestamp":1794802445434,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"OutputRedactions","Unit":"Count"}]}]},"Deployment":"local","Component":"runner","OutputRedactions":1}
+
+stdout | tests/pi/native-redaction.test.ts > Pi native document redaction > keeps document paths consistent when redacted object keys collide or are removed
+{"_aws":{"Timestamp":1794802445435,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"OutputRedactions","Unit":"Count"}]}]},"Deployment":"local","Component":"runner","OutputRedactions":2}
+
+stdout | tests/pi/native-redaction.test.ts > Pi native document redaction > keeps document paths consistent when redacted object keys collide or are removed
+{"_aws":{"Timestamp":1794802445435,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"OutputRedactions","Unit":"Count"}]}]},"Deployment":"local","Component":"runner","OutputRedactions":2}
+
+stdout | tests/pi/native-redaction.test.ts > Pi native document redaction > uses a redacted base when a newly learned credential would appear in a delta path
+{"_aws":{"Timestamp":1794802445436,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"OutputRedactions","Unit":"Count"}]}]},"Deployment":"local","Component":"runner","OutputRedactions":1}
+{"_aws":{"Timestamp":1794802445436,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"OutputRedactions","Unit":"Count"}]}]},"Deployment":"local","Component":"runner","OutputRedactions":1}
+
+stdout | tests/pi/native-redaction.test.ts > Pi native document redaction > reconciles a lost commit acknowledgment and keeps repeated commits idempotent
+{"_aws":{"Timestamp":1794802445437,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"OutputRedactions","Unit":"Count"}]}]},"Deployment":"local","Component":"runner","OutputRedactions":1}
+
+stdout | tests/pi/native-redaction.test.ts > Pi native document redaction > reconciles a lost commit acknowledgment and keeps repeated commits idempotent
+{"_aws":{"Timestamp":1794802445437,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"OutputRedactions","Unit":"Count"}]}]},"Deployment":"local","Component":"runner","OutputRedactions":1}
+
+ ✓ tests/pi/native-redaction.test.ts (30 tests) 120ms
+ ✓ tests/scripts/linux-kvm-refusal-fixture.test.ts (2 tests) 33ms
+ ✓ tests/agents/session-lifecycle.test.ts (30 tests) 99ms
+ ✓ tests/site/architecture-catalogue.test.ts (6 tests) 104ms
+ ✓ tests/simulation/linux-kvm-helper.test.ts (1 test) 96ms
+ ✓ tests/agents/environment-input-boundaries.test.ts (16 tests) 95ms
+ ✓ tests/lambdas/activity-stream.test.ts (5 tests) 107ms
+ ✓ tests/adapters/execution-client-timeout.test.ts (1 test) 151ms
+ ✓ tests/agents/session-mcp-authorization.test.ts (22 tests) 93ms
+ ✓ tests/performance-aws/controller-flow.test.ts (2 tests) 92ms
+ ✓ tests/adapters/native-guest-control.test.ts (1 test) 88ms
+ ✓ tests/aws/super-security-proof-helper.test.ts (33 tests) 83ms
+ ✓ tests/agents/thread-subscriptions.test.ts (11 tests) 73ms
+stderr | tests/runner/managed-setup-admission.test.ts > refuses an unenforced executor before materializing input, running setup, or publishing readiness
+{"message":"Native harness initialized","purpose":"setup","ordinal":1,"elapsedMs":26}
+
+ ✓ tests/runner/managed-setup-admission.test.ts (1 test) 69ms
+ ✓ tests/runner/bedrock-token-file.test.ts (3 tests) 62ms
+ ✓ tests/scripts/native-build-files.test.ts (4 tests) 63ms
+ ✓ tests/agents/cli.test.ts (22 tests) 63ms
+ ✓ tests/agents/space-invites.test.ts (12 tests) 73ms
+ ✓ tests/agents/list-response-contract.test.ts (18 tests) 81ms
+ ✓ tests/runner/workspace-handoff.test.ts (24 tests) 125ms
+ ✓ tests/scripts/native-guest-archive.test.ts (17 tests) 49ms
+ ✓ tests/scripts/build-desktop.test.ts (6 tests) 129ms
+ ✓ tests/agents/codex-protocol.test.ts (4 tests) 62ms
+ ✓ tests/adapters/aws-runtime.test.ts (14 tests) 50ms
+ ✓ tests/agents/vaults-and-templates.test.ts (27 tests) 58ms
+ ✓ tests/agents/watchdog.test.ts (24 tests) 48ms
+ ✓ tests/agents/local-workspace-setup.test.ts (10 tests) 88ms
+ ✓ tests/agents/configuration-history.test.ts (25 tests) 66ms
+(node:24120) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/agents/space-invite-storage.test.ts (1 test) 51ms
+ ✓ tests/agents/workload-readmission.test.ts (8 tests) 44ms
+stdout | tests/agents/api-permissions.test.ts > scoped API authority > enforces a persisted read-only bearer grant over HTTP, including encoded paths
+{"event":"rat.performance","Operation":"other","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802454140,"RequestCount":1,"RequestDuration":5.2016250000000355,"ResponseHeadersDuration":2.7100829999999974,"ResponseBytes":75}
+
+stdout | tests/agents/api-permissions.test.ts > scoped API authority > enforces a persisted read-only bearer grant over HTTP, including encoded paths
+{"event":"rat.performance","Operation":"other","Outcome":"client-error","Deployment":"local","Component":"collaboration","StartedAt":1794802454151,"RequestCount":1,"RequestDuration":2.249917000000039,"ResponseHeadersDuration":1.3315000000000055,"ResponseBytes":123}
+
+stdout | tests/agents/api-permissions.test.ts > scoped API authority > enforces a persisted read-only bearer grant over HTTP, including encoded paths
+{"event":"rat.performance","Operation":"other","Outcome":"client-error","Deployment":"local","Component":"collaboration","StartedAt":1794802454155,"RequestCount":1,"RequestDuration":1.1234999999999786,"ResponseHeadersDuration":0.50649999999996,"ResponseBytes":122}
+
+ ✓ tests/agents/api-permissions.test.ts (6 tests) 49ms
+ ✓ tests/agents/session-transfer.test.ts (4 tests) 18ms
+stderr | tests/agents/session-runtime.test.ts > persistent native session runtime > rejects the reserved Plan call when it was not admitted
+{"message":"Native harness requested an undeclared host interaction","method":"item/tool/call"}
+
+stderr | tests/agents/session-runtime.test.ts > persistent native session runtime > resolves root functions with empty output and rejects child functions and approval requests
+{"message":"Native harness requested an undeclared host interaction","method":"item/tool/call"}
+
+stderr | tests/agents/session-runtime.test.ts > persistent native session runtime > resolves root functions with empty output and rejects child functions and approval requests
+{"message":"Native harness requested an undeclared host interaction","method":"item/commandExecution/requestApproval"}
+
+ ✓ tests/agents/session-runtime.test.ts (30 tests) 42ms
+ ✓ tests/core/agent-activity-projection.test.ts (3 tests) 42ms
+ ✓ tests/performance-aws/startup-responses-limits.test.ts (11 tests) 42ms
+stdout | tests/agents/session-integrations.test.ts > provider Sessions > redacts a planted secret before provider delivery and fails closed when credentials cannot be read
+{"_aws":{"Timestamp":1794802455337,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"OutputRedactions","Unit":"Count"}]}]},"Deployment":"local","Component":"delivery","OutputRedactions":1}
+
+ ✓ tests/agents/session-integrations.test.ts (14 tests) 36ms
+ ✓ tests/adapters/codex-environment-files.test.ts (1 test) 32ms
+ ✓ tests/agents/run-session-execution.test.ts (34 tests) 39ms
+ ✓ tests/agents/webhooks.test.ts (11 tests) 40ms
+(node:24307) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/agents/authority-audit-local.test.ts > persists real HTTP MCP decisions in SQLite, preserves responses through an outcome outage, and exports after reopening
+{"level":"warn","message":"MCP outcome retention is unconfirmed"}
+
+ ✓ tests/agents/authority-audit-local.test.ts (1 test) 39ms
+ ✓ tests/runner/managed-sandbox.test.ts (3 tests) 32ms
+ ✓ tests/pi/storage.test.ts (33 tests) 34ms
+ ✓ tests/scripts/agents-quickstart-proof.test.ts (3 tests) 34ms
+ ✓ tests/agents/session-fork.test.ts (11 tests) 31ms
+ ✓ tests/core/publication-builders.test.ts (11 tests) 22ms
+ ✓ tests/runner/local-native-probe.test.ts (13 tests) 32ms
+ ✓ tests/agents/sdk-conformance.test.ts (7 tests) 33ms
+ ✓ tests/agents/session-plan-integration.test.ts (7 tests) 33ms
+ ✓ tests/agents/watchdog-retry-delivery.test.ts (7 tests) 29ms
+ ✓ tests/scripts/egress-proof.test.ts (66 tests | 1 skipped) 26ms
+{"level":"info","message":"Lambda MicroVM lifecycle server listening","port":8080}
+{"level":"info","message":"agent runner started","runId":"response-gate-run","microvmId":"microvm-response-test","pid":42,"startupDurationMs":0,"storageMountDurationMs":0,"storagePreparationDurationMs":0,"storageAlreadyMounted":false}
+{"level":"warn","message":"agent control operation failed","operation":"respond","error":"server request pi_call_before_ready is not pending"}
+{"level":"warn","message":"agent control operation failed","operation":"respond","error":"server request pi_call_forged is not pending"}
+{"level":"warn","message":"agent control operation failed","operation":"respond","error":"server request pi_call_malformed is not pending"}
+{"level":"warn","message":"agent control operation failed","operation":"respond","error":"server request pi_call_legacy is not pending"}
+{"level":"warn","message":"agent control operation failed","operation":"respond","error":"server request pi_call_15 is not pending"}
+{"level":"warn","message":"agent control operation failed","operation":"respond","error":"Unknown Pi function call"}
+{"level":"warn","message":"agent control operation failed","operation":"respond","error":"server request pi_call_unknown is not pending"}
+{"level":"warn","message":"agent control operation failed","operation":"respond","error":"server request codex-request-1 is not pending"}
+{"level":"warn","message":"agent control operation failed","operation":"respond","error":"control operation ID was reused with different input"}
+{"level":"info","message":"Lambda MicroVM lifecycle server listening","port":8080}
+{"level":"info","message":"agent runner started","runId":"worker-exit-run","microvmId":"microvm-worker-exit-test","pid":42,"startupDurationMs":0,"storageMountDurationMs":0,"storagePreparationDurationMs":0,"storageAlreadyMounted":false}
+{"level":"info","message":"agent runner exited","runId":"worker-exit-run","code":0,"signal":null}
+{"level":"info","message":"Lambda MicroVM lifecycle server listening","port":8080}
+{"level":"info","message":"agent runner started","runId":"worker-exit-run","microvmId":"microvm-worker-exit-test","pid":42,"startupDurationMs":0,"storageMountDurationMs":0,"storagePreparationDurationMs":0,"storageAlreadyMounted":false}
+{"level":"error","message":"agent runner exited","runId":"worker-exit-run","code":null,"signal":"SIGTERM"}
+{"level":"info","message":"Lambda MicroVM lifecycle server listening","port":8080}
+{"level":"info","message":"agent runner started","runId":"worker-exit-run","microvmId":"microvm-worker-exit-test","pid":42,"startupDurationMs":0,"storageMountDurationMs":0,"storagePreparationDurationMs":0,"storageAlreadyMounted":false}
+{"level":"warn","message":"agent control operation failed","operation":"steer","error":"The intended Session Turn rejected this input before applying it."}
+{"level":"warn","message":"agent control operation failed","operation":"steer","error":"Unknown delivery outcome"}
+ ✓ tests/microvm/runtime-control.test.ts (4 tests) 24ms
+(node:24347) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/adapters/agents-store-order.test.ts (4 tests) 25ms
+ ✓ tests/performance-aws/progress.test.ts (8 tests) 20ms
+ ✓ tests/site/architecture-resources.test.ts (1 test) 28ms
+ ✓ tests/agents/environment-credentials.test.ts (15 tests) 19ms
+(node:24413) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/adapters/sqlite-agents-store.test.ts (6 tests) 23ms
+ ✓ tests/scripts/native-guest-hostname.test.ts (2 tests) 21ms
+ ✓ tests/agents/session-presence.test.ts (3 tests) 20ms
+ ✓ tests/agents/session-item-interruption.test.ts (9 tests) 15ms
+ ✓ tests/agents/watchdog-collection.test.ts (7 tests) 15ms
+ ✓ tests/agents/model-catalog.test.ts (7 tests) 14ms
+ ✓ tests/agents/managed-reset.test.ts (4 tests) 21ms
+ ✓ tests/runner/session-checkpoint.test.ts (24 tests) 18ms
+ ✓ tests/performance-aws/observer.test.ts (7 tests) 21ms
+ ✓ tests/pi/model-catalog.test.ts (22 tests) 22ms
+(node:24550) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/performance-share/source.test.ts (2 tests) 21ms
+ ✓ tests/scripts/ensure-worker-runtime.test.ts (7 tests) 19ms
+ ✓ tests/agents/session-publications.test.ts (4 tests) 18ms
+ ✓ tests/spec/contracts.test.ts (7 tests) 21ms
+ ✓ tests/agents/audit-inspection.test.ts (2 tests) 17ms
+ ✓ tests/agents/local-transfer-models.test.ts (8 tests) 19ms
+ ✓ tests/agents/session-preparation.test.ts (12 tests) 21ms
+ ✓ tests/channels/signatures.test.ts (6 tests) 3ms
+ ✓ tests/core/run-service.test.ts (23 tests) 16ms
+stdout | tests/lambdas/dispatcher.test.ts > dispatcher factory > dispatches a queued run and attaches its execution reference
+{"_aws":{"Timestamp":1794802464931,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"ProcessingDuration","Unit":"Milliseconds"}]}]},"Deployment":"local","Component":"dispatcher","ProcessingDuration":1}
+
+stdout | tests/lambdas/dispatcher.test.ts > dispatcher factory > reports malformed queue records as batch failures
+{"_aws":{"Timestamp":1794802464933,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"ProcessingDuration","Unit":"Milliseconds"}]}]},"Deployment":"local","Component":"dispatcher","ProcessingDuration":0}
+
+stdout | tests/lambdas/dispatcher.test.ts > dispatcher factory > retries a duplicate dispatch while AWS is creating the idempotent MicroVM
+{"_aws":{"Timestamp":1794802464935,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"ProcessingDuration","Unit":"Milliseconds"}]}]},"Deployment":"local","Component":"dispatcher","ProcessingDuration":1}
+
+stdout | tests/lambdas/dispatcher.test.ts > dispatcher factory > retries an AWS control-plane HTML response that the SDK cannot deserialize
+{"_aws":{"Timestamp":1794802464935,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"ProcessingDuration","Unit":"Milliseconds"}]}]},"Deployment":"local","Component":"dispatcher","ProcessingDuration":0}
+
+stdout | tests/lambdas/dispatcher.test.ts > dispatcher factory > ignores a duplicate wake-up after an execution has been attached
+{"_aws":{"Timestamp":1794802464936,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"ProcessingDuration","Unit":"Milliseconds"}]}]},"Deployment":"local","Component":"dispatcher","ProcessingDuration":0}
+
+stdout | tests/lambdas/dispatcher.test.ts > dispatcher factory > lets only one concurrent delivery claim a queued run
+{"_aws":{"Timestamp":1794802464937,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"ProcessingDuration","Unit":"Milliseconds"}]}]},"Deployment":"local","Component":"dispatcher","ProcessingDuration":0}
+
+ ✓ tests/lambdas/dispatcher.test.ts (6 tests) 8ms
+ ✓ tests/ingress/slack-message-deduplication.test.ts (6 tests) 17ms
+ ✓ tests/agents/session-item-events.test.ts (11 tests) 16ms
+ ✓ tests/execution/reconciler.test.ts (45 tests) 13ms
+stdout | tests/plugins/integration-runtime.test.ts > integration runtime effect boundaries > scrubs connector echoes from values, JSON keys and errors across credential rotation
+{"_aws":{"Timestamp":1794802465759,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"OutputRedactions","Unit":"Count"}]}]},"Deployment":"local","Component":"integrations","OutputRedactions":2}
+
+stdout | tests/plugins/integration-runtime.test.ts > integration runtime effect boundaries > scrubs connector echoes from values, JSON keys and errors across credential rotation
+{"_aws":{"Timestamp":1794802465760,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"OutputRedactions","Unit":"Count"}]}]},"Deployment":"local","Component":"integrations","OutputRedactions":2}
+
+stdout | tests/plugins/integration-runtime.test.ts > integration runtime effect boundaries > scrubs connector echoes from values, JSON keys and errors across credential rotation
+{"_aws":{"Timestamp":1794802465760,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"OutputRedactions","Unit":"Count"}]}]},"Deployment":"local","Component":"integrations","OutputRedactions":1}
+
+ ✓ tests/plugins/integration-runtime.test.ts (17 tests) 16ms
+(node:24699) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/core/owner-rate-limiter.test.ts (5 tests) 13ms
+ ✓ tests/plugins/connection-service.test.ts (26 tests) 16ms
+ ✓ tests/plugins/http-effects.test.ts (14 tests) 16ms
+ ✓ tests/agents/session-preparation-retention.test.ts (6 tests) 12ms
+ ✓ tests/agents/transport-and-launch.test.ts (3 tests) 15ms
+ ✓ tests/agents/event-filter.test.ts (29 tests) 13ms
+ ✓ tests/agents/workspace-handoff.test.ts (19 tests) 15ms
+ ✓ tests/core/publication-service.test.ts (15 tests) 14ms
+ ✓ tests/plugins/http.test.ts (10 tests) 13ms
+ ✓ tests/pi/admission.test.ts (5 tests) 13ms
+ ✓ tests/runner/workspace-effects.test.ts (10 tests) 15ms
+ ✓ tests/agents/session-placement.test.ts (10 tests) 13ms
+ ✓ tests/agents/watchdog-incidents.test.ts (7 tests) 13ms
+stdout | tests/runner/image-validation.test.ts > prepares storage utilities before the bounded Codex handshake, then closes
+rat-validation:preparing
+
+stdout | tests/runner/image-validation.test.ts > prepares storage utilities before the bounded Codex handshake, then closes
+rat-validation:initializing
+
+stdout | tests/runner/image-validation.test.ts > prepares storage utilities before the bounded Codex handshake, then closes
+rat-validation:initialized
+
+stdout | tests/runner/image-validation.test.ts > prepares storage utilities before the bounded Codex handshake, then closes
+rat-validation:closed
+
+stdout | tests/runner/image-validation.test.ts > does not launch Codex when its private home cannot be prepared
+rat-validation:preparing
+
+stdout | tests/runner/image-validation.test.ts > does not launch Codex when storage utility warmup fails
+rat-validation:preparing
+
+stdout | tests/runner/image-validation.test.ts > closes the Codex process when initialization fails
+rat-validation:preparing
+
+stdout | tests/runner/image-validation.test.ts > closes the Codex process when initialization fails
+rat-validation:initializing
+
+stdout | tests/runner/image-validation.test.ts > closes the Codex process when initialization fails
+rat-validation:closed
+
+ ✓ tests/runner/image-validation.test.ts (4 tests) 11ms
+ ✓ tests/agents/local-session-artifacts.test.ts (4 tests) 13ms
+ ✓ tests/agents/session-message-history.test.ts (9 tests) 11ms
+ ✓ tests/execution/dispatcher.test.ts (10 tests) 6ms
+ ✓ tests/scripts/linux-kvm-prepare.test.ts (7 tests) 16ms
+ ✓ tests/adapters/codex-managed-policy.test.ts (31 tests) 12ms
+ ✓ tests/plugins/oauth.test.ts (11 tests) 12ms
+ ✓ tests/plugins/oauth-effects.test.ts (13 tests) 11ms
+ ✓ tests/agents/bedrock-event-filter.test.ts (4 tests) 12ms
+ ✓ tests/plugins/http-planning.test.ts (23 tests) 12ms
+ ✓ tests/agents/tool-authorizations.test.ts (5 tests) 13ms
+ ✓ tests/agents/schedules.test.ts (6 tests) 12ms
+ ✓ tests/core/publication-planning.test.ts (10 tests) 11ms
+ ✓ tests/agents/session-feedback.test.ts (2 tests) 11ms
+ ✓ tests/adapters/workspace-source-stopped.test.ts (17 tests) 11ms
+ ✓ tests/adapters/dynamo-integration-store.test.ts (3 tests) 11ms
+ ✓ tests/adapters/codex-rpc-startup.test.ts (6 tests) 10ms
+ ✓ tests/pi/host-diagnostics.test.ts (3 tests) 12ms
+ ✓ tests/agents/session-tool-reconciliation.test.ts (12 tests) 12ms
+ ✓ tests/agents/share-conversation-proof.test.ts (5 tests) 10ms
+ ✓ tests/runner/git-fetch-diagnostic.test.ts (14 tests) 8ms
+ ✓ tests/app/connection-consumers.test.ts (1 test) 9ms
+(node:24898) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/agents/development-share.test.ts (4 tests) 10ms
+ ✓ tests/runner/chatgpt-auth.test.ts (5 tests) 11ms
+ ✓ tests/pi/recovery.test.ts (7 tests) 9ms
+stdout | tests/runner/finalization.test.ts > worker terminal evidence > flushes Session history before publishing private execution evidence for a interrupted outcome
+{"event":"runner_startup_trace","version":1,"wallOrigin":"2026-11-16T04:14:34.608Z","phases":[{"phase":"runner_entered","offsetMs":0.2279590000000553},{"phase":"run_loaded","offsetMs":0.9181670000000395},{"phase":"driver_ready","offsetMs":1.5465840000000526}],"outcome":"shutdown"}
+
+stdout | tests/runner/finalization.test.ts > worker terminal evidence > flushes Session history before publishing private execution evidence for a failed outcome
+{"event":"runner_startup_trace","version":1,"wallOrigin":"2026-11-16T04:14:34.615Z","phases":[{"phase":"runner_entered","offsetMs":0.006708000000003267},{"phase":"run_loaded","offsetMs":0.02250000000003638},{"phase":"driver_ready","offsetMs":0.17875000000003638}],"outcome":"failed"}
+
+stdout | tests/runner/finalization.test.ts > worker terminal evidence > flushes Session history before publishing private execution evidence for a completed outcome
+{"event":"runner_startup_trace","version":1,"wallOrigin":"2026-11-16T04:14:34.617Z","phases":[{"phase":"runner_entered","offsetMs":0.01125000000001819},{"phase":"run_loaded","offsetMs":0.024292000000059488},{"phase":"driver_ready","offsetMs":0.17629199999998946}],"outcome":"shutdown"}
+
+ ✓ tests/runner/finalization.test.ts (3 tests) 11ms
+ ✓ tests/runner/managed-executor-startup.test.ts (3 tests) 15ms
+(node:25022) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/agents/local-runtime.test.ts (4 tests) 8ms
+ ✓ tests/agents/session-activity-polling.test.ts (2 tests) 8ms
+ ✓ tests/agents/session-plan.test.ts (6 tests) 10ms
+ ✓ tests/lambdas/control.test.ts (6 tests) 8ms
+ ✓ tests/adapters/dynamo-owner-rate-limit.test.ts (5 tests) 8ms
+ ✓ tests/pi/provider-stream.test.ts (1 test) 8ms
+stdout | tests/lambdas/agents-outbox.test.ts > credential cleanup outbox delivery > records bounded failure metadata and retries a failed stream enqueue
+{"event":"rat.performance","Operation":"outbox-batch","Outcome":"error","Deployment":"local","Component":"collaboration","StartedAt":1794802477139,"RequestCount":1,"RequestDuration":0.26558299999999235,"OutboxFailureCount":1}
+
+stdout | tests/lambdas/agents-outbox.test.ts > credential cleanup outbox delivery > queues a durable attempt from its index without including credential payloads
+{"event":"rat.performance","Operation":"outbox-batch","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802477140,"RequestCount":1,"RequestDuration":0.084666000000027}
+
+stdout | tests/lambdas/agents-outbox.test.ts > credential cleanup outbox delivery > defers active preparation and acknowledges completed reconciliation on redelivery
+{"event":"agents.outbox.retry","stage":"job","reason":"deferred","type":"tool_cleanup"}
+
+stdout | tests/lambdas/agents-outbox.test.ts > credential cleanup outbox delivery > defers active preparation and acknowledges completed reconciliation on redelivery
+{"event":"rat.performance","Operation":"outbox-batch","Outcome":"error","Deployment":"local","Component":"collaboration","StartedAt":1794802477140,"RequestCount":1,"RequestDuration":0.22158300000000963,"OutboxRetryCount":1}
+
+stdout | tests/lambdas/agents-outbox.test.ts > credential cleanup outbox delivery > defers active preparation and acknowledges completed reconciliation on redelivery
+{"event":"rat.performance","Operation":"outbox-batch","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802477141,"RequestCount":1,"RequestDuration":0.018582999999978256}
+
+stdout | tests/lambdas/agents-outbox.test.ts > credential cleanup outbox delivery > retains failed cleanup for retry without logging confidential error text
+{"event":"rat.performance","Operation":"outbox-batch","Outcome":"error","Deployment":"local","Component":"collaboration","StartedAt":1794802477141,"RequestCount":1,"RequestDuration":0.04016699999999673,"OutboxFailureCount":1}
+
+stdout | tests/lambdas/agents-outbox.test.ts > Session preparation cleanup outbox delivery > queues preparation changes separately from execution and waits within SQS visibility limits
+{"event":"rat.performance","Operation":"outbox-batch","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802477141,"RequestCount":1,"RequestDuration":0.035249999999962256}
+
+stdout | tests/lambdas/agents-outbox.test.ts > Session preparation cleanup outbox delivery > queues preparation changes separately from execution and waits within SQS visibility limits
+{"event":"agents.outbox.retry","stage":"job","reason":"deferred","type":"preparation_cleanup"}
+
+stdout | tests/lambdas/agents-outbox.test.ts > Session preparation cleanup outbox delivery > queues preparation changes separately from execution and waits within SQS visibility limits
+{"event":"rat.performance","Operation":"outbox-batch","Outcome":"error","Deployment":"local","Component":"collaboration","StartedAt":1794802477141,"RequestCount":1,"RequestDuration":0.10708400000004303,"OutboxRetryCount":1}
+
+stdout | tests/lambdas/agents-outbox.test.ts > Session preparation cleanup outbox delivery > queues preparation changes separately from execution and waits within SQS visibility limits
+{"event":"rat.performance","Operation":"outbox-batch","Outcome":"success","Deployment":"local","Component":"collaboration","StartedAt":1794802477142,"RequestCount":1,"RequestDuration":0.018625000000042746}
+
+ ✓ tests/lambdas/agents-outbox.test.ts (6 tests) 7ms
+ ✓ tests/microvm/runtime-network-policy.test.mjs (4 tests) 7ms
+stdout | tests/domain/output-redaction.test.ts > retains old and rotated host credentials without putting the registry into output
+{"_aws":{"Timestamp":1794802477384,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"OutputRedactions","Unit":"Count"}]}]},"Deployment":"local","Component":"runner","OutputRedactions":2}
+
+stdout | tests/domain/output-redaction.test.ts > scrubs arbitrary JSON keys without losing entries when redacted names collide
+{"_aws":{"Timestamp":1794802477385,"CloudWatchMetrics":[{"Namespace":"RatThings","Dimensions":[["Deployment","Component"]],"Metrics":[{"Name":"OutputRedactions","Unit":"Count"}]}]},"Deployment":"local","Component":"runner","OutputRedactions":1}
+
+ ✓ tests/domain/output-redaction.test.ts (5 tests) 7ms
+ ✓ tests/delivery/service.test.ts (8 tests) 7ms
+ ✓ tests/scripts/check-publication-dns.test.ts (3 tests) 3ms
+ ✓ tests/adapters/codex-startup-diagnostic.test.ts (10 tests) 7ms
+ ✓ tests/runner/heartbeat.test.ts (6 tests) 6ms
+ ✓ tests/adapters/executors.test.ts (7 tests) 7ms
+ ✓ tests/runner/artifacts.test.ts (3 tests) 10ms
+ ✓ tests/performance-aws/storage.test.ts (7 tests) 6ms
+ ✓ tests/agents/session-traces.test.ts (5 tests) 6ms
+ ✓ tests/plugins/connection-planning.test.ts (15 tests) 6ms
+ ✓ tests/runner/agent-driver.test.ts (9 tests) 6ms
+ ✓ tests/runner/execution-attachment.test.ts (4 tests) 6ms
+ ✓ tests/ingress/repository-comment-policy.test.ts (12 tests) 7ms
+ ✓ tests/pi/local-provider.test.ts (1 test) 6ms
+ ✓ tests/runner/agent-driver-effects.test.ts (6 tests) 6ms
+ ✓ tests/site/visual-docs.test.ts (7 tests) 6ms
+stderr | tests/pi/host-ipc.test.ts > Pi host IPC ordering > keeps a shared browser Session alive between Turns until the host stops it
+{"event":"pi_child_exit","phase":"running","code":null,"signal":"SIGTERM"}
+
+ ✓ tests/pi/host-ipc.test.ts (3 tests) 6ms
+ ✓ tests/plugins/registry.test.ts (2 tests) 3ms
+ ✓ tests/agents/execution-commands.test.ts (5 tests) 6ms
+ ✓ tests/adapters/source-event-policy.test.ts (6 tests) 6ms
+ ✓ tests/adapters/execution-inspector.test.ts (9 tests) 6ms
+ ✓ tests/runner/codex-auth.test.ts (5 tests) 2ms
+ ✓ tests/pi/ipc.test.ts (37 tests) 6ms
+ ✓ tests/domain/validation.test.ts (23 tests) 6ms
+ ✓ tests/runner/workspace-planning.test.ts (21 tests) 5ms
+ ✓ tests/agents/session-plan-artifacts.test.ts (3 tests) 4ms
+ ✓ tests/adapters/secrets-session-tools.test.ts (8 tests) 5ms
+ ✓ tests/plugins/oauth-token-planning.test.ts (16 tests) 5ms
+ ✓ tests/runner/agent-planning.test.ts (17 tests) 5ms
+ ✓ tests/performance-aws/measurements.test.ts (13 tests) 5ms
+ ✓ tests/delivery/teams.test.ts (2 tests) 4ms
+ ✓ tests/runner/image-storage-warmup.test.ts (5 tests) 5ms
+ ✓ tests/channels/normalize.test.ts (20 tests) 5ms
+ ✓ tests/adapters/webhook-http.test.ts (3 tests) 4ms
+ ✓ tests/core/run-planning.test.ts (9 tests) 4ms
+ ✓ tests/runner/startup-observer.test.ts (6 tests) 4ms
+ ✓ tests/performance-aws/startup.test.ts (11 tests) 4ms
+ ✓ tests/domain/native-release.test.ts (14 tests) 4ms
+ ✓ tests/plugins/integration-tool-validation.test.ts (7 tests) 4ms
+ ✓ tests/agents/authorization-traces.test.ts (3 tests) 4ms
+ ✓ tests/plugins/oauth-planning.test.ts (5 tests) 4ms
+ ✓ tests/lambdas/metrics.test.ts (4 tests) 4ms
+ ✓ tests/core/delivery-fence.test.ts (6 tests) 4ms
+ ✓ tests/ingress/service.test.ts (6 tests) 4ms
+ ✓ tests/execution/reconciliation-planning.test.ts (16 tests) 4ms
+ ✓ tests/runner/control.test.ts (1 test) 1ms
+ ✓ tests/execution/dispatch-planning.test.ts (10 tests) 4ms
+ ✓ tests/agents/session-function-output.test.ts (5 tests) 4ms
+ ✓ tests/agents/performance.test.ts (5 tests) 4ms
+ ✓ tests/agents/turn-errors.test.ts (32 tests) 4ms
+ ✓ tests/runner/native-checkpoint-planning.test.ts (7 tests) 4ms
+ ✓ tests/pi/runtime-publication.test.ts (8 tests) 4ms
+ ✓ tests/domain/capabilities.test.ts (7 tests) 4ms
+ ✓ tests/runner/session-fork-runtime.test.ts (2 tests) 4ms
+ ✓ tests/microvm/runtime-process-policy.test.mjs (5 tests) 3ms
+ ✓ tests/plugins/integration-tool-planning.test.ts (8 tests) 4ms
+ ✓ tests/agents/team-config.test.ts (2 tests) 3ms
+ ✓ tests/adapters/publication-client.test.ts (4 tests) 4ms
+ ✓ tests/agents/file-streams.test.ts (4 tests) 4ms
+ ✓ tests/simulation/native-admission-policy.test.ts (11 tests) 3ms
+ ✓ tests/execution/terminal-worker-reconciler.test.ts (17 tests) 4ms
+ ✓ tests/adapters/ec2-executor.test.ts (2 tests) 3ms
+ ✓ tests/delivery/configuration.test.ts (5 tests) 3ms
+ ✓ tests/performance-aws/controller.test.ts (2 tests) 4ms
+ ✓ tests/runner/checkpoint-control.test.ts (2 tests) 3ms
+ ✓ tests/runner/bedrock-auth.test.ts (4 tests) 3ms
+ ✓ tests/pi/managed-tools.test.ts (18 tests) 3ms
+ ✓ tests/lambdas/agents-token-issuer.test.ts (4 tests) 3ms
+ ✓ tests/adapters/immutable-hydration-cache.test.ts (5 tests) 3ms
+ ✓ tests/runner/codex-cold-verification.test.ts (22 tests | 13 skipped) 3ms
+ ✓ tests/agents/outbox-planning.test.ts (6 tests) 2ms
+ ✓ tests/pi/effect-channel.test.ts (3 tests) 4ms
+ ✓ tests/core/publication-sharing.test.ts (11 tests) 4ms
+ ✓ tests/agents/session-model-validation.test.ts (18 tests) 4ms
+ ✓ tests/runner/agent-driver-startup.test.ts (2 tests) 3ms
+ ✓ tests/lambdas/thread-subscriptions.test.ts (2 tests) 3ms
+ ✓ tests/lambdas/integration-fixture.test.ts (2 tests) 3ms
+ ✓ tests/runner/artifact-planning.test.ts (8 tests) 3ms
+ ✓ tests/agents/session-recovery.test.ts (3 tests) 3ms
+ ✓ tests/adapters/dynamo-oauth-store.test.ts (2 tests) 3ms
+ ✓ tests/plugins/connection-validation.test.ts (6 tests) 3ms
+ ✓ tests/domain/linux-kvm-admission.test.ts (5 tests) 3ms
+ ✓ tests/delivery/slack.test.ts (2 tests) 3ms
+ ✓ tests/agents/session-run-planning.test.ts (7 tests) 4ms
+ ✓ tests/app/watchdog-composition.test.ts (12 tests) 3ms
+ ✓ tests/execution/registry.test.ts (2 tests) 3ms
+ ✓ tests/credentials/oauth-application.test.ts (3 tests) 2ms
+ ✓ tests/domain/local-native-change.test.ts (4 tests) 3ms
+ ✓ tests/pi/provider.test.ts (2 tests) 3ms
+ ✓ tests/adapters/eventbridge-session-scheduler.test.ts (2 tests) 3ms
+ ✓ tests/credentials/session-output.test.ts (1 test) 3ms
+ ✓ tests/scripts/terminate-ec2-workers.test.ts (3 tests) 3ms
+ ✓ tests/pi/controls.test.ts (5 tests) 3ms
+ ✓ tests/agents/share-scenario.test.ts (2 tests) 3ms
+ ✓ tests/adapters/ec2-worker-inventory.test.ts (1 test) 2ms
+ ✓ tests/pi/native-planning.test.ts (3 tests) 2ms
+ ✓ tests/domain/state.test.ts (3 tests) 3ms
+ ✓ tests/domain/publications.test.ts (3 tests) 2ms
+ ✓ tests/credentials/broker.test.ts (2 tests) 3ms
+ ✓ tests/shared-workspace/agents-live-budget.test.ts (8 tests) 2ms
+ ✓ tests/adapters/secrets-credential-vault.test.ts (3 tests) 2ms
+ ✓ tests/agents/local-installed.test.ts (3 tests) 2ms
+ ✓ tests/scripts/session-stream-monitor.test.ts (4 tests) 2ms
+ ✓ tests/lambdas/integration-mcp-fixture.test.ts (2 tests) 2ms
+ ✓ tests/pi/host-response.test.ts (6 tests) 2ms
+ ✓ tests/infra/ec2-worker-image-builder.test.ts (1 test) 2ms
+ ✓ tests/runner/workspace-sync.test.ts (1 test) 2ms
+ ✓ tests/plugins/connection-health-monitor.test.ts (1 test) 2ms
+ ✓ tests/ingress/teams.test.ts (1 test) 1ms
+ ✓ tests/ingress/thread.test.ts (3 tests) 2ms
+ ✓ tests/plugins/capability-profiles.test.ts (3 tests) 2ms
+ ✓ tests/plugins/source-policies.test.ts (2 tests) 2ms
+ ✓ tests/adapters/local-runtime-lifecycle.test.ts (1 test) 2ms
+ ✓ tests/execution/generation.test.ts (1 test) 2ms
+ ✓ tests/core/run-recovery.test.ts (2 tests) 1ms
+ ✓ tests/domain/run-bindings.test.ts (1 test) 1ms
+ ✓ tests/runner/shared-workspace-proof.test.ts (1 test) 1ms
+ ✓ tests/domain/local-workspace-setup.test.ts (3 tests) 2ms
+ ↓ tests/adapters/local-linux-kvm.test.ts (12 tests | 12 skipped)
+ ↓ tests/aws/api-closeout.test.ts (2 tests | 2 skipped)
+ ↓ tests/aws/authority-audit.test.ts (1 test | 1 skipped)
+ ↓ tests/aws/environment-credentials.test.ts (1 test | 1 skipped)
+ ↓ tests/aws/file-boundaries.test.ts (1 test | 1 skipped)
+ ↓ tests/aws/heartbeat-expiry.test.ts (1 test | 1 skipped)
+ ↓ tests/aws/http-transport.test.ts (1 test | 1 skipped)
+ ↓ tests/aws/managed-session.test.ts (1 test | 1 skipped)
+ ↓ tests/aws/mcp.test.ts (2 tests | 2 skipped)
+ ↓ tests/aws/multi-agent.test.ts (2 tests | 2 skipped)
+ ↓ tests/aws/pi-runtime.test.ts (1 test | 1 skipped)
+ ↓ tests/aws/provider-tools.test.ts (4 tests | 4 skipped)
+ ↓ tests/aws/public-mcp.test.ts (2 tests | 2 skipped)
+ ↓ tests/aws/runtime-egress.test.ts (1 test | 1 skipped)
+ ↓ tests/aws/schedules.test.ts (1 test | 1 skipped)
+ ↓ tests/aws/session-checkpoint.test.ts (1 test | 1 skipped)
+ ↓ tests/aws/session-fork.test.ts (1 test | 1 skipped)
+ ↓ tests/aws/session-placement.test.ts (2 tests | 2 skipped)
+ ↓ tests/aws/session-recovery.test.ts (4 tests | 4 skipped)
+ ↓ tests/aws/session-suspension.test.ts (1 test | 1 skipped)
+ ↓ tests/aws/shared-sessions.test.ts (1 test | 1 skipped)
+ ↓ tests/aws/super-agent-credentials.test.ts (1 test | 1 skipped)
+ ↓ tests/aws/super-agent-routing.test.ts (3 tests | 3 skipped)
+ ↓ tests/aws/super-agent-watchdog.test.ts (1 test | 1 skipped)
+ ↓ tests/aws/webhooks.test.ts (2 tests | 2 skipped)
+ ↓ tests/aws/worker-retirement.test.ts (1 test | 1 skipped)
+ ↓ tests/aws/workflow.test.ts (1 test | 1 skipped)
+ ↓ tests/aws/workspace-handoff.test.ts (1 test | 1 skipped)
+ ↓ tests/agents/native-checkpoint.test.ts (3 tests | 3 skipped)
+ ↓ tests/agents/native-protocol-exports.test.ts (2 tests | 2 skipped)
+ ↓ tests/live/codex-app-server.test.ts (2 tests | 2 skipped)
+ ↓ tests/localstack/pi-storage.test.ts (1 test | 1 skipped)
+ ↓ tests/localstack/workflow.test.ts (6 tests | 6 skipped)
+ ↓ tests/pi/managed-subprocess.test.ts (2 tests | 2 skipped)
+
+ Test Files  347 passed | 34 skipped (381)
+      Tests  3137 passed | 86 skipped (3223)
+   Start at  20:10:57
+   Duration  250.51s (transform 3.37s, setup 0ms, collect 37.52s, tests 170.05s, environment 30ms, prepare 11.52s)
+
+
+> rat-things@0.1.0 package
+> npm run build && node scripts/package-lambdas.mjs && node scripts/smoke-lambda-bundles.mjs
+
+
+> rat-things@0.1.0 build
+> npm run agents-api:schema:check && npm run agents-api:validators:check && node scripts/build.mjs
+
+
+> rat-things@0.1.0 agents-api:schema:check
+> node scripts/generate-agents-api-schema.mjs --check
+
+
+> rat-things@0.1.0 agents-api:validators:check
+> node scripts/generate-agents-api-validators.mjs --check
+
+
+  dist/image-validation.mjs  17.8kb
+
+⚡ Done in 337ms
+
+  dist/local-workspace.mjs  833.9kb
+
+⚡ Done in 4125ms
+
+  dist/lambdas/integration-fixture/index.mjs  1.1mb ⚠️
+
+⚡ Done in 6015ms
+
+  dist/lambdas/dispatcher/index.mjs  4.6mb ⚠️
+
+⚡ Done in 6286ms
+
+  dist/terminate-microvm.mjs  1.1mb ⚠️
+
+⚡ Done in 6734ms
+
+  dist/lambdas/state-stream/index.mjs  2.0mb ⚠️
+
+⚡ Done in 11207ms
+
+  dist/runner.mjs  5.2mb ⚠️
+
+⚡ Done in 11457ms
+
+  dist/agents-client.mjs  2.9mb ⚠️
+
+⚡ Done in 11207ms
+
+  dist/ec2-supervisor.mjs  2.0mb ⚠️
+
+⚡ Done in 11211ms
+
+  dist/pi-child.mjs  4.1mb ⚠️
+
+⚡ Done in 11224ms
+
+  dist/lambdas/webhook-slack/index.mjs  8.3mb ⚠️
+
+⚡ Done in 11439ms
+
+  dist/lambdas/agents-token-issuer/index.mjs  2.4mb ⚠️
+
+⚡ Done in 11222ms
+
+  dist/lambdas/reconciler/index.mjs  4.7mb ⚠️
+
+⚡ Done in 12419ms
+
+  dist/console-server.mjs  7.0mb ⚠️
+
+⚡ Done in 12022ms
+
+  dist/lambdas/webhook-github/index.mjs  8.3mb ⚠️
+
+⚡ Done in 12889ms
+
+  dist/lambdas/notifier/index.mjs  4.3mb ⚠️
+
+⚡ Done in 14447ms
+
+  dist/lambdas/connection-health/index.mjs  4.2mb ⚠️
+
+⚡ Done in 14554ms
+
+  dist/lambdas/webhook-gitlab/index.mjs  8.3mb ⚠️
+
+⚡ Done in 14913ms
+
+  dist/lambdas/control/index.mjs  9.0mb ⚠️
+
+⚡ Done in 15273ms
+
+  dist/lambdas/thing-schedule/index.mjs  8.3mb ⚠️
+
+⚡ Done in 16084ms
+
+  dist/agents-server.mjs  8.2mb ⚠️
+
+⚡ Done in 16086ms
+
+  dist/lambdas/watchdog/index.mjs  8.4mb ⚠️
+
+⚡ Done in 16244ms
+
+  dist/lambdas/agents-outbox/index.mjs  8.3mb ⚠️
+
+⚡ Done in 18179ms
+
+  dist/cli.mjs  8.3mb ⚠️
+
+⚡ Done in 19301ms
+
+  dist/lambdas/webhook-teams/index.mjs  8.3mb ⚠️
+
+⚡ Done in 19314ms
+created dist/agents-outbox.zip
+created dist/agents-token-issuer.zip
+created dist/connection-health.zip
+created dist/control.zip
+created dist/dispatcher.zip
+created dist/integration-fixture.zip
+created dist/notifier.zip
+created dist/reconciler.zip
+created dist/state-stream.zip
+created dist/thing-schedule.zip
+created dist/watchdog.zip
+created dist/webhook-github.zip
+created dist/webhook-gitlab.zip
+created dist/webhook-slack.zip
+created dist/webhook-teams.zip
+created dist/agents-web.zip
+created dist/microvm-source.zip
+smoke-tested 15 Lambda bundles
+
+> rat-things@0.1.0 site:build
+> npm run site:typecheck && node scripts/build-pages.mjs
+
+
+> rat-things@0.1.0 site:typecheck
+> tsc --project site/architecture/tsconfig.json
+
+Architecture: 8 systems, 28 components, 34 verified source files
+built dist-pages with 37 documentation pages and 17 guides
+
+> rat-things@0.1.0 terraform:fmt:check
+> terraform -chdir=infra fmt -recursive -check
+
+
+> rat-things@0.1.0 terraform:localstack:fmt:check
+> terraform -chdir=testing/localstack fmt -recursive -check
+
+
+> rat-things@0.1.0 terraform:aws-e2e:fmt:check
+> terraform -chdir=testing/aws fmt -recursive -check
+
+
+> rat-things@0.1.0 terraform:validate
+> terraform -chdir=infra init -backend=false -input=false && terraform -chdir=infra validate
+
+[0m[1mInitializing modules...[0m
+
+[0m[1mInitializing provider plugins...[0m
+- Reusing previous version of hashicorp/awscc from the dependency lock file
+- Reusing previous version of hashicorp/aws from the dependency lock file
+- Using previously-installed hashicorp/awscc v1.95.0
+- Using previously-installed hashicorp/aws v6.57.1
+
+[0m[1m[32mTerraform has been successfully initialized![0m[32m[0m
+[0m[32m
+You may now begin working with Terraform. Try running "terraform plan" to see
+any changes that are required for your infrastructure. All Terraform commands
+should now work.
+
+If you ever set or change modules or backend configuration for Terraform,
+rerun this command to reinitialize your working directory. If you forget, other
+commands will detect it and remind you to do so if necessary.[0m
+[32m[1mSuccess![0m The configuration is valid.
+[0m
+
+> rat-things@0.1.0 terraform:localstack:validate
+> terraform -chdir=testing/localstack init -backend=false -input=false && terraform -chdir=testing/localstack validate
+
+[0m[1mInitializing provider plugins...[0m
+- Reusing previous version of hashicorp/aws from the dependency lock file
+- Using previously-installed hashicorp/aws v6.61.0
+
+[0m[1m[32mTerraform has been successfully initialized![0m[32m[0m
+[0m[32m
+You may now begin working with Terraform. Try running "terraform plan" to see
+any changes that are required for your infrastructure. All Terraform commands
+should now work.
+
+If you ever set or change modules or backend configuration for Terraform,
+rerun this command to reinitialize your working directory. If you forget, other
+commands will detect it and remind you to do so if necessary.[0m
+[32m[1mSuccess![0m The configuration is valid.
+[0m
+
+> rat-things@0.1.0 terraform:aws-e2e:validate
+> terraform -chdir=testing/aws init -backend=false -input=false && terraform -chdir=testing/aws validate
+
+[0m[1mInitializing modules...[0m
+
+[0m[1mInitializing provider plugins...[0m
+- Reusing previous version of hashicorp/aws from the dependency lock file
+- Reusing previous version of hashicorp/awscc from the dependency lock file
+- Using previously-installed hashicorp/aws v6.57.1
+- Using previously-installed hashicorp/awscc v1.95.0
+
+[0m[1m[32mTerraform has been successfully initialized![0m[32m[0m
+[0m[32m
+You may now begin working with Terraform. Try running "terraform plan" to see
+any changes that are required for your infrastructure. All Terraform commands
+should now work.
+
+If you ever set or change modules or backend configuration for Terraform,
+rerun this command to reinitialize your working directory. If you forget, other
+commands will detect it and remind you to do so if necessary.[0m
+[32m[1mSuccess![0m The configuration is valid.
+[0m

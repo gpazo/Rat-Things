@@ -1,0 +1,44 @@
+1
+00:00:00,000 --> 00:00:04,000
+Three teammates. One Session. One agent.
+The brief: turn “works on my machine” into shared evidence.
+
+2
+00:00:04,000 --> 00:00:10,000
+Select the part you mean. Then write in chat.
+Maya · Designer: “Lead with shared evidence, not blame.”
+
+3
+00:00:10,000 --> 00:00:14,000
+Everyone sees who is about to contribute.
+Three native clients. The same conversation.
+
+4
+00:00:14,000 --> 00:00:20,000
+Engineering narrows the first release.
+Eli: runtime versions and the failing command. Automatic repair can wait.
+
+5
+00:00:20,000 --> 00:00:26,000
+QA brings an edge case into the same thread.
+Sam selects a region: “What happens offline?”
+
+6
+00:00:26,000 --> 00:00:31,000
+The agent turns feedback into a visible Plan.
+Two items addressed. One deferred. Nobody’s feedback disappears.
+
+7
+00:00:31,000 --> 00:00:38,000
+Deferred comes with a reason.
+The agent explains the boundary and links back to Sam’s message.
+
+8
+00:00:38,000 --> 00:00:43,000
+Follow a decision back to its source.
+Maya’s exact contribution stays attached to the agent’s decision.
+
+9
+00:00:43,000 --> 00:00:50,000
+Open the saved result. Keep working together.
+The same Plan connects the conversation to the work it produced.

@@ -1,0 +1,5 @@
+# Engineer — round 1 notes
+
+- Opened the “Taco Cometa · Completed team revision” session. The shared browser showed the demo placeholder (“Demo plan” / “Waiting for the team’s brief”), while the chat already showed Maya’s visual direction and the agent beginning a draft.
+- Tried to contribute: “For the static build, keep menu/prices and visit details clearly labeled as samples; avoid real ordering, analytics, or customer-data collection.” The `say` action populated the message field, but while the agent was working the button was disabled (“Steer”), and the message did not post. I did not observe a posted engineering contribution.
+- UI action error: the initial inspect used uppercase `ENGINEER` and returned an assertion error; retrying with lowercase `engineer` succeeded. Screenshots: `ui/engineer/1794788275015726000-abfb79.png` (placeholder) and `ui/engineer/1794788281203800000-526169.png` (designer direction and agent work). The later inspect output showed the unsent draft in the message field.

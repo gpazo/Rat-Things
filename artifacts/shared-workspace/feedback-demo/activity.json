@@ -1,0 +1,940 @@
+{
+  "artifacts": [
+    {
+      "created_at": 1794767857,
+      "environment_id": "env_8f2523bdbc654ec0b2dd2d7d12792f95",
+      "id": "art_bfdc1fa60e1c71e086af913513b077b2d0b54a8b6c2ef64eaecd947403503d98",
+      "object": "agent.session.artifact",
+      "path": "/workspace/outputs/direction.md",
+      "session_id": "sess_cb33a295b8c246089735b06ff8b0fb20",
+      "size_bytes": 343,
+      "turn_id": "turn_bd4ea54b173049209ae245afffccd2ea"
+    },
+    {
+      "created_at": 1794767857,
+      "environment_id": "env_8f2523bdbc654ec0b2dd2d7d12792f95",
+      "id": "art_8680ded6261e1f31c4c162c3a7ed7ade0ed18f53860c7195432a1b00e0356cac",
+      "object": "agent.session.artifact",
+      "path": "/workspace/outputs/index.html",
+      "session_id": "sess_cb33a295b8c246089735b06ff8b0fb20",
+      "size_bytes": 1096,
+      "turn_id": "turn_bd4ea54b173049209ae245afffccd2ea"
+    },
+    {
+      "created_at": 1794767894,
+      "environment_id": "env_8f2523bdbc654ec0b2dd2d7d12792f95",
+      "id": "art_d10cec9566529aa7d7e93278228de86fd4522ece6137aa9dc143439759286d59",
+      "object": "agent.session.artifact",
+      "path": "/workspace/outputs/direction.md",
+      "session_id": "sess_cb33a295b8c246089735b06ff8b0fb20",
+      "size_bytes": 343,
+      "turn_id": "turn_c1f0e6a8519e4ee6baef85d58171f147"
+    },
+    {
+      "created_at": 1794767894,
+      "environment_id": "env_8f2523bdbc654ec0b2dd2d7d12792f95",
+      "id": "art_1932b949801e30697408df75b7c031a5b7db7d2f4797819c8db6e9dc47b6cc60",
+      "object": "agent.session.artifact",
+      "path": "/workspace/outputs/index.html",
+      "session_id": "sess_cb33a295b8c246089735b06ff8b0fb20",
+      "size_bytes": 1096,
+      "turn_id": "turn_c1f0e6a8519e4ee6baef85d58171f147"
+    },
+    {
+      "created_at": 1794767917,
+      "environment_id": "env_8f2523bdbc654ec0b2dd2d7d12792f95",
+      "id": "art_b52243fc8a27759fcd6fbfe77c3ae59dae73ae3f33e9e0d962d1f5ef6ca0717d",
+      "object": "agent.session.artifact",
+      "path": "/workspace/outputs/direction.md",
+      "session_id": "sess_cb33a295b8c246089735b06ff8b0fb20",
+      "size_bytes": 343,
+      "turn_id": "turn_68418de81755430090cb9d7bc9589656"
+    },
+    {
+      "created_at": 1794767917,
+      "environment_id": "env_8f2523bdbc654ec0b2dd2d7d12792f95",
+      "id": "art_c93df374d154440fe69413fd8917b473a59ca7456c9108fc5c4817915cfffd33",
+      "object": "agent.session.artifact",
+      "path": "/workspace/outputs/index.html",
+      "session_id": "sess_cb33a295b8c246089735b06ff8b0fb20",
+      "size_bytes": 1096,
+      "turn_id": "turn_68418de81755430090cb9d7bc9589656"
+    },
+    {
+      "created_at": 1794767945,
+      "environment_id": "env_8f2523bdbc654ec0b2dd2d7d12792f95",
+      "id": "art_69ca143f92924b5e36c6772aeb2ccf671e373791b8e9812cc410ab0275396700",
+      "object": "agent.session.artifact",
+      "path": "/workspace/outputs/direction.md",
+      "session_id": "sess_cb33a295b8c246089735b06ff8b0fb20",
+      "size_bytes": 343,
+      "turn_id": "turn_09186fa8b54a4b7d8dba5513dbaa250a"
+    },
+    {
+      "created_at": 1794767945,
+      "environment_id": "env_8f2523bdbc654ec0b2dd2d7d12792f95",
+      "id": "art_3f7393401bc522b9b8cffc64c3cdaa3d7a07ecbd98dcbc1bb2f4126d93b08433",
+      "object": "agent.session.artifact",
+      "path": "/workspace/outputs/index.html",
+      "session_id": "sess_cb33a295b8c246089735b06ff8b0fb20",
+      "size_bytes": 1096,
+      "turn_id": "turn_09186fa8b54a4b7d8dba5513dbaa250a"
+    }
+  ],
+  "browser_available": true,
+  "browser_commands": [],
+  "browser_text": "Product direction · review together\nIt works on my machine.\n\nWhat if the next step was shared evidence, instead of another screenshot?\n\nCapture the difference\n\nRuntime, command, result.\n\nDiscuss one version\n\nDesign, engineering and QA.\n\nChoose the next step\n\nOne agent keeps the context.\n\nReview together",
+  "cursor": "act_sess_cb33a295b8c246089735b06ff8b0fb20_84.4f53cda18c2baa0c",
+  "environment": {
+    "error": null,
+    "id": "env_8f2523bdbc654ec0b2dd2d7d12792f95",
+    "status": "connected",
+    "type": "openai_hosted"
+  },
+  "environmentResetCount": 0,
+  "failures": [],
+  "fixture_requests": 8,
+  "image_delivered": true,
+  "inputs": [
+    {
+      "accepted_at": 1794767850,
+      "actor": {
+        "id": "demo-person-0",
+        "issuer": "local-demo-fixture",
+        "kind": "human",
+        "label": "Maya · Designer",
+        "subject": "person-0"
+      },
+      "id": "initial",
+      "message_ids": [
+        "msg_03fa428fdfb244a59d7bd753a60ac046"
+      ],
+      "participant": {
+        "actor": {
+          "id": "demo-person-0",
+          "issuer": "local-demo-fixture",
+          "kind": "human",
+          "label": "Maya · Designer",
+          "subject": "person-0"
+        },
+        "color": "#d9adf5",
+        "key": "[\"authenticated\",\"human\",\"demo-person-0\"]"
+      },
+      "provenance": {
+        "kind": "authenticated"
+      },
+      "sequence": 1,
+      "status": "dispatched",
+      "turn_ids": [
+        "turn_bd4ea54b173049209ae245afffccd2ea"
+      ]
+    },
+    {
+      "accepted_at": 1794767889.605,
+      "actor": {
+        "id": "demo-person-0",
+        "issuer": "local-demo-fixture",
+        "kind": "human",
+        "label": "Maya · Designer",
+        "subject": "person-0"
+      },
+      "id": "5353da0d2afeb8fa2200cddb0c7c3ef08642249b0366a93c8dbf35d0528049f9",
+      "message_ids": [
+        "msg_9cfd06585e7049caae8c82665a9c92af"
+      ],
+      "participant": {
+        "actor": {
+          "id": "demo-person-0",
+          "issuer": "local-demo-fixture",
+          "kind": "human",
+          "label": "Maya · Designer",
+          "subject": "person-0"
+        },
+        "color": "#d9adf5",
+        "key": "[\"authenticated\",\"human\",\"demo-person-0\"]"
+      },
+      "provenance": {
+        "kind": "authenticated"
+      },
+      "sequence": 3,
+      "status": "dispatched",
+      "turn_ids": [
+        "turn_c1f0e6a8519e4ee6baef85d58171f147"
+      ],
+      "workspace": {
+        "action": "comment",
+        "target": {
+          "anchor": {
+            "type": "point",
+            "x": 0.2800000011920929,
+            "y": 0.2399999499320984
+          },
+          "id": "frame_20a91c2b16fa13a24b18b94752e02282971b3aac4e88be9ca528a5cb5145602a",
+          "image_available": true,
+          "kind": "browser",
+          "title": "Works on our machines",
+          "url": "https://rat-artifacts.invalid/index.html",
+          "version": "16213f8b-1e65-4a65-b34f-4e83c13c52ca:2"
+        },
+        "thread_id": "annotation_5353da0d2afeb8fa2200cddb0c7c3ef08642249b0366a93c8dbf35d0528049f9"
+      }
+    },
+    {
+      "accepted_at": 1794767914.144,
+      "actor": {
+        "id": "demo-person-1",
+        "issuer": "local-demo-fixture",
+        "kind": "human",
+        "label": "Eli · Engineer",
+        "subject": "person-1"
+      },
+      "id": "a2a03997c6ef85694d83868cb9abfec229af0c6dc5822d43d9622328f0ed523a",
+      "message_ids": [
+        "msg_eb1ff0b4faee41fd814ec64b369b82ec"
+      ],
+      "participant": {
+        "actor": {
+          "id": "demo-person-1",
+          "issuer": "local-demo-fixture",
+          "kind": "human",
+          "label": "Eli · Engineer",
+          "subject": "person-1"
+        },
+        "color": "#8fc9ff",
+        "key": "[\"authenticated\",\"human\",\"demo-person-1\"]"
+      },
+      "provenance": {
+        "kind": "authenticated"
+      },
+      "sequence": 5,
+      "status": "dispatched",
+      "turn_ids": [
+        "turn_68418de81755430090cb9d7bc9589656"
+      ]
+    },
+    {
+      "accepted_at": 1794767941.481,
+      "actor": {
+        "id": "demo-person-2",
+        "issuer": "local-demo-fixture",
+        "kind": "human",
+        "label": "Sam · QA",
+        "subject": "person-2"
+      },
+      "id": "1e6cd89d05609b7fe3661b5cbb444064705c1560d3ceda64a7f3e21a6d6dc6d2",
+      "message_ids": [
+        "msg_c8bc334bf89e4aa6942cae467d0c8084"
+      ],
+      "participant": {
+        "actor": {
+          "id": "demo-person-2",
+          "issuer": "local-demo-fixture",
+          "kind": "human",
+          "label": "Sam · QA",
+          "subject": "person-2"
+        },
+        "color": "#f3c77b",
+        "key": "[\"authenticated\",\"human\",\"demo-person-2\"]"
+      },
+      "provenance": {
+        "kind": "authenticated"
+      },
+      "sequence": 7,
+      "status": "dispatched",
+      "turn_ids": [
+        "turn_09186fa8b54a4b7d8dba5513dbaa250a"
+      ],
+      "workspace": {
+        "action": "comment",
+        "target": {
+          "anchor": {
+            "height": 0.20000004768371585,
+            "type": "region",
+            "width": 0.8499998450279236,
+            "x": 0.04000004753470421,
+            "y": 0.38999998569488525
+          },
+          "id": "frame_20a91c2b16fa13a24b18b94752e02282971b3aac4e88be9ca528a5cb5145602a",
+          "image_available": true,
+          "kind": "browser",
+          "title": "Works on our machines",
+          "url": "https://rat-artifacts.invalid/index.html",
+          "version": "16213f8b-1e65-4a65-b34f-4e83c13c52ca:2"
+        },
+        "thread_id": "annotation_1e6cd89d05609b7fe3661b5cbb444064705c1560d3ceda64a7f3e21a6d6dc6d2"
+      }
+    }
+  ],
+  "items": [
+    {
+      "content": [
+        {
+          "text": "Plan and critique our product direction together.",
+          "type": "input_text"
+        }
+      ],
+      "id": "msg_03fa428fdfb244a59d7bd753a60ac046",
+      "phase": null,
+      "role": "user",
+      "status": "completed",
+      "turn_id": "turn_bd4ea54b173049209ae245afffccd2ea",
+      "type": "message"
+    },
+    {
+      "arguments": {
+        "expected_revision": 0,
+        "items": [
+          {
+            "id": "direction",
+            "result_links": [],
+            "source_message_ids": [],
+            "state": "next",
+            "text": "Lead with shared evidence"
+          },
+          {
+            "id": "scope",
+            "result_links": [],
+            "source_message_ids": [],
+            "state": "next",
+            "text": "Keep the first release small"
+          },
+          {
+            "id": "offline",
+            "result_links": [],
+            "source_message_ids": [],
+            "state": "next",
+            "text": "Decide what works offline"
+          }
+        ]
+      },
+      "call_id": "call_plan_1",
+      "id": "call_plan_1",
+      "name": "rat_things_plan_update",
+      "status": "completed",
+      "turn_id": "turn_bd4ea54b173049209ae245afffccd2ea",
+      "type": "function_call"
+    },
+    {
+      "call_id": "call_plan_1",
+      "error": null,
+      "id": "fresult_9cc995ee12859f92c1d37096a1bdc70d918d429737d969c1b25867b9c9604127_0",
+      "output": "{\"plan\":{\"revision\":1,\"items\":[{\"id\":\"direction\",\"text\":\"Lead with shared evidence\",\"state\":\"next\",\"source_refs\":[],\"result_links\":[],\"updated_by\":{\"agent_id\":\"agent_8e57870953a84e88b176d1f5a7fba47b\",\"turn_id\":\"turn_bd4ea54b173049209ae245afffccd2ea\"},\"updated_at\":1794767856},{\"id\":\"scope\",\"text\":\"Keep the first release small\",\"state\":\"next\",\"source_refs\":[],\"result_links\":[],\"updated_by\":{\"agent_id\":\"agent_8e57870953a84e88b176d1f5a7fba47b\",\"turn_id\":\"turn_bd4ea54b173049209ae245afffccd2ea\"},\"updated_at\":1794767856},{\"id\":\"offline\",\"text\":\"Decide what works offline\",\"state\":\"next\",\"source_refs\":[],\"result_links\":[],\"updated_by\":{\"agent_id\":\"agent_8e57870953a84e88b176d1f5a7fba47b\",\"turn_id\":\"turn_bd4ea54b173049209ae245afffccd2ea\"},\"updated_at\":1794767856}]},\"available_result_links\":{\"artifacts\":[],\"activity\":[{\"kind\":\"activity\",\"turn_id\":\"turn_bd4ea54b173049209ae245afffccd2ea\",\"item_id\":\"msg_03fa428fdfb244a59d7bd753a60ac046\"},{\"kind\":\"activity\",\"turn_id\":\"turn_bd4ea54b173049209ae245afffccd2ea\",\"item_id\":\"call_plan_1\"}]}}",
+      "status": "completed",
+      "turn_id": "turn_bd4ea54b173049209ae245afffccd2ea",
+      "type": "function_call_output"
+    },
+    {
+      "content": [
+        {
+          "text": "“It works on my machine” is our starting point. Let’s turn it into “we can reproduce it together.” Review the shared page: design can question the framing, engineering can constrain the first release, and QA can challenge the edge cases.",
+          "type": "output_text"
+        }
+      ],
+      "id": "reply_2",
+      "phase": "final_answer",
+      "role": "assistant",
+      "status": "completed",
+      "turn_id": "turn_bd4ea54b173049209ae245afffccd2ea",
+      "type": "message"
+    },
+    {
+      "content": [
+        {
+          "text": "Lead with shared evidence, not blame.",
+          "type": "input_text"
+        }
+      ],
+      "id": "msg_9cfd06585e7049caae8c82665a9c92af",
+      "phase": null,
+      "role": "user",
+      "status": "completed",
+      "turn_id": "turn_c1f0e6a8519e4ee6baef85d58171f147",
+      "type": "message"
+    },
+    {
+      "arguments": {
+        "expected_revision": 1,
+        "items": [
+          {
+            "id": "direction",
+            "reason": "The direction now focuses on comparing environments, with no blame assigned.",
+            "result_links": [
+              {
+                "kind": "output",
+                "path": "/workspace/outputs/direction.md"
+              }
+            ],
+            "source_message_ids": [
+              "msg_9cfd06585e7049caae8c82665a9c92af"
+            ],
+            "state": "addressed",
+            "text": "Lead with shared evidence"
+          },
+          {
+            "id": "scope",
+            "result_links": [],
+            "source_message_ids": [],
+            "state": "next",
+            "text": "Keep the first release small"
+          },
+          {
+            "id": "offline",
+            "result_links": [],
+            "source_message_ids": [],
+            "state": "next",
+            "text": "Decide what works offline"
+          }
+        ]
+      },
+      "call_id": "call_plan_3",
+      "id": "call_plan_3",
+      "name": "rat_things_plan_update",
+      "status": "completed",
+      "turn_id": "turn_c1f0e6a8519e4ee6baef85d58171f147",
+      "type": "function_call"
+    },
+    {
+      "call_id": "call_plan_3",
+      "error": null,
+      "id": "fresult_b9eaf02b3e7683a4d1568585dfea0f9fed842060f65ce3e5726928ce4c325f5b_0",
+      "output": "{\"plan\":{\"revision\":2,\"items\":[{\"id\":\"direction\",\"text\":\"Lead with shared evidence\",\"state\":\"addressed\",\"reason\":\"The direction now focuses on comparing environments, with no blame assigned.\",\"source_refs\":[{\"receipt_id\":\"5353da0d2afeb8fa2200cddb0c7c3ef08642249b0366a93c8dbf35d0528049f9\",\"message_id\":\"msg_9cfd06585e7049caae8c82665a9c92af\"}],\"result_links\":[{\"kind\":\"artifact\",\"artifact_id\":\"art_d10cec9566529aa7d7e93278228de86fd4522ece6137aa9dc143439759286d59\",\"version_sha256\":\"429624bc4895c42862cbe1d64683772d3b91efe9d3f95dea2cd37656fb129ae1\"}],\"updated_by\":{\"agent_id\":\"agent_8e57870953a84e88b176d1f5a7fba47b\",\"turn_id\":\"turn_c1f0e6a8519e4ee6baef85d58171f147\"},\"updated_at\":1794767893},{\"id\":\"scope\",\"text\":\"Keep the first release small\",\"state\":\"next\",\"source_refs\":[],\"result_links\":[],\"updated_by\":{\"agent_id\":\"agent_8e57870953a84e88b176d1f5a7fba47b\",\"turn_id\":\"turn_c1f0e6a8519e4ee6baef85d58171f147\"},\"updated_at\":1794767893},{\"id\":\"offline\",\"text\":\"Decide what works offline\",\"state\":\"next\",\"source_refs\":[],\"result_links\":[],\"updated_by\":{\"agent_id\":\"agent_8e57870953a84e88b176d1f5a7fba47b\",\"turn_id\":\"turn_c1f0e6a8519e4ee6baef85d58171f147\"},\"updated_at\":1794767893}]},\"available_result_links\":{\"artifacts\":[{\"kind\":\"artifact\",\"artifact_id\":\"art_bfdc1fa60e1c71e086af913513b077b2d0b54a8b6c2ef64eaecd947403503d98\",\"version_sha256\":\"429624bc4895c42862cbe1d64683772d3b91efe9d3f95dea2cd37656fb129ae1\",\"turn_id\":\"turn_bd4ea54b173049209ae245afffccd2ea\"},{\"kind\":\"artifact\",\"artifact_id\":\"art_8680ded6261e1f31c4c162c3a7ed7ade0ed18f53860c7195432a1b00e0356cac\",\"version_sha256\":\"bd73184ce8476d477c02a0f45e8aad8748c5772ec0e626c6f44488a451169299\",\"turn_id\":\"turn_bd4ea54b173049209ae245afffccd2ea\"},{\"kind\":\"artifact\",\"artifact_id\":\"art_d10cec9566529aa7d7e93278228de86fd4522ece6137aa9dc143439759286d59\",\"version_sha256\":\"429624bc4895c42862cbe1d64683772d3b91efe9d3f95dea2cd37656fb129ae1\",\"turn_id\":\"turn_c1f0e6a8519e4ee6baef85d58171f147\"}],\"activity\":[{\"kind\":\"activity\",\"turn_id\":\"turn_bd4ea54b173049209ae245afffccd2ea\",\"item_id\":\"msg_03fa428fdfb244a59d7bd753a60ac046\"},{\"kind\":\"activity\",\"turn_id\":\"turn_bd4ea54b173049209ae245afffccd2ea\",\"item_id\":\"call_plan_1\"},{\"kind\":\"activity\",\"turn_id\":\"turn_bd4ea54b173049209ae245afffccd2ea\",\"item_id\":\"fresult_9cc995ee12859f92c1d37096a1bdc70d918d429737d969c1b25867b9c9604127_0\"},{\"kind\":\"activity\",\"turn_id\":\"turn_bd4ea54b173049209ae245afffccd2ea\",\"item_id\":\"reply_2\"},{\"kind\":\"activity\",\"turn_id\":\"turn_c1f0e6a8519e4ee6baef85d58171f147\",\"item_id\":\"msg_9cfd06585e7049caae8c82665a9c92af\"},{\"kind\":\"activity\",\"turn_id\":\"turn_c1f0e6a8519e4ee6baef85d58171f147\",\"item_id\":\"call_plan_3\"}]}}",
+      "status": "completed",
+      "turn_id": "turn_c1f0e6a8519e4ee6baef85d58171f147",
+      "type": "function_call_output"
+    },
+    {
+      "content": [
+        {
+          "text": "Let’s lead with shared evidence. I’ve updated the Plan and linked your annotation to the saved direction.",
+          "type": "output_text"
+        }
+      ],
+      "id": "reply_4",
+      "phase": "final_answer",
+      "role": "assistant",
+      "status": "completed",
+      "turn_id": "turn_c1f0e6a8519e4ee6baef85d58171f147",
+      "type": "message"
+    },
+    {
+      "content": [
+        {
+          "text": "First release: runtime versions and the failing command. Automatic repair can wait.",
+          "type": "input_text"
+        }
+      ],
+      "id": "msg_eb1ff0b4faee41fd814ec64b369b82ec",
+      "phase": null,
+      "role": "user",
+      "status": "completed",
+      "turn_id": "turn_68418de81755430090cb9d7bc9589656",
+      "type": "message"
+    },
+    {
+      "arguments": {
+        "expected_revision": 2,
+        "items": [
+          {
+            "id": "direction",
+            "reason": "The direction now focuses on comparing environments, with no blame assigned.",
+            "result_links": [
+              {
+                "kind": "output",
+                "path": "/workspace/outputs/direction.md"
+              }
+            ],
+            "source_message_ids": [
+              "msg_9cfd06585e7049caae8c82665a9c92af"
+            ],
+            "state": "addressed",
+            "text": "Lead with shared evidence"
+          },
+          {
+            "id": "scope",
+            "reason": "Start with runtime versions and the failing command. Defer automatic repair.",
+            "result_links": [
+              {
+                "kind": "output",
+                "path": "/workspace/outputs/direction.md"
+              }
+            ],
+            "source_message_ids": [
+              "msg_eb1ff0b4faee41fd814ec64b369b82ec"
+            ],
+            "state": "addressed",
+            "text": "Keep the first release small"
+          },
+          {
+            "id": "offline",
+            "result_links": [],
+            "source_message_ids": [],
+            "state": "next",
+            "text": "Decide what works offline"
+          }
+        ]
+      },
+      "call_id": "call_plan_5",
+      "id": "call_plan_5",
+      "name": "rat_things_plan_update",
+      "status": "completed",
+      "turn_id": "turn_68418de81755430090cb9d7bc9589656",
+      "type": "function_call"
+    },
+    {
+      "call_id": "call_plan_5",
+      "error": null,
+      "id": "fresult_4a13214927109f2c450dc0257d28724bb4bbeb9453fea3fec8d87cbf2c93927d_0",
+      "output": "{\"plan\":{\"revision\":3,\"items\":[{\"id\":\"direction\",\"text\":\"Lead with shared evidence\",\"state\":\"addressed\",\"reason\":\"The direction now focuses on comparing environments, with no blame assigned.\",\"source_refs\":[{\"receipt_id\":\"5353da0d2afeb8fa2200cddb0c7c3ef08642249b0366a93c8dbf35d0528049f9\",\"message_id\":\"msg_9cfd06585e7049caae8c82665a9c92af\"}],\"result_links\":[{\"kind\":\"artifact\",\"artifact_id\":\"art_b52243fc8a27759fcd6fbfe77c3ae59dae73ae3f33e9e0d962d1f5ef6ca0717d\",\"version_sha256\":\"429624bc4895c42862cbe1d64683772d3b91efe9d3f95dea2cd37656fb129ae1\"}],\"updated_by\":{\"agent_id\":\"agent_8e57870953a84e88b176d1f5a7fba47b\",\"turn_id\":\"turn_68418de81755430090cb9d7bc9589656\"},\"updated_at\":1794767916},{\"id\":\"scope\",\"text\":\"Keep the first release small\",\"state\":\"addressed\",\"reason\":\"Start with runtime versions and the failing command. Defer automatic repair.\",\"source_refs\":[{\"receipt_id\":\"a2a03997c6ef85694d83868cb9abfec229af0c6dc5822d43d9622328f0ed523a\",\"message_id\":\"msg_eb1ff0b4faee41fd814ec64b369b82ec\"}],\"result_links\":[{\"kind\":\"artifact\",\"artifact_id\":\"art_b52243fc8a27759fcd6fbfe77c3ae59dae73ae3f33e9e0d962d1f5ef6ca0717d\",\"version_sha256\":\"429624bc4895c42862cbe1d64683772d3b91efe9d3f95dea2cd37656fb129ae1\"}],\"updated_by\":{\"agent_id\":\"agent_8e57870953a84e88b176d1f5a7fba47b\",\"turn_id\":\"turn_68418de81755430090cb9d7bc9589656\"},\"updated_at\":1794767916},{\"id\":\"offline\",\"text\":\"Decide what works offline\",\"state\":\"next\",\"source_refs\":[],\"result_links\":[],\"updated_by\":{\"agent_id\":\"agent_8e57870953a84e88b176d1f5a7fba47b\",\"turn_id\":\"turn_68418de81755430090cb9d7bc9589656\"},\"updated_at\":1794767916}]},\"available_result_links\":{\"artifacts\":[{\"kind\":\"artifact\",\"artifact_id\":\"art_bfdc1fa60e1c71e086af913513b077b2d0b54a8b6c2ef64eaecd947403503d98\",\"version_sha256\":\"429624bc4895c42862cbe1d64683772d3b91efe9d3f95dea2cd37656fb129ae1\",\"turn_id\":\"turn_bd4ea54b173049209ae245afffccd2ea\"},{\"kind\":\"artifact\",\"artifact_id\":\"art_8680ded6261e1f31c4c162c3a7ed7ade0ed18f53860c7195432a1b00e0356cac\",\"version_sha256\":\"bd73184ce8476d477c02a0f45e8aad8748c5772ec0e626c6f44488a451169299\",\"turn_id\":\"turn_bd4ea54b173049209ae245afffccd2ea\"},{\"kind\":\"artifact\",\"artifact_id\":\"art_d10cec9566529aa7d7e93278228de86fd4522ece6137aa9dc143439759286d59\",\"version_sha256\":\"429624bc4895c42862cbe1d64683772d3b91efe9d3f95dea2cd37656fb129ae1\",\"turn_id\":\"turn_c1f0e6a8519e4ee6baef85d58171f147\"},{\"kind\":\"artifact\",\"artifact_id\":\"art_1932b949801e30697408df75b7c031a5b7db7d2f4797819c8db6e9dc47b6cc60\",\"version_sha256\":\"bd73184ce8476d477c02a0f45e8aad8748c5772ec0e626c6f44488a451169299\",\"turn_id\":\"turn_c1f0e6a8519e4ee6baef85d58171f147\"},{\"kind\":\"artifact\",\"artifact_id\":\"art_b52243fc8a27759fcd6fbfe77c3ae59dae73ae3f33e9e0d962d1f5ef6ca0717d\",\"version_sha256\":\"429624bc4895c42862cbe1d64683772d3b91efe9d3f95dea2cd37656fb129ae1\",\"turn_id\":\"turn_68418de81755430090cb9d7bc9589656\"}],\"activity\":[{\"kind\":\"activity\",\"turn_id\":\"turn_bd4ea54b173049209ae245afffccd2ea\",\"item_id\":\"msg_03fa428fdfb244a59d7bd753a60ac046\"},{\"kind\":\"activity\",\"turn_id\":\"turn_bd4ea54b173049209ae245afffccd2ea\",\"item_id\":\"call_plan_1\"},{\"kind\":\"activity\",\"turn_id\":\"turn_bd4ea54b173049209ae245afffccd2ea\",\"item_id\":\"fresult_9cc995ee12859f92c1d37096a1bdc70d918d429737d969c1b25867b9c9604127_0\"},{\"kind\":\"activity\",\"turn_id\":\"turn_bd4ea54b173049209ae245afffccd2ea\",\"item_id\":\"reply_2\"},{\"kind\":\"activity\",\"turn_id\":\"turn_c1f0e6a8519e4ee6baef85d58171f147\",\"item_id\":\"msg_9cfd06585e7049caae8c82665a9c92af\"},{\"kind\":\"activity\",\"turn_id\":\"turn_c1f0e6a8519e4ee6baef85d58171f147\",\"item_id\":\"call_plan_3\"},{\"kind\":\"activity\",\"turn_id\":\"turn_c1f0e6a8519e4ee6baef85d58171f147\",\"item_id\":\"fresult_b9eaf02b3e7683a4d1568585dfea0f9fed842060f65ce3e5726928ce4c325f5b_0\"},{\"kind\":\"activity\",\"turn_id\":\"turn_c1f0e6a8519e4ee6baef85d58171f147\",\"item_id\":\"reply_4\"},{\"kind\":\"activity\",\"turn_id\":\"turn_68418de81755430090cb9d7bc9589656\",\"item_id\":\"msg_eb1ff0b4faee41fd814ec64b369b82ec\"},{\"kind\":\"activity\",\"turn_id\":\"turn_68418de81755430090cb9d7bc9589656\",\"item_id\":\"call_plan_5\"}]}}",
+      "status": "completed",
+      "turn_id": "turn_68418de81755430090cb9d7bc9589656",
+      "type": "function_call_output"
+    },
+    {
+      "content": [
+        {
+          "text": "Agreed. First release: runtime versions and the failing command. Automatic repair can wait. I’ve linked your feedback and the saved direction in the Plan.",
+          "type": "output_text"
+        }
+      ],
+      "id": "reply_6",
+      "phase": "final_answer",
+      "role": "assistant",
+      "status": "completed",
+      "turn_id": "turn_68418de81755430090cb9d7bc9589656",
+      "type": "message"
+    },
+    {
+      "content": [
+        {
+          "text": "What happens offline? Keep the captured evidence readable.",
+          "type": "input_text"
+        }
+      ],
+      "id": "msg_c8bc334bf89e4aa6942cae467d0c8084",
+      "phase": null,
+      "role": "user",
+      "status": "completed",
+      "turn_id": "turn_09186fa8b54a4b7d8dba5513dbaa250a",
+      "type": "message"
+    },
+    {
+      "arguments": {
+        "expected_revision": 3,
+        "items": [
+          {
+            "id": "direction",
+            "reason": "The direction now focuses on comparing environments, with no blame assigned.",
+            "result_links": [
+              {
+                "kind": "output",
+                "path": "/workspace/outputs/direction.md"
+              }
+            ],
+            "source_message_ids": [
+              "msg_9cfd06585e7049caae8c82665a9c92af"
+            ],
+            "state": "addressed",
+            "text": "Lead with shared evidence"
+          },
+          {
+            "id": "scope",
+            "reason": "Start with runtime versions and the failing command. Defer automatic repair.",
+            "result_links": [
+              {
+                "kind": "output",
+                "path": "/workspace/outputs/direction.md"
+              }
+            ],
+            "source_message_ids": [
+              "msg_eb1ff0b4faee41fd814ec64b369b82ec"
+            ],
+            "state": "addressed",
+            "text": "Keep the first release small"
+          },
+          {
+            "id": "offline",
+            "reason": "Keep saved evidence readable offline. Queueing new feedback needs a separate sync design; it is outside this first release.",
+            "result_links": [],
+            "source_message_ids": [
+              "msg_c8bc334bf89e4aa6942cae467d0c8084"
+            ],
+            "state": "deferred",
+            "text": "Decide what works offline"
+          }
+        ]
+      },
+      "call_id": "call_plan_7",
+      "id": "call_plan_7",
+      "name": "rat_things_plan_update",
+      "status": "completed",
+      "turn_id": "turn_09186fa8b54a4b7d8dba5513dbaa250a",
+      "type": "function_call"
+    },
+    {
+      "call_id": "call_plan_7",
+      "error": null,
+      "id": "fresult_a03ab9069b0da88426e7cf111886623ce71db6c0dfb8cd97f590ba774f322de2_0",
+      "output": "{\"plan\":{\"revision\":4,\"items\":[{\"id\":\"direction\",\"text\":\"Lead with shared evidence\",\"state\":\"addressed\",\"reason\":\"The direction now focuses on comparing environments, with no blame assigned.\",\"source_refs\":[{\"receipt_id\":\"5353da0d2afeb8fa2200cddb0c7c3ef08642249b0366a93c8dbf35d0528049f9\",\"message_id\":\"msg_9cfd06585e7049caae8c82665a9c92af\"}],\"result_links\":[{\"kind\":\"artifact\",\"artifact_id\":\"art_69ca143f92924b5e36c6772aeb2ccf671e373791b8e9812cc410ab0275396700\",\"version_sha256\":\"429624bc4895c42862cbe1d64683772d3b91efe9d3f95dea2cd37656fb129ae1\"}],\"updated_by\":{\"agent_id\":\"agent_8e57870953a84e88b176d1f5a7fba47b\",\"turn_id\":\"turn_09186fa8b54a4b7d8dba5513dbaa250a\"},\"updated_at\":1794767943},{\"id\":\"scope\",\"text\":\"Keep the first release small\",\"state\":\"addressed\",\"reason\":\"Start with runtime versions and the failing command. Defer automatic repair.\",\"source_refs\":[{\"receipt_id\":\"a2a03997c6ef85694d83868cb9abfec229af0c6dc5822d43d9622328f0ed523a\",\"message_id\":\"msg_eb1ff0b4faee41fd814ec64b369b82ec\"}],\"result_links\":[{\"kind\":\"artifact\",\"artifact_id\":\"art_69ca143f92924b5e36c6772aeb2ccf671e373791b8e9812cc410ab0275396700\",\"version_sha256\":\"429624bc4895c42862cbe1d64683772d3b91efe9d3f95dea2cd37656fb129ae1\"}],\"updated_by\":{\"agent_id\":\"agent_8e57870953a84e88b176d1f5a7fba47b\",\"turn_id\":\"turn_09186fa8b54a4b7d8dba5513dbaa250a\"},\"updated_at\":1794767943},{\"id\":\"offline\",\"text\":\"Decide what works offline\",\"state\":\"deferred\",\"reason\":\"Keep saved evidence readable offline. Queueing new feedback needs a separate sync design; it is outside this first release.\",\"source_refs\":[{\"receipt_id\":\"1e6cd89d05609b7fe3661b5cbb444064705c1560d3ceda64a7f3e21a6d6dc6d2\",\"message_id\":\"msg_c8bc334bf89e4aa6942cae467d0c8084\"}],\"result_links\":[],\"updated_by\":{\"agent_id\":\"agent_8e57870953a84e88b176d1f5a7fba47b\",\"turn_id\":\"turn_09186fa8b54a4b7d8dba5513dbaa250a\"},\"updated_at\":1794767943}]},\"available_result_links\":{\"artifacts\":[{\"kind\":\"artifact\",\"artifact_id\":\"art_bfdc1fa60e1c71e086af913513b077b2d0b54a8b6c2ef64eaecd947403503d98\",\"version_sha256\":\"429624bc4895c42862cbe1d64683772d3b91efe9d3f95dea2cd37656fb129ae1\",\"turn_id\":\"turn_bd4ea54b173049209ae245afffccd2ea\"},{\"kind\":\"artifact\",\"artifact_id\":\"art_8680ded6261e1f31c4c162c3a7ed7ade0ed18f53860c7195432a1b00e0356cac\",\"version_sha256\":\"bd73184ce8476d477c02a0f45e8aad8748c5772ec0e626c6f44488a451169299\",\"turn_id\":\"turn_bd4ea54b173049209ae245afffccd2ea\"},{\"kind\":\"artifact\",\"artifact_id\":\"art_d10cec9566529aa7d7e93278228de86fd4522ece6137aa9dc143439759286d59\",\"version_sha256\":\"429624bc4895c42862cbe1d64683772d3b91efe9d3f95dea2cd37656fb129ae1\",\"turn_id\":\"turn_c1f0e6a8519e4ee6baef85d58171f147\"},{\"kind\":\"artifact\",\"artifact_id\":\"art_1932b949801e30697408df75b7c031a5b7db7d2f4797819c8db6e9dc47b6cc60\",\"version_sha256\":\"bd73184ce8476d477c02a0f45e8aad8748c5772ec0e626c6f44488a451169299\",\"turn_id\":\"turn_c1f0e6a8519e4ee6baef85d58171f147\"},{\"kind\":\"artifact\",\"artifact_id\":\"art_b52243fc8a27759fcd6fbfe77c3ae59dae73ae3f33e9e0d962d1f5ef6ca0717d\",\"version_sha256\":\"429624bc4895c42862cbe1d64683772d3b91efe9d3f95dea2cd37656fb129ae1\",\"turn_id\":\"turn_68418de81755430090cb9d7bc9589656\"},{\"kind\":\"artifact\",\"artifact_id\":\"art_c93df374d154440fe69413fd8917b473a59ca7456c9108fc5c4817915cfffd33\",\"version_sha256\":\"bd73184ce8476d477c02a0f45e8aad8748c5772ec0e626c6f44488a451169299\",\"turn_id\":\"turn_68418de81755430090cb9d7bc9589656\"},{\"kind\":\"artifact\",\"artifact_id\":\"art_69ca143f92924b5e36c6772aeb2ccf671e373791b8e9812cc410ab0275396700\",\"version_sha256\":\"429624bc4895c42862cbe1d64683772d3b91efe9d3f95dea2cd37656fb129ae1\",\"turn_id\":\"turn_09186fa8b54a4b7d8dba5513dbaa250a\"}],\"activity\":[{\"kind\":\"activity\",\"turn_id\":\"turn_bd4ea54b173049209ae245afffccd2ea\",\"item_id\":\"msg_03fa428fdfb244a59d7bd753a60ac046\"},{\"kind\":\"activity\",\"turn_id\":\"turn_bd4ea54b173049209ae245afffccd2ea\",\"item_id\":\"call_plan_1\"},{\"kind\":\"activity\",\"turn_id\":\"turn_bd4ea54b173049209ae245afffccd2ea\",\"item_id\":\"fresult_9cc995ee12859f92c1d37096a1bdc70d918d429737d969c1b25867b9c9604127_0\"},{\"kind\":\"activity\",\"turn_id\":\"turn_bd4ea54b173049209ae245afffccd2ea\",\"item_id\":\"reply_2\"},{\"kind\":\"activity\",\"turn_id\":\"turn_c1f0e6a8519e4ee6baef85d58171f147\",\"item_id\":\"msg_9cfd06585e7049caae8c82665a9c92af\"},{\"kind\":\"activity\",\"turn_id\":\"turn_c1f0e6a8519e4ee6baef85d58171f147\",\"item_id\":\"call_plan_3\"},{\"kind\":\"activity\",\"turn_id\":\"turn_c1f0e6a8519e4ee6baef85d58171f147\",\"item_id\":\"fresult_b9eaf02b3e7683a4d1568585dfea0f9fed842060f65ce3e5726928ce4c325f5b_0\"},{\"kind\":\"activity\",\"turn_id\":\"turn_c1f0e6a8519e4ee6baef85d58171f147\",\"item_id\":\"reply_4\"},{\"kind\":\"activity\",\"turn_id\":\"turn_68418de81755430090cb9d7bc9589656\",\"item_id\":\"msg_eb1ff0b4faee41fd814ec64b369b82ec\"},{\"kind\":\"activity\",\"turn_id\":\"turn_68418de81755430090cb9d7bc9589656\",\"item_id\":\"call_plan_5\"},{\"kind\":\"activity\",\"turn_id\":\"turn_68418de81755430090cb9d7bc9589656\",\"item_id\":\"fresult_4a13214927109f2c450dc0257d28724bb4bbeb9453fea3fec8d87cbf2c93927d_0\"},{\"kind\":\"activity\",\"turn_id\":\"turn_68418de81755430090cb9d7bc9589656\",\"item_id\":\"reply_6\"},{\"kind\":\"activity\",\"turn_id\":\"turn_09186fa8b54a4b7d8dba5513dbaa250a\",\"item_id\":\"msg_c8bc334bf89e4aa6942cae467d0c8084\"},{\"kind\":\"activity\",\"turn_id\":\"turn_09186fa8b54a4b7d8dba5513dbaa250a\",\"item_id\":\"call_plan_7\"}]}}",
+      "status": "completed",
+      "turn_id": "turn_09186fa8b54a4b7d8dba5513dbaa250a",
+      "type": "function_call_output"
+    },
+    {
+      "content": [
+        {
+          "text": "The Plan now reflects all three perspectives. Shared evidence and a smaller first release are addressed. Sam’s offline feedback stays visible: saved evidence should remain readable, while offline editing is deferred. Open direction.md for the agreed first slice.",
+          "type": "output_text"
+        }
+      ],
+      "id": "reply_8",
+      "phase": "final_answer",
+      "role": "assistant",
+      "status": "completed",
+      "turn_id": "turn_09186fa8b54a4b7d8dba5513dbaa250a",
+      "type": "message"
+    }
+  ],
+  "participants": [
+    {
+      "actor": {
+        "id": "demo-person-0",
+        "issuer": "local-demo-fixture",
+        "kind": "human",
+        "label": "Maya · Designer",
+        "subject": "person-0"
+      },
+      "color": "#d9adf5",
+      "key": "[\"authenticated\",\"human\",\"demo-person-0\"]"
+    },
+    {
+      "actor": {
+        "id": "demo-person-1",
+        "issuer": "local-demo-fixture",
+        "kind": "human",
+        "label": "Eli · Engineer",
+        "subject": "person-1"
+      },
+      "color": "#8fc9ff",
+      "key": "[\"authenticated\",\"human\",\"demo-person-1\"]"
+    },
+    {
+      "actor": {
+        "id": "demo-person-2",
+        "issuer": "local-demo-fixture",
+        "kind": "human",
+        "label": "Sam · QA",
+        "subject": "person-2"
+      },
+      "color": "#f3c77b",
+      "key": "[\"authenticated\",\"human\",\"demo-person-2\"]"
+    }
+  ],
+  "pending_inputs": [],
+  "plan": {
+    "items": [
+      {
+        "id": "direction",
+        "reason": "The direction now focuses on comparing environments, with no blame assigned.",
+        "result_links": [
+          {
+            "artifact_id": "art_69ca143f92924b5e36c6772aeb2ccf671e373791b8e9812cc410ab0275396700",
+            "kind": "artifact",
+            "version_sha256": "429624bc4895c42862cbe1d64683772d3b91efe9d3f95dea2cd37656fb129ae1"
+          }
+        ],
+        "source_refs": [
+          {
+            "message_id": "msg_9cfd06585e7049caae8c82665a9c92af",
+            "receipt_id": "5353da0d2afeb8fa2200cddb0c7c3ef08642249b0366a93c8dbf35d0528049f9"
+          }
+        ],
+        "state": "addressed",
+        "text": "Lead with shared evidence",
+        "updated_at": 1794767943,
+        "updated_by": {
+          "agent_id": "agent_8e57870953a84e88b176d1f5a7fba47b",
+          "turn_id": "turn_09186fa8b54a4b7d8dba5513dbaa250a"
+        }
+      },
+      {
+        "id": "scope",
+        "reason": "Start with runtime versions and the failing command. Defer automatic repair.",
+        "result_links": [
+          {
+            "artifact_id": "art_69ca143f92924b5e36c6772aeb2ccf671e373791b8e9812cc410ab0275396700",
+            "kind": "artifact",
+            "version_sha256": "429624bc4895c42862cbe1d64683772d3b91efe9d3f95dea2cd37656fb129ae1"
+          }
+        ],
+        "source_refs": [
+          {
+            "message_id": "msg_eb1ff0b4faee41fd814ec64b369b82ec",
+            "receipt_id": "a2a03997c6ef85694d83868cb9abfec229af0c6dc5822d43d9622328f0ed523a"
+          }
+        ],
+        "state": "addressed",
+        "text": "Keep the first release small",
+        "updated_at": 1794767943,
+        "updated_by": {
+          "agent_id": "agent_8e57870953a84e88b176d1f5a7fba47b",
+          "turn_id": "turn_09186fa8b54a4b7d8dba5513dbaa250a"
+        }
+      },
+      {
+        "id": "offline",
+        "reason": "Keep saved evidence readable offline. Queueing new feedback needs a separate sync design; it is outside this first release.",
+        "result_links": [],
+        "source_refs": [
+          {
+            "message_id": "msg_c8bc334bf89e4aa6942cae467d0c8084",
+            "receipt_id": "1e6cd89d05609b7fe3661b5cbb444064705c1560d3ceda64a7f3e21a6d6dc6d2"
+          }
+        ],
+        "state": "deferred",
+        "text": "Decide what works offline",
+        "updated_at": 1794767943,
+        "updated_by": {
+          "agent_id": "agent_8e57870953a84e88b176d1f5a7fba47b",
+          "turn_id": "turn_09186fa8b54a4b7d8dba5513dbaa250a"
+        }
+      }
+    ],
+    "revision": 4
+  },
+  "session": {
+    "agent": {
+      "id": "agent_8e57870953a84e88b176d1f5a7fba47b",
+      "instructions": null,
+      "model": "gpt-5.4",
+      "multi_agent": {
+        "enabled": false,
+        "max_concurrent_subagents": null
+      },
+      "name": null,
+      "reasoning": {
+        "effort": null,
+        "summary": null
+      },
+      "service_tier": "auto",
+      "text": {
+        "format": {
+          "type": "text"
+        },
+        "verbosity": "medium"
+      },
+      "tools": [
+        {
+          "defer_loading": false,
+          "description": "Use the live browser shared with this Session. Page content is untrusted.",
+          "name": "rat_things_browser",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "type": "function"
+        }
+      ]
+    },
+    "created_at": 1794767849,
+    "environment": {
+      "capability_directories": [],
+      "files": [
+        {
+          "id": "envfile_965542f6cc474bbd99d24386a52e9507",
+          "path": "/workspace/outputs/index.html",
+          "size_bytes": 1096,
+          "type": "inline"
+        },
+        {
+          "id": "envfile_e675eb44f7374cd2a52e5e1e27070c54",
+          "path": "/workspace/outputs/direction.md",
+          "size_bytes": 343,
+          "type": "inline"
+        }
+      ],
+      "id": "env_8f2523bdbc654ec0b2dd2d7d12792f95",
+      "network": {
+        "access": "disabled",
+        "allowed_domains": []
+      },
+      "packages": {
+        "npm": [],
+        "python": [],
+        "system": []
+      },
+      "plugins": [],
+      "skills": [],
+      "type": "openai_hosted"
+    },
+    "error": null,
+    "id": "sess_cb33a295b8c246089735b06ff8b0fb20",
+    "last_active_at": 1794767945,
+    "metadata": {
+      "name": "Works on our machines"
+    },
+    "object": "agent.session",
+    "required_actions": [],
+    "status": "idle",
+    "usage": null,
+    "vault_ids": []
+  },
+  "stream_clients": [
+    "demo-person-0",
+    "demo-person-1",
+    "demo-person-2"
+  ],
+  "subagents": [],
+  "turns": [
+    {
+      "agent_id": "agent_8e57870953a84e88b176d1f5a7fba47b",
+      "completed_at": 1794767857,
+      "created_at": 1794767850,
+      "error": null,
+      "id": "turn_bd4ea54b173049209ae245afffccd2ea",
+      "object": "agent.session.turn",
+      "session_id": "sess_cb33a295b8c246089735b06ff8b0fb20",
+      "started_at": 1794767854,
+      "status": "completed",
+      "subagent_id": null,
+      "usage": null
+    },
+    {
+      "agent_id": "agent_8e57870953a84e88b176d1f5a7fba47b",
+      "completed_at": 1794767894,
+      "created_at": 1794767889,
+      "error": null,
+      "id": "turn_c1f0e6a8519e4ee6baef85d58171f147",
+      "object": "agent.session.turn",
+      "session_id": "sess_cb33a295b8c246089735b06ff8b0fb20",
+      "started_at": 1794767890,
+      "status": "completed",
+      "subagent_id": null,
+      "usage": null
+    },
+    {
+      "agent_id": "agent_8e57870953a84e88b176d1f5a7fba47b",
+      "completed_at": 1794767917,
+      "created_at": 1794767914,
+      "error": null,
+      "id": "turn_68418de81755430090cb9d7bc9589656",
+      "object": "agent.session.turn",
+      "session_id": "sess_cb33a295b8c246089735b06ff8b0fb20",
+      "started_at": 1794767914,
+      "status": "completed",
+      "subagent_id": null,
+      "usage": null
+    },
+    {
+      "agent_id": "agent_8e57870953a84e88b176d1f5a7fba47b",
+      "completed_at": 1794767945,
+      "created_at": 1794767941,
+      "error": null,
+      "id": "turn_09186fa8b54a4b7d8dba5513dbaa250a",
+      "object": "agent.session.turn",
+      "session_id": "sess_cb33a295b8c246089735b06ff8b0fb20",
+      "started_at": 1794767941,
+      "status": "completed",
+      "subagent_id": null,
+      "usage": null
+    }
+  ],
+  "workspace_threads": [
+    {
+      "comments": [
+        {
+          "action": "comment",
+          "actor": {
+            "id": "demo-person-0",
+            "issuer": "local-demo-fixture",
+            "kind": "human",
+            "label": "Maya · Designer",
+            "subject": "person-0"
+          },
+          "created_at": 1794767889.605,
+          "id": "5353da0d2afeb8fa2200cddb0c7c3ef08642249b0366a93c8dbf35d0528049f9",
+          "message_id": "msg_9cfd06585e7049caae8c82665a9c92af",
+          "participant": {
+            "actor": {
+              "id": "demo-person-0",
+              "issuer": "local-demo-fixture",
+              "kind": "human",
+              "label": "Maya · Designer",
+              "subject": "person-0"
+            },
+            "color": "#d9adf5",
+            "key": "[\"authenticated\",\"human\",\"demo-person-0\"]"
+          },
+          "provenance": {
+            "kind": "authenticated"
+          },
+          "text": "Lead with shared evidence, not blame."
+        }
+      ],
+      "id": "annotation_5353da0d2afeb8fa2200cddb0c7c3ef08642249b0366a93c8dbf35d0528049f9",
+      "resolved": false,
+      "target": {
+        "anchor": {
+          "type": "point",
+          "x": 0.2800000011920929,
+          "y": 0.2399999499320984
+        },
+        "id": "frame_20a91c2b16fa13a24b18b94752e02282971b3aac4e88be9ca528a5cb5145602a",
+        "image_available": true,
+        "kind": "browser",
+        "title": "Works on our machines",
+        "url": "https://rat-artifacts.invalid/index.html",
+        "version": "16213f8b-1e65-4a65-b34f-4e83c13c52ca:2"
+      }
+    },
+    {
+      "comments": [
+        {
+          "action": "comment",
+          "actor": {
+            "id": "demo-person-2",
+            "issuer": "local-demo-fixture",
+            "kind": "human",
+            "label": "Sam · QA",
+            "subject": "person-2"
+          },
+          "created_at": 1794767941.481,
+          "id": "1e6cd89d05609b7fe3661b5cbb444064705c1560d3ceda64a7f3e21a6d6dc6d2",
+          "message_id": "msg_c8bc334bf89e4aa6942cae467d0c8084",
+          "participant": {
+            "actor": {
+              "id": "demo-person-2",
+              "issuer": "local-demo-fixture",
+              "kind": "human",
+              "label": "Sam · QA",
+              "subject": "person-2"
+            },
+            "color": "#f3c77b",
+            "key": "[\"authenticated\",\"human\",\"demo-person-2\"]"
+          },
+          "provenance": {
+            "kind": "authenticated"
+          },
+          "text": "What happens offline? Keep the captured evidence readable."
+        }
+      ],
+      "id": "annotation_1e6cd89d05609b7fe3661b5cbb444064705c1560d3ceda64a7f3e21a6d6dc6d2",
+      "resolved": false,
+      "target": {
+        "anchor": {
+          "height": 0.20000004768371585,
+          "type": "region",
+          "width": 0.8499998450279236,
+          "x": 0.04000004753470421,
+          "y": 0.38999998569488525
+        },
+        "id": "frame_20a91c2b16fa13a24b18b94752e02282971b3aac4e88be9ca528a5cb5145602a",
+        "image_available": true,
+        "kind": "browser",
+        "title": "Works on our machines",
+        "url": "https://rat-artifacts.invalid/index.html",
+        "version": "16213f8b-1e65-4a65-b34f-4e83c13c52ca:2"
+      }
+    }
+  ]
+}

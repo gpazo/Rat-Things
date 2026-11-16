@@ -1,0 +1,8 @@
+   Compiling rat-things-desktop v0.1.0 (/Users/gp/src/rat-things/.codex/pstack-runs/shared-feedback/main/desktop)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.09s
+     Running tests/shared_browser_review.rs (/Users/gp/src/rat-things/.codex/participant-colors/desktop/target/debug/deps/shared_browser_review-c5df548a78701e7e)
+
+running 1 test
+test teammates_review_one_page_at_phone_and_desktop_sizes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 32.25s

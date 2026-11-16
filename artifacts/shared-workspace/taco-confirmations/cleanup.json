@@ -1,0 +1,98 @@
+{
+  "status": "removed",
+  "resources": {
+    "loopback_server": {
+      "status": "removed"
+    },
+    "local_services": {
+      "status": "removed"
+    },
+    "connection_file": {
+      "status": "removed"
+    },
+    "worker_volume": {
+      "status": "removed",
+      "name": "rat-8935aa12d0cc2a05-sess_a94f82bc8eb6446c93139af83d1b790e-workspace"
+    },
+    "state_volume": {
+      "status": "removed",
+      "name": "rat-8935aa12d0cc2a05-sess_a94f82bc8eb6446c93139af83d1b790e-workspace-state"
+    }
+  },
+  "usage_status": "read",
+  "budget": {
+    "phase": "active",
+    "reason": null,
+    "cancellation_status": "not_needed",
+    "active_elapsed_ms": 738700,
+    "review_elapsed_ms": null,
+    "limits": {
+      "max_turns": 4,
+      "max_observed_tokens": 1200000,
+      "max_tool_items": 120,
+      "max_active_ms": 2100000,
+      "review_ms": 600000
+    }
+  },
+  "artifact_export": {
+    "status": "written",
+    "path": "/Users/gp/src/rat-things/.codex/pstack-runs/shared-feedback/main/artifacts/shared-workspace/taco-confirmations/latest.html",
+    "artifact_id": "art_d74ef645fb515c21c4ad1aa02825f66cd956f352181a52a0f3dd75938e0bf355"
+  },
+  "observed_usage": {
+    "turns": 3,
+    "observed_tokens": 443118,
+    "tool_items": 11,
+    "token_usage_pending": false
+  },
+  "model": "gpt-6-luna",
+  "inference": "ChatGPT subscription through Codex (not API-billed)",
+  "turns": 3,
+  "usage": [
+    {
+      "id": "turn_f8de710b832d4f92aac375d1566f5658",
+      "status": "completed",
+      "usage": {
+        "input_tokens": 37469,
+        "input_tokens_details": {
+          "cached_tokens": 35200
+        },
+        "output_tokens": 16,
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "total_tokens": 37485
+      }
+    },
+    {
+      "id": "turn_b54f9fafc59d41899cad70a29896c091",
+      "status": "completed",
+      "usage": {
+        "input_tokens": 216681,
+        "input_tokens_details": {
+          "cached_tokens": 205440
+        },
+        "output_tokens": 1477,
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "total_tokens": 218158
+      }
+    },
+    {
+      "id": "turn_75839afc30b44bb086b646cad242d7b1",
+      "status": "completed",
+      "usage": {
+        "input_tokens": 180087,
+        "input_tokens_details": {
+          "cached_tokens": 143360
+        },
+        "output_tokens": 7388,
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "total_tokens": 187475
+      }
+    }
+  ]
+}

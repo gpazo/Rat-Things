@@ -1,0 +1,17 @@
+{
+  "captured_image_delivered_to_codex": true,
+  "fixture_inference": true,
+  "fixture_requests": 8,
+  "frames": 95,
+  "limitations": [
+    "Headless native component rendering, not OS window management",
+    "Scripted model replies and Plan decisions, seeded output document; no paid inference",
+    "Recording playback timing is edited for readability"
+  ],
+  "linux_worker": true,
+  "native_clients": 3,
+  "oidc": "Fixture identities, not a login-provider test",
+  "plan_revision": 4,
+  "status": "passed",
+  "wall_duration_ms": 123858
+}

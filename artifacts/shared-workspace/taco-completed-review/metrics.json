@@ -1,0 +1,103 @@
+{
+  "model": "gpt-6-luna",
+  "provider": "ChatGPT subscription through local Codex",
+  "turns": [
+    {
+      "status": "completed",
+      "duration_seconds": 104,
+      "total_tokens": 294119
+    },
+    {
+      "status": "completed",
+      "duration_seconds": 126,
+      "total_tokens": 554736
+    },
+    {
+      "status": "completed",
+      "duration_seconds": 2,
+      "total_tokens": 43819
+    }
+  ],
+  "usage": {
+    "input_tokens": 882086,
+    "output_tokens": 10588,
+    "total_tokens": 892674,
+    "cached_input_tokens": 833280,
+    "uncached_input_tokens": 48806
+  },
+  "participant_colors": {
+    "Maya \u00b7 Designer": "#d9adf5",
+    "Eli \u00b7 Engineer": "#8fc9ff",
+    "Alex \u00b7 Client lead": "#f3c77b",
+    "Sam \u00b7 QA": "#f2a9c2"
+  },
+  "receipts": 7,
+  "plan_revision": 2,
+  "plan_items": 5,
+  "resolved_annotations": 1,
+  "failed_tool_attempts": [
+    {
+      "type": "mcp_call",
+      "command": null,
+      "arguments": {
+        "command_id": "taco-nav-1",
+        "operation": {
+          "action": "navigate",
+          "url": "https://rat-artifacts.invalid/index.html"
+        }
+      },
+      "error": [
+        "Take a snapshot, then retry with its epoch and revision for this browser action."
+      ]
+    },
+    {
+      "type": "command_execution",
+      "command": "/bin/bash -lc \"rg -n 'hero-art|@media|max-width|taco' /workspace/outputs/index.html\"",
+      "arguments": null,
+      "error": "/bin/bash: line 1: rg: command not found\n"
+    },
+    {
+      "type": "mcp_call",
+      "command": null,
+      "arguments": {
+        "command_id": "taco-rev-reload",
+        "epoch": "052e3088-eea8-442a-9ba7-136680919487",
+        "revision": 7,
+        "operation": {
+          "action": "reload"
+        }
+      },
+      "error": [
+        "The shared browser changed. Refresh before interacting."
+      ]
+    },
+    {
+      "type": "mcp_call",
+      "command": null,
+      "arguments": {
+        "command_id": "taco-rev-top",
+        "epoch": "052e3088-eea8-442a-9ba7-136680919487",
+        "revision": 12,
+        "operation": {
+          "action": "scroll",
+          "delta_y": -2000
+        }
+      },
+      "error": [
+        "Browser x must be a normalized viewport fraction from 0 to 1, not pixels (for example, x: 0.5 and y: 0.25). Take a fresh snapshot and use its element coordinates when available."
+      ]
+    }
+  ],
+  "artifact_sha256": {
+    "first-draft.html": "1beeddbab22de00934fa953e66c6f2f789854b667eb76022a93dec28a22ceccf",
+    "index.html": "2216824eedd270325a29124b1cd7babac51eec773ee41dbbb744d1939a8cef08",
+    "latest.html": "2216824eedd270325a29124b1cd7babac51eec773ee41dbbb744d1939a8cef08"
+  },
+  "cost": {
+    "direct_paid_api_usd": 0,
+    "aws_resources_created": 0,
+    "subscription_incremental_cost": "unavailable; not API-billed",
+    "delegated_analysis_usage_and_cost": "unavailable",
+    "local_infrastructure_energy_cost": "unavailable"
+  }
+}

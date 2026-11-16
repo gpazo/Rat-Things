@@ -1,0 +1,37 @@
+{
+  "npm_run_check": {
+    "exit_code": 0,
+    "tests_passed": 3137,
+    "tests_skipped": 86,
+    "test_files_passed": 347,
+    "stages": "architecture, generated contracts, typecheck, MicroVM syntax, tests, package and 15 Lambda smoke checks, site build, three Terraform format/validation targets"
+  },
+  "npm_run_console_check_final": {
+    "exit_code": 0,
+    "unit_tests_passed": 86,
+    "native_tests_passed": 31,
+    "opt_in_harnesses_skipped": 8,
+    "format": "passed",
+    "clippy_all_targets": "passed"
+  },
+  "earlier_findings": [
+    "Updated the existing team test to assert the scoped refresh error instead of a global error.",
+    "Captured-feedback test clicked disabled Resolve after returning to live; shared fixture click helper now waits for enabled controls; final focused test and full suite passed."
+  ],
+  "live_native_clients": "all four exited successfully",
+  "git_diff_check": "passed",
+  "cleanup_exact_name_check": {
+    "containers_remaining": 0,
+    "volumes_remaining": 0,
+    "private_connection_removed": true
+  },
+  "not_tested": [
+    "AWS",
+    "OIDC/broad RBAC and revocation integration",
+    "high-concurrency load or performance comparison",
+    "OS accessibility and screen readers",
+    "full desktop/responsive/keyboard website coverage",
+    "image-only annotation comprehension",
+    "provider budget cutoff and forced cancellation"
+  ]
+}

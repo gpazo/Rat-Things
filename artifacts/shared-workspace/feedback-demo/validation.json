@@ -1,0 +1,56 @@
+{
+  "recording": "passed",
+  "decoded_video": "passed",
+  "duration_seconds": 50,
+  "video": {
+    "codec": "h264",
+    "width": 1920,
+    "height": 1080,
+    "fps": 12
+  },
+  "source_attribution": "Every Plan source matched its exact participant, input receipt and accepted message in this recording.",
+  "paid_inference_calls": 0,
+  "model_provider": "Loopback deterministic Responses fixture",
+  "fixture_requests": 8,
+  "inference_cost_usd": 0,
+  "aws_resources_created": 0,
+  "local_energy_cost": "not measured",
+  "cleanup": "Demo worker, paired volumes and temporary profile removed",
+  "video_sha256": "ed4f79b74c3769f0151a263111d054787d055eb5c1e140e83d602f277c576f63",
+  "checks": {
+    "rustfmt": "passed",
+    "clippy": "passed",
+    "rust_unit": 80,
+    "native_interactions": 28,
+    "plan_after_tab_grouping": "passed",
+    "native_recording": "passed",
+    "npm_check": {
+      "passed": 3126,
+      "skipped": 85,
+      "exit_code": 0,
+      "temporary_directory": "/private/tmp"
+    },
+    "packaging_site_terraform": "passed",
+    "final_source_and_image_fit_scenarios": "passed"
+  },
+  "delegated_review": {
+    "model": "gpt-6-luna",
+    "provider": "Codex host delegation",
+    "token_usage": "unavailable",
+    "estimated_cost": "unavailable"
+  },
+  "review": {
+    "visual": "No substantial remaining issues in refreshed wide/compact frames",
+    "interaction": "No actionable regressions in focused controls/state/permissions review",
+    "models": [
+      "gpt-6-luna"
+    ],
+    "usage_and_cost": "unavailable"
+  },
+  "limits": [
+    "Fixture model and identities; no new AWS or live provider validation",
+    "Full OS accessibility and load/latency not revalidated",
+    "Six opt-in native tests skipped by default; multiplayer recording explicitly run"
+  ],
+  "initial_check_failure": "Two path-sensitive script suites failed with macOS symlinked temp path; all 41 tests then passed with canonical TMPDIR, followed by a successful full check."
+}

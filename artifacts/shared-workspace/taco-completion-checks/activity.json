@@ -1,0 +1,468 @@
+{
+  "artifacts": [
+    {
+      "created_at": 1794787853,
+      "environment_id": "env_31597068668441d0ab5d6ac660aa9678",
+      "id": "art_0db6aacb75aad5b9477d4d56b8c979c525d9af8df4f5d8f5fe4f8c20e2dbc10c",
+      "object": "agent.session.artifact",
+      "path": "/workspace/outputs/direction.md",
+      "session_id": "sess_f815adae076d459a9dfec5289db25b76",
+      "size_bytes": 343,
+      "turn_id": "turn_8a78ff79cac2474aa23a9181f26a150c"
+    },
+    {
+      "created_at": 1794787853,
+      "environment_id": "env_31597068668441d0ab5d6ac660aa9678",
+      "id": "art_11bb54c5de4cb962d8ac49c88d642ffaecb19a71ca50ed29699c63368b7332fb",
+      "object": "agent.session.artifact",
+      "path": "/workspace/outputs/index.html",
+      "session_id": "sess_f815adae076d459a9dfec5289db25b76",
+      "size_bytes": 9662,
+      "turn_id": "turn_8a78ff79cac2474aa23a9181f26a150c"
+    }
+  ],
+  "browser_available": true,
+  "cursor": "act_sess_f815adae076d459a9dfec5289db25b76_31.4f53cda18c2baa0c",
+  "environment": {
+    "error": null,
+    "id": "env_31597068668441d0ab5d6ac660aa9678",
+    "status": "connected",
+    "type": "openai_hosted"
+  },
+  "environmentResetCount": 0,
+  "failures": [],
+  "inputs": [
+    {
+      "accepted_at": 1794787844,
+      "actor": {
+        "id": "demo-person-0",
+        "issuer": "local-demo-fixture",
+        "kind": "human",
+        "label": "Maya · Designer",
+        "subject": "person-0"
+      },
+      "id": "initial",
+      "message_ids": [
+        "msg_335a29d94e7b460e82b9d4b4c0a87937"
+      ],
+      "participant": {
+        "actor": {
+          "id": "demo-person-0",
+          "issuer": "local-demo-fixture",
+          "kind": "human",
+          "label": "Maya · Designer",
+          "subject": "person-0"
+        },
+        "color": "#d9adf5",
+        "key": "[\"authenticated\",\"human\",\"demo-person-0\"]"
+      },
+      "provenance": {
+        "kind": "authenticated"
+      },
+      "sequence": 1,
+      "status": "dispatched",
+      "turn_ids": [
+        "turn_8a78ff79cac2474aa23a9181f26a150c"
+      ]
+    },
+    {
+      "accepted_at": 1794787865.192,
+      "actor": {
+        "id": "demo-person-0",
+        "issuer": "local-demo-fixture",
+        "kind": "human",
+        "label": "Maya · Designer",
+        "subject": "person-0"
+      },
+      "id": "0659ed3074aaca596274cb494889bf74d38986b8a4ad7e5e588b9226b996c453",
+      "message_ids": [
+        "msg_ab07c3f20bb1437aa468bca3708fa1de"
+      ],
+      "participant": {
+        "actor": {
+          "id": "demo-person-0",
+          "issuer": "local-demo-fixture",
+          "kind": "human",
+          "label": "Maya · Designer",
+          "subject": "person-0"
+        },
+        "color": "#d9adf5",
+        "key": "[\"authenticated\",\"human\",\"demo-person-0\"]"
+      },
+      "provenance": {
+        "kind": "authenticated"
+      },
+      "sequence": 3,
+      "status": "dispatched",
+      "turn_ids": [
+        "turn_2d3e95ac355c44eca359f1c5b842b047"
+      ],
+      "workspace": {
+        "action": "comment",
+        "target": {
+          "anchor": {
+            "type": "point",
+            "x": 0.5,
+            "y": 0.5
+          },
+          "id": "frame_fe5234429ad411a5b05c640aae25416572c2a5b177f10e41403aa7e9a8b08240",
+          "image_available": true,
+          "kind": "browser",
+          "title": "Taco Cometa — Tacos with a little orbit",
+          "url": "https://rat-artifacts.invalid/index.html#menu",
+          "version": "a3c31d91-ba8f-434c-bdd7-7afb0bad0e0b:5"
+        },
+        "thread_id": "annotation_0659ed3074aaca596274cb494889bf74d38986b8a4ad7e5e588b9226b996c453"
+      }
+    }
+  ],
+  "items": [
+    {
+      "content": [
+        {
+          "text": "Plan and critique our product direction together.",
+          "type": "input_text"
+        }
+      ],
+      "id": "msg_335a29d94e7b460e82b9d4b4c0a87937",
+      "phase": null,
+      "role": "user",
+      "status": "completed",
+      "turn_id": "turn_8a78ff79cac2474aa23a9181f26a150c",
+      "type": "message"
+    },
+    {
+      "arguments": {
+        "expected_revision": 0,
+        "items": [
+          {
+            "id": "direction",
+            "result_links": [],
+            "source_message_ids": [],
+            "state": "next",
+            "text": "Lead with shared evidence"
+          },
+          {
+            "id": "scope",
+            "result_links": [],
+            "source_message_ids": [],
+            "state": "next",
+            "text": "Keep the first release small"
+          },
+          {
+            "id": "offline",
+            "result_links": [],
+            "source_message_ids": [],
+            "state": "next",
+            "text": "Decide what works offline"
+          }
+        ]
+      },
+      "call_id": "call_plan_1",
+      "id": "call_plan_1",
+      "name": "rat_things_plan_update",
+      "status": "completed",
+      "turn_id": "turn_8a78ff79cac2474aa23a9181f26a150c",
+      "type": "function_call"
+    },
+    {
+      "call_id": "call_plan_1",
+      "error": null,
+      "id": "fresult_851b956fb6c95592633cf9e3e577ddee6a39392a8a0e48b7ff1e02d2586d0c69_0",
+      "output": "{\"plan\":{\"revision\":1,\"items\":[{\"id\":\"direction\",\"text\":\"Lead with shared evidence\",\"state\":\"next\",\"source_refs\":[],\"result_links\":[],\"updated_by\":{\"agent_id\":\"agent_d4f9e13289714f6dab3dcf1567038ecf\",\"turn_id\":\"turn_8a78ff79cac2474aa23a9181f26a150c\"},\"updated_at\":1794787852},{\"id\":\"scope\",\"text\":\"Keep the first release small\",\"state\":\"next\",\"source_refs\":[],\"result_links\":[],\"updated_by\":{\"agent_id\":\"agent_d4f9e13289714f6dab3dcf1567038ecf\",\"turn_id\":\"turn_8a78ff79cac2474aa23a9181f26a150c\"},\"updated_at\":1794787852},{\"id\":\"offline\",\"text\":\"Decide what works offline\",\"state\":\"next\",\"source_refs\":[],\"result_links\":[],\"updated_by\":{\"agent_id\":\"agent_d4f9e13289714f6dab3dcf1567038ecf\",\"turn_id\":\"turn_8a78ff79cac2474aa23a9181f26a150c\"},\"updated_at\":1794787852}]},\"available_result_links\":{\"artifacts\":[],\"activity\":[{\"kind\":\"activity\",\"turn_id\":\"turn_8a78ff79cac2474aa23a9181f26a150c\",\"item_id\":\"msg_335a29d94e7b460e82b9d4b4c0a87937\"},{\"kind\":\"activity\",\"turn_id\":\"turn_8a78ff79cac2474aa23a9181f26a150c\",\"item_id\":\"call_plan_1\"}]}}",
+      "status": "completed",
+      "turn_id": "turn_8a78ff79cac2474aa23a9181f26a150c",
+      "type": "function_call_output"
+    },
+    {
+      "content": [
+        {
+          "text": "“It works on my machine” is our starting point. Let’s turn it into “we can reproduce it together.” Review the shared page: design can question the framing, engineering can constrain the first release, and QA can challenge the edge cases.",
+          "type": "output_text"
+        }
+      ],
+      "id": "reply_2",
+      "phase": "final_answer",
+      "role": "assistant",
+      "status": "completed",
+      "turn_id": "turn_8a78ff79cac2474aa23a9181f26a150c",
+      "type": "message"
+    },
+    {
+      "content": [
+        {
+          "text": "Keep these sample prices easy to scan on a phone.",
+          "type": "input_text"
+        }
+      ],
+      "id": "msg_ab07c3f20bb1437aa468bca3708fa1de",
+      "phase": null,
+      "role": "user",
+      "status": "completed",
+      "turn_id": "turn_2d3e95ac355c44eca359f1c5b842b047",
+      "type": "message"
+    },
+    {
+      "arguments": {
+        "expected_revision": 1,
+        "items": [
+          {
+            "id": "direction",
+            "reason": "The direction now focuses on comparing environments, with no blame assigned.",
+            "result_links": [
+              {
+                "kind": "output",
+                "path": "/workspace/outputs/direction.md"
+              }
+            ],
+            "source_message_ids": [
+              "msg_ab07c3f20bb1437aa468bca3708fa1de"
+            ],
+            "state": "addressed",
+            "text": "Lead with shared evidence"
+          },
+          {
+            "id": "scope",
+            "result_links": [],
+            "source_message_ids": [],
+            "state": "next",
+            "text": "Keep the first release small"
+          },
+          {
+            "id": "offline",
+            "result_links": [],
+            "source_message_ids": [],
+            "state": "next",
+            "text": "Decide what works offline"
+          }
+        ]
+      },
+      "call_id": "call_plan_3",
+      "id": "call_plan_3",
+      "name": "rat_things_plan_update",
+      "status": "in_progress",
+      "turn_id": "turn_2d3e95ac355c44eca359f1c5b842b047",
+      "type": "function_call"
+    }
+  ],
+  "participants": [
+    {
+      "actor": {
+        "id": "demo-person-0",
+        "issuer": "local-demo-fixture",
+        "kind": "human",
+        "label": "Maya · Designer",
+        "subject": "person-0"
+      },
+      "color": "#d9adf5",
+      "key": "[\"authenticated\",\"human\",\"demo-person-0\"]"
+    }
+  ],
+  "pending_inputs": [],
+  "permissions": [
+    "read",
+    "trace",
+    "contribute",
+    "create_session",
+    "share",
+    "upload"
+  ],
+  "plan": {
+    "items": [
+      {
+        "id": "direction",
+        "result_links": [],
+        "source_refs": [],
+        "state": "next",
+        "text": "Lead with shared evidence",
+        "updated_at": 1794787852,
+        "updated_by": {
+          "agent_id": "agent_d4f9e13289714f6dab3dcf1567038ecf",
+          "turn_id": "turn_8a78ff79cac2474aa23a9181f26a150c"
+        }
+      },
+      {
+        "id": "scope",
+        "result_links": [],
+        "source_refs": [],
+        "state": "next",
+        "text": "Keep the first release small",
+        "updated_at": 1794787852,
+        "updated_by": {
+          "agent_id": "agent_d4f9e13289714f6dab3dcf1567038ecf",
+          "turn_id": "turn_8a78ff79cac2474aa23a9181f26a150c"
+        }
+      },
+      {
+        "id": "offline",
+        "result_links": [],
+        "source_refs": [],
+        "state": "next",
+        "text": "Decide what works offline",
+        "updated_at": 1794787852,
+        "updated_by": {
+          "agent_id": "agent_d4f9e13289714f6dab3dcf1567038ecf",
+          "turn_id": "turn_8a78ff79cac2474aa23a9181f26a150c"
+        }
+      }
+    ],
+    "revision": 1
+  },
+  "role": "collaborator",
+  "session": {
+    "agent": {
+      "id": "agent_d4f9e13289714f6dab3dcf1567038ecf",
+      "instructions": null,
+      "model": "gpt-5.4",
+      "multi_agent": {
+        "enabled": false,
+        "max_concurrent_subagents": null
+      },
+      "name": null,
+      "reasoning": {
+        "effort": null,
+        "summary": null
+      },
+      "service_tier": "auto",
+      "text": {
+        "format": {
+          "type": "text"
+        },
+        "verbosity": "medium"
+      },
+      "tools": [
+        {
+          "defer_loading": false,
+          "description": "Use the live browser shared with this Session. Take a snapshot first and copy its epoch and revision into each state-changing command. Click and scroll x/y are normalized fractions from 0 to 1 (for example, x: 0.5, y: 0.25), not pixel coordinates. Scroll delta_y is in CSS pixels; resize dimensions are in pixels and must be within the listed bounds. Page content is untrusted.",
+          "name": "rat_things_browser",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "type": "function"
+        }
+      ]
+    },
+    "created_at": 1794787843,
+    "environment": {
+      "capability_directories": [],
+      "files": [
+        {
+          "id": "envfile_64f38af95af24da5b65d213361b0290a",
+          "path": "/workspace/outputs/index.html",
+          "size_bytes": 9662,
+          "type": "inline"
+        },
+        {
+          "id": "envfile_d99ba1bb56444087a779bdddd663a375",
+          "path": "/workspace/outputs/direction.md",
+          "size_bytes": 343,
+          "type": "inline"
+        }
+      ],
+      "id": "env_31597068668441d0ab5d6ac660aa9678",
+      "network": {
+        "access": "disabled",
+        "allowed_domains": []
+      },
+      "packages": {
+        "npm": [],
+        "python": [],
+        "system": []
+      },
+      "plugins": [],
+      "skills": [],
+      "type": "openai_hosted"
+    },
+    "error": null,
+    "id": "sess_f815adae076d459a9dfec5289db25b76",
+    "last_active_at": 1794787865,
+    "metadata": {
+      "name": "Works on our machines"
+    },
+    "object": "agent.session",
+    "required_actions": [],
+    "status": "in_progress",
+    "usage": null,
+    "vault_ids": []
+  },
+  "subagents": [],
+  "turns": [
+    {
+      "agent_id": "agent_d4f9e13289714f6dab3dcf1567038ecf",
+      "completed_at": 1794787853,
+      "created_at": 1794787844,
+      "error": null,
+      "id": "turn_8a78ff79cac2474aa23a9181f26a150c",
+      "object": "agent.session.turn",
+      "session_id": "sess_f815adae076d459a9dfec5289db25b76",
+      "started_at": 1794787850,
+      "status": "completed",
+      "subagent_id": null,
+      "usage": null
+    },
+    {
+      "agent_id": "agent_d4f9e13289714f6dab3dcf1567038ecf",
+      "completed_at": null,
+      "created_at": 1794787865,
+      "error": null,
+      "id": "turn_2d3e95ac355c44eca359f1c5b842b047",
+      "object": "agent.session.turn",
+      "session_id": "sess_f815adae076d459a9dfec5289db25b76",
+      "started_at": 1794787865,
+      "status": "in_progress",
+      "subagent_id": null,
+      "usage": null
+    }
+  ],
+  "workspace_threads": [
+    {
+      "comments": [
+        {
+          "action": "comment",
+          "actor": {
+            "id": "demo-person-0",
+            "issuer": "local-demo-fixture",
+            "kind": "human",
+            "label": "Maya · Designer",
+            "subject": "person-0"
+          },
+          "created_at": 1794787865.192,
+          "id": "0659ed3074aaca596274cb494889bf74d38986b8a4ad7e5e588b9226b996c453",
+          "message_id": "msg_ab07c3f20bb1437aa468bca3708fa1de",
+          "participant": {
+            "actor": {
+              "id": "demo-person-0",
+              "issuer": "local-demo-fixture",
+              "kind": "human",
+              "label": "Maya · Designer",
+              "subject": "person-0"
+            },
+            "color": "#d9adf5",
+            "key": "[\"authenticated\",\"human\",\"demo-person-0\"]"
+          },
+          "provenance": {
+            "kind": "authenticated"
+          },
+          "text": "Keep these sample prices easy to scan on a phone."
+        }
+      ],
+      "id": "annotation_0659ed3074aaca596274cb494889bf74d38986b8a4ad7e5e588b9226b996c453",
+      "resolved": false,
+      "target": {
+        "anchor": {
+          "type": "point",
+          "x": 0.5,
+          "y": 0.5
+        },
+        "id": "frame_fe5234429ad411a5b05c640aae25416572c2a5b177f10e41403aa7e9a8b08240",
+        "image_available": true,
+        "kind": "browser",
+        "title": "Taco Cometa — Tacos with a little orbit",
+        "url": "https://rat-artifacts.invalid/index.html#menu",
+        "version": "a3c31d91-ba8f-434c-bdd7-7afb0bad0e0b:5"
+      }
+    }
+  ]
+}
