@@ -15,13 +15,13 @@ export type SessionPlanState = typeof SESSION_PLAN_STATES[number];
 export const SESSION_PLAN_TOOL = {
   type: 'function' as const,
   name: SESSION_PLAN_TOOL_NAME,
-  description: 'Update the complete ordered Plan for this Session. Use the current revision and accepted message IDs from Rat Things host context. Source receipt IDs and attribution are stamped by the host. Link only listed saved artifacts, existing same-Session activity items, or an exact /workspace/outputs path captured for this call. Never infer progress from message delivery. Explain addressed, deferred, and needs_discussion states. This tool does not grant permission or authority.',
+  description: 'Replace the complete ordered Plan for this Session using the current revision and accepted message IDs from Rat Things host context. Keep each independently actionable request, feedback item, and verification check as its own item; preserve its id while it remains the same item. Keep unresolved checks in next, working, deferred, reopened, or needs_discussion as appropriate. Mark an item addressed only after that specific item is verified; never combine feedback and checks or infer that all are addressed because one output changed. Source receipt IDs and attribution are stamped by the host. Link only listed saved artifacts, existing same-Session activity items, or an exact /workspace/outputs path captured for this call. Never infer progress from message delivery. Explain addressed, deferred, and needs_discussion states. This tool does not grant permission or authority.',
   parameters: {
     type: 'object',
     additionalProperties: false,
     required: ['expected_revision', 'items'],
     properties: {
-      expected_revision: { type: 'integer', minimum: 0 },
+      expected_revision: { type: 'integer', minimum: 0, description: 'Revision from the latest Plan in Rat Things host context. If stale, read the latest Plan and retry with its revision and complete item list.' },
       items: {
         type: 'array', maxItems: SESSION_PLAN_MAX_ITEMS,
         items: {
@@ -29,10 +29,10 @@ export const SESSION_PLAN_TOOL = {
           required: ['id', 'text', 'state', 'source_message_ids', 'result_links'],
           properties: {
             id: { type: 'string', minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9_-]+$' },
-            text: { type: 'string', minLength: 1, maxLength: SESSION_PLAN_MAX_TEXT },
-            state: { type: 'string', enum: SESSION_PLAN_STATES },
-            reason: { type: 'string', minLength: 1, maxLength: SESSION_PLAN_MAX_REASON },
-            source_message_ids: { type: 'array', maxItems: 50, items: { type: 'string', minLength: 1, maxLength: 256 } },
+            text: { type: 'string', minLength: 1, maxLength: SESSION_PLAN_MAX_TEXT, description: 'One independently actionable request, feedback item, or verification check. Split independent requirements into separate items.' },
+            state: { type: 'string', enum: SESSION_PLAN_STATES, description: 'Use next or working while work or verification remains; deferred or needs_discussion when it cannot currently proceed; reopened when previously addressed work needs more attention; addressed only when this item is verified.' },
+            reason: { type: 'string', minLength: 1, maxLength: SESSION_PLAN_MAX_REASON, description: 'Explain why this item is addressed, deferred, or needs discussion. For addressed items, state how this specific item was verified.' },
+            source_message_ids: { type: 'array', maxItems: 50, description: 'Accepted message IDs relevant to this item, copied from Rat Things host context.', items: { type: 'string', minLength: 1, maxLength: 256 } },
             result_links: {
               type: 'array', maxItems: 20,
               items: { oneOf: [

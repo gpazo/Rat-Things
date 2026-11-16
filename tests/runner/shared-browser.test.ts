@@ -6,7 +6,7 @@ import { SharedBrowserWorker, requestSharedBrowser } from '../../src/runner/shar
 import { startSharedBrowser } from '../../src/runner/shared-browser-host.js';
 import source from '../../src/runner/shared-browser-worker-source.json' with { type: 'json' };
 import { withBrowserEffects } from '../../src/runner/pi-browser-effects.js';
-import { browserCommand, browserFrame } from '../../src/domain/shared-browser.js';
+import { browserCommand, browserFrame, browserInputSchema } from '../../src/domain/shared-browser.js';
 import { resetPersistentWorkspace } from '../../src/runner/workspace.js';
 
 it('rejects commands that could smuggle navigation, code execution or stale coordinates', () => {
@@ -19,6 +19,20 @@ it('rejects commands that could smuggle navigation, code execution or stale coor
   }
   expect(() => browserCommand({ command_id: 'id', operation: { action: 'click', x: 0, y: 0 } })).toThrow();
   expect(() => browserFrame({ image: 'not a real frame' })).toThrow();
+});
+
+it('documents and enforces normalized coordinates with actionable range guidance', () => {
+  const pixelCoordinates = { command_id: 'pixel_coords', epoch: 'epoch', revision: 1, operation: { action: 'click', x: 170, y: 32 } };
+  expect(() => browserCommand(pixelCoordinates)).toThrow(/normalized viewport fraction from 0 to 1, not pixels/);
+  expect(browserCommand({ command_id: 'normalized', epoch: 'epoch', revision: 1,
+    operation: { action: 'click', x: 0.5, y: 0.25 } })).toMatchObject({ operation: { action: 'click', x: 0.5, y: 0.25 } });
+  const operation = browserInputSchema.properties.operation;
+  expect(operation.properties.x).toMatchObject({ minimum: 0, maximum: 1 });
+  expect(operation.properties.y).toMatchObject({ minimum: 0, maximum: 1 });
+  expect(operation.properties.delta_y).toMatchObject({ minimum: -2000, maximum: 2000 });
+  expect(operation.properties.width).toMatchObject({ minimum: 320, maximum: 1920 });
+  expect(operation.properties.height).toMatchObject({ minimum: 240, maximum: 1440 });
+  expect(() => browserCommand({ command_id: 'stale', operation: { action: 'click', x: 0.5, y: 0.25 } })).toThrow(/Take a snapshot, then retry with its epoch and revision/);
 });
 
 it('validates bounded browser elements at the worker boundary', () => {
