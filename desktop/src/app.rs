@@ -1,6 +1,9 @@
+use crate::icons::{self, Icon};
 mod artifacts;
 mod collaboration;
+mod confirmation;
 mod conversation;
+mod read_status;
 mod resources;
 mod team;
 use crate::{
@@ -21,8 +24,10 @@ use collaboration::{
     CapturedAnchor, CapturedContext, CapturedSource, CapturedSourceKind, CollaborationUi,
     ReplyDraft, message_text,
 };
+use confirmation::{ContributionKind, ContributionReceipt, SaveOutcome, confirmation_label};
 use egui::{Color32, RichText, TextEdit, Ui};
 use egui_commonmark::CommonMarkCache;
+use read_status::{ReadScope, ReadStatus};
 use reqwest::Method;
 use serde_json::{Value, json};
 use std::{
@@ -506,6 +511,7 @@ pub struct ConsoleApp {
     tool_drafts: HashMap<(String, String), ToolDraft>,
     markdown_cache: CommonMarkCache,
     rendered_markdown: HashMap<String, (String, Markdown)>,
+    read_status: ReadStatus,
     error: Option<String>,
     notice: Option<String>,
     initialized: bool,
@@ -576,6 +582,7 @@ impl ConsoleApp {
             tool_drafts: HashMap::new(),
             markdown_cache: CommonMarkCache::default(),
             rendered_markdown: HashMap::new(),
+            read_status: ReadStatus::default(),
             error: None,
             notice: None,
             initialized: false,
@@ -680,7 +687,7 @@ impl ConsoleApp {
                         .is_some_and(SessionSnapshot::has_shared_workspace)
                         || self.artifact_workspace.plan_selected())
                 {
-                    1240.0
+                    area.width()
                 } else {
                     780.0
                 };
@@ -758,6 +765,7 @@ impl ConsoleApp {
         }
         self.suspend_session_editor();
         self.collection = collection;
+        self.read_status = ReadStatus::default();
         self.search.clear();
         self.resources.clear();
         self.after = None;
@@ -767,7 +775,11 @@ impl ConsoleApp {
     }
 
     fn clear_selection(&mut self, ctx: &egui::Context) {
+        self.read_status.leave_selection();
         self.artifact_workspace.clear_selection();
+        if let Some(session) = &self.selected_id {
+            self.collaboration.submissions.remove(session);
+        }
         egui::Popup::close_all(ctx);
         self.collaboration.last_edit = None;
         self.collaboration.remote.clear();
@@ -1046,7 +1058,7 @@ impl ConsoleApp {
                 continue;
             }
             if let Pending::Artifact { operation, .. } = pending {
-                self.receive_artifact(operation, completion.result, ctx);
+                self.receive_artifact(completion.id, operation, completion.result, ctx);
                 continue;
             }
             if matches!(pending, Pending::PlanHistory { .. }) {
@@ -1112,6 +1124,25 @@ impl ConsoleApp {
                     _ => self.models.error = Some("The model catalog response is invalid.".into()),
                 }
                 continue;
+            }
+            if let Pending::Mutation(Effect::Event {
+                session_id,
+                sent_message: Some(_),
+                ..
+            }) = &pending
+            {
+                self.collaboration.settle_contribution(
+                    session_id,
+                    completion.id,
+                    &completion.result,
+                );
+            }
+            if let Some(scope) = ReadScope::pending(&pending) {
+                self.read_status.settle(scope, &completion.result);
+                if completion.result.is_err() {
+                    self.next_refresh = Instant::now() + Duration::from_secs(3);
+                    continue;
+                }
             }
             match completion.result {
                 Err(error) => {
@@ -1191,6 +1222,7 @@ impl ConsoleApp {
                     (Pending::Snapshot { .. }, Data::ActivityIdle) => {
                         self.next_refresh = Instant::now() + Duration::from_millis(100);
                     }
+                    (Pending::Snapshot { .. }, Data::ActivityConnected) => {}
                     (Pending::Snapshot { .. }, Data::Snapshot(mut snapshot)) => {
                         if snapshot.runtime.is_err()
                             && let Some(previous) = &self.snapshot
@@ -1528,7 +1560,6 @@ impl ConsoleApp {
                         .add_enabled(self.list_pending.is_none(), egui::Button::new("Refresh"))
                         .clicked()
                     {
-                        self.error = None;
                         self.refresh_list(false, ui.ctx());
                         self.refresh_selection(ui.ctx());
                         ui.close();
@@ -1540,6 +1571,7 @@ impl ConsoleApp {
             });
         });
         ui.add_space(4.0);
+        self.read_status_line(ui, ReadScope::List);
         let mut clicked = None;
         let mut archive = None;
         let mut pin = None;
@@ -1636,9 +1668,9 @@ impl ConsoleApp {
                                 .add_enabled(
                                     self.mutation_pending.is_none(),
                                     egui::Button::new(if resource.is_pinned_session() {
-                                        "Unpin session"
+                                        "Unpin"
                                     } else {
-                                        "Pin session"
+                                        "Pin"
                                     }),
                                 )
                                 .clicked()
@@ -1646,7 +1678,7 @@ impl ConsoleApp {
                                 pin = Some((resource.id.clone(), !resource.is_pinned_session()));
                                 ui.close();
                             }
-                            if ui.button("Rename session").clicked() {
+                            if ui.button("Rename").clicked() {
                                 self.rename = Some((resource.id.clone(), title.clone()));
                                 ui.close();
                             }
@@ -1654,11 +1686,7 @@ impl ConsoleApp {
                             if ui
                                 .add_enabled(
                                     self.mutation_pending.is_none(),
-                                    egui::Button::new(if archived {
-                                        "Unarchive session"
-                                    } else {
-                                        "Archive session"
-                                    }),
+                                    egui::Button::new(if archived { "Restore" } else { "Archive" }),
                                 )
                                 .clicked()
                             {
@@ -1770,7 +1798,7 @@ impl ConsoleApp {
         let mut save = false;
         let mut close = false;
         egui::Modal::new(egui::Id::unique("rename-session")).show(ctx, |ui| {
-            ui.heading("Rename session");
+            ui.heading("Rename");
             if let Some(error) = &self.error {
                 ui.colored_label(theme::ERROR, error);
             }
@@ -1779,11 +1807,11 @@ impl ConsoleApp {
                 egui::WidgetInfo::labeled(egui::Role::TextInput, true, "Session name")
             });
             ui.horizontal(|ui| {
-                close = ui.button("Cancel rename").clicked();
+                close = ui.button("Cancel").clicked();
                 save = ui
                     .add_enabled(
                         self.mutation_pending.is_none() && !name.trim().is_empty(),
-                        theme::primary_button("Save name"),
+                        theme::primary_button("Save"),
                     )
                     .clicked();
             });
@@ -1807,6 +1835,8 @@ impl ConsoleApp {
         }
         let Some(resource) = self.selected.clone() else {
             if self.selected_id.is_some() {
+                self.read_status_line(ui, ReadScope::Detail);
+                self.read_status_line(ui, ReadScope::Activity);
                 if self.loading_is_slow(self.snapshot_pending.or(self.detail_pending)) {
                     ui.horizontal(|ui| {
                         ui.spinner();
@@ -1828,9 +1858,9 @@ impl ConsoleApp {
         }
         ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.menu_button("Actions", |ui| {
+                icons::menu(ui, Icon::More, "Actions", |ui| {
                     if self.collection == Collection::Sessions && self.can_manage() {
-                        if ui.button("Rename session").clicked() {
+                        if ui.button("Rename").clicked() {
                             self.rename =
                                 Some((resource.id.clone(), self.resource_title(&resource)));
                             ui.close();
@@ -1839,9 +1869,9 @@ impl ConsoleApp {
                             .add_enabled(
                                 self.mutation_pending.is_none(),
                                 egui::Button::new(if resource.is_pinned_session() {
-                                    "Unpin session"
+                                    "Unpin"
                                 } else {
-                                    "Pin session"
+                                    "Pin"
                                 }),
                             )
                             .clicked()
@@ -1858,11 +1888,7 @@ impl ConsoleApp {
                         if ui
                             .add_enabled(
                                 self.mutation_pending.is_none(),
-                                egui::Button::new(if archived {
-                                    "Unarchive session"
-                                } else {
-                                    "Archive session"
-                                }),
+                                egui::Button::new(if archived { "Restore" } else { "Archive" }),
                             )
                             .clicked()
                         {
@@ -1870,7 +1896,8 @@ impl ConsoleApp {
                             ui.close();
                         }
                     }
-                    if ui.button("Copy resource ID").clicked() {
+                    if icons::object_button(ui, Icon::Copy, "Copy ID", "Copy resource ID").clicked()
+                    {
                         ui.ctx().copy_text(resource.id.clone());
                         ui.close();
                     }
@@ -1907,7 +1934,7 @@ impl ConsoleApp {
                     }
                 }
                 self.files_menu(ui);
-                ui.menu_button("Details", |ui| {
+                icons::menu(ui, Icon::Info, "Details", |ui| {
                     ui.set_max_width(340.0);
                     theme::status(ui, resource.text("status"));
                     if !resource.model().is_empty() {
@@ -1955,7 +1982,12 @@ impl ConsoleApp {
             });
         });
         ui.add_space(18.0);
+        self.read_status_line(ui, ReadScope::Detail);
+        self.read_status_line(ui, ReadScope::Credentials);
         if self.collection == Collection::Sessions {
+            if self.snapshot.is_none() {
+                self.read_status_line(ui, ReadScope::Activity);
+            }
             if let Some(snapshot) = self.snapshot.take() {
                 self.session(ui, &snapshot);
                 self.snapshot = Some(snapshot);
@@ -1986,7 +2018,7 @@ impl ConsoleApp {
                 .show(ui, |ui| {
                     ui.horizontal_wrapped(|ui| {
                         ui.colored_label(theme::ERROR, error);
-                        if ui.small_button("Dismiss error").clicked() {
+                        if icons::button(ui, Icon::Close, "Dismiss error").clicked() {
                             self.error = None;
                         }
                     });
@@ -2005,7 +2037,7 @@ impl ConsoleApp {
                 {
                     self.archive_session(id, archived, ui.ctx());
                 }
-                if ui.small_button("Dismiss notice").clicked() {
+                if icons::button(ui, Icon::Close, "Dismiss notice").clicked() {
                     self.notice = None;
                     self.archive_undo = None;
                 }
@@ -2020,7 +2052,7 @@ impl ConsoleApp {
                 "Your team's Sessions",
                 "Open a Session from the sidebar to follow its progress.",
             );
-            if self.can_contribute() && ui.button("Choose a saved Agent").clicked() {
+            if self.can_contribute() && ui.button("Choose Agent").clicked() {
                 self.navigate(Collection::Agents, ui.ctx());
             }
             return;
@@ -2094,6 +2126,7 @@ impl ConsoleApp {
     }
 
     fn reset_workspace(&mut self, ctx: &egui::Context) {
+        self.read_status = ReadStatus::default();
         self.artifact_workspace = ArtifactWorkspace::default();
         self.collaboration = CollaborationUi::default();
         self.worker.cancel_activity();
@@ -2320,7 +2353,7 @@ impl ConsoleApp {
         if ui
             .add_enabled(
                 !self.transfer_active() && review.is_some(),
-                egui::Button::new("Review Session copy"),
+                egui::Button::new("Review copy"),
             )
             .clicked()
             && let Some(review) = review
@@ -2361,23 +2394,24 @@ impl ConsoleApp {
                 }
                 if plan.status == CopyStatus::Complete && let Some(session) = &plan.destination_session_id {
                     ui.label(format!("Cloud Session: {session}"));
-                    if ui.add_enabled(can_switch, theme::primary_button("Open cloud Session")).clicked() {
+                    if ui.add_enabled(can_switch, theme::primary_button("Open Session")).clicked() {
                         self.connect_workspace(json!({"kind":"cloud", "endpoint":plan.destination.base_url, "region":plan.destination.region}), ctx);
                         self.cloud_session_to_open = Some(session.clone());
                     }
-                    if ui.button("Copy cloud Session ID").clicked() { ctx.copy_text(session.clone()); }
+                    if icons::button(ui, Icon::Copy, "Copy cloud Session ID").clicked() { ctx.copy_text(session.clone()); }
                 }
             });
         }
         ui.add_space(12.0);
         ui.horizontal(|ui| {
             ui.label(RichText::new("Saved copies").strong());
-            if ui
-                .add_enabled(
-                    self.saved_copies_request.pending.is_none(),
-                    egui::Button::new("Reload saved copies").small(),
-                )
-                .clicked()
+            if icons::button_enabled(
+                ui,
+                self.saved_copies_request.pending.is_none(),
+                Icon::Refresh,
+                "Reload saved copies",
+            )
+            .clicked()
             {
                 self.load_saved_copies(false, ctx);
             }
@@ -2406,10 +2440,7 @@ impl ConsoleApp {
             ui.label(RichText::new(&plan.destination.base_url).small());
             ui.push_id(plan.id, |ui| {
                 if ui
-                    .add_enabled(
-                        !self.transfer_active(),
-                        egui::Button::new("Open saved copy"),
-                    )
+                    .add_enabled(!self.transfer_active(), egui::Button::new("Open copy"))
                     .clicked()
                 {
                     self.read_or_execute_copy(plan.id, false, ctx);
@@ -2943,7 +2974,7 @@ impl ConsoleApp {
                 .runtime_change
                 .as_ref()
                 .is_some_and(|change| change.progress == RuntimeChangeProgress::NotAccepted)
-                && ui.button("Dismiss").clicked()
+                && icons::button(ui, Icon::Close, "Dismiss").clicked()
             {
                 self.runtime_change = None;
             }
@@ -3012,7 +3043,8 @@ impl ConsoleApp {
                     self.start_runtime_change(RuntimeAction::Rollback, ctx);
                 }
             }
-        } else if self.runtime.value.is_some() && ui.button("Copy runtime setup command").clicked()
+        } else if self.runtime.value.is_some()
+            && icons::button(ui, Icon::Copy, "Copy runtime setup command").clicked()
         {
             ctx.copy_text("npm run rat-things -- runtime setup".into());
         }
@@ -3055,7 +3087,8 @@ impl ConsoleApp {
         if let Some(login) = &self.login {
             if let Some(url) = &login.url {
                 ui.label("Finish signing in in your browser.");
-                if ui.button("Open sign-in page").clicked() {
+                if icons::object_button(ui, Icon::Forward, "Sign in", "Open sign-in page").clicked()
+                {
                     ctx.open_url(egui::OpenUrl::new_tab(url));
                 }
             }
@@ -3073,7 +3106,7 @@ impl ConsoleApp {
                     self.sign_in(ctx);
                 }
                 if ui
-                    .add_enabled(pending.is_none(), egui::Button::new("Cancel sign-in"))
+                    .add_enabled(pending.is_none(), egui::Button::new("Cancel"))
                     .clicked()
                 {
                     self.cancel_sign_in(ctx);
@@ -3155,7 +3188,7 @@ impl ConsoleApp {
             return;
         }
         if self.artifact_workspace.workspace_expanded {
-            if ui.button("Back to conversation").clicked() {
+            if icons::button(ui, Icon::Collapse, "Back to conversation").clicked() {
                 self.artifact_workspace.workspace_expanded = false;
                 self.artifact_workspace.narrow_pane = NarrowSessionPane::Conversation;
             }
@@ -3165,19 +3198,70 @@ impl ConsoleApp {
         }
         let area = ui.available_rect_before_wrap();
         let gap = 18.0;
-        let conversation_width = ((area.width() - gap) * 0.44).clamp(390.0, 560.0);
+        let mut conversation_width =
+            workspace_conversation_width(area.width(), self.artifact_workspace.conversation_width);
+        let divider_rect = egui::Rect::from_min_max(
+            egui::pos2(area.left() + conversation_width, area.top()),
+            egui::pos2(area.left() + conversation_width + gap, area.bottom()),
+        );
+        let divider = ui
+            .interact(
+                divider_rect,
+                ui.make_persistent_id(("workspace-divider", &snapshot.session.id)),
+                egui::Sense::click_and_drag(),
+            )
+            .on_hover_cursor(egui::CursorIcon::ResizeHorizontal)
+            .on_hover_text("Drag to resize · Double-click to reset");
+        divider.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::Role::Splitter, true, "Resize workspace")
+        });
+        let requested = if divider.double_clicked() {
+            self.artifact_workspace.conversation_width = None;
+            None
+        } else if divider.dragged() {
+            divider
+                .interact_pointer_pos()
+                .map(|point| point.x - area.left() - gap / 2.0)
+        } else if divider.has_focus() {
+            ui.input(|input| {
+                if input.key_pressed(egui::Key::ArrowLeft) {
+                    Some(conversation_width - 32.0)
+                } else if input.key_pressed(egui::Key::ArrowRight) {
+                    Some(conversation_width + 32.0)
+                } else {
+                    None
+                }
+            })
+        } else {
+            None
+        };
+        if let Some(width) = requested {
+            self.artifact_workspace.conversation_width =
+                Some(workspace_conversation_width(area.width(), Some(width)));
+        }
+        conversation_width =
+            workspace_conversation_width(area.width(), self.artifact_workspace.conversation_width);
         let split = area.left() + conversation_width;
         let conversation = egui::Rect::from_min_max(area.min, egui::pos2(split, area.bottom()));
         let workspace = egui::Rect::from_min_max(egui::pos2(split + gap, area.top()), area.max);
         ui.scope_builder(egui::UiBuilder::new().max_rect(conversation), |ui| {
+            ui.set_clip_rect(ui.clip_rect().intersect(conversation));
             self.session_conversation(ui, snapshot);
         });
         ui.painter().vline(
             split + gap / 2.0,
             area.y_range(),
-            egui::Stroke::new(1.0, theme::BORDER),
+            egui::Stroke::new(
+                1.0,
+                if divider.hovered() || divider.has_focus() || divider.dragged() {
+                    theme::ACCENT
+                } else {
+                    theme::BORDER
+                },
+            ),
         );
         ui.scope_builder(egui::UiBuilder::new().max_rect(workspace), |ui| {
+            ui.set_clip_rect(ui.clip_rect().intersect(workspace));
             self.artifact_workspace(ui, snapshot, true);
         });
     }
@@ -3200,90 +3284,89 @@ impl ConsoleApp {
             .collect();
         ui.push_id(("session-files", &session_id), |ui| {
             let escape = ui.input(|input| input.key_pressed(egui::Key::Escape));
-            let (trigger, popup) =
-                egui::containers::menu::MenuButton::new(format!("Files ({})", artifacts.len()))
-                    .config(
-                        egui::containers::menu::MenuConfig::new()
-                            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside),
-                    )
-                    .ui(ui, |ui| {
-                        ui.set_width((ui.ctx().content_rect().width() - 64.0).clamp(220.0, 360.0));
-                        ui.label(RichText::new("Files").font(theme::semibold(13.0)));
-                        ui.separator();
-                        egui::ScrollArea::vertical()
-                            .id_salt(("session-file-list", &session_id))
-                            .max_height((ui.ctx().content_rect().height() * 0.5).min(360.0))
-                            .show(ui, |ui| {
-                                for artifact in &artifacts {
-                                    ui.push_id(&artifact.id, |ui| {
-                                        ui.horizontal(|ui| {
-                                            let name_width =
-                                                (ui.available_width() - 72.0).max(120.0);
-                                            ui.vertical(|ui| {
-                                                ui.set_width(name_width);
-                                                ui.add(
-                                                    egui::Label::new(artifact.text("path"))
-                                                        .truncate(),
-                                                )
-                                                .on_hover_text(artifact.text("path"));
-                                                let bytes = artifact
-                                                    .fields
-                                                    .get("size_bytes")
-                                                    .and_then(Value::as_u64)
-                                                    .unwrap_or_default();
-                                                ui.label(
-                                                    RichText::new(
-                                                        turn_ids
-                                                            .iter()
-                                                            .position(|id| {
-                                                                id == artifact.text("turn_id")
-                                                            })
-                                                            .map_or_else(
-                                                                || format!("{bytes} bytes"),
-                                                                |index| {
-                                                                    format!(
-                                                                        "Turn {} · {bytes} bytes",
-                                                                        index + 1
-                                                                    )
-                                                                },
-                                                            ),
-                                                    )
-                                                    .small()
-                                                    .color(theme::MUTED),
-                                                );
-                                            });
-                                            let response = ui.button("Save");
-                                            response.widget_info(|| {
-                                                egui::WidgetInfo::labeled(
-                                                    egui::Role::Button,
-                                                    true,
-                                                    format!(
-                                                        "Save {}",
-                                                        crate::api::safe_filename(
-                                                            artifact.text("path")
-                                                        )
+            let (trigger, popup) = egui::containers::menu::MenuButton::new(icons::text(
+                Icon::Files,
+                &artifacts.len().to_string(),
+            ))
+            .config(
+                egui::containers::menu::MenuConfig::new()
+                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside),
+            )
+            .ui(ui, |ui| {
+                ui.set_width((ui.ctx().content_rect().width() - 64.0).clamp(220.0, 360.0));
+                ui.label(RichText::new("Files").font(theme::semibold(13.0)));
+                ui.separator();
+                egui::ScrollArea::vertical()
+                    .id_salt(("session-file-list", &session_id))
+                    .max_height((ui.ctx().content_rect().height() * 0.5).min(360.0))
+                    .show(ui, |ui| {
+                        for artifact in &artifacts {
+                            ui.push_id(&artifact.id, |ui| {
+                                ui.horizontal(|ui| {
+                                    let name_width = (ui.available_width() - 72.0).max(120.0);
+                                    ui.vertical(|ui| {
+                                        ui.set_width(name_width);
+                                        ui.add(egui::Label::new(artifact.text("path")).truncate())
+                                            .on_hover_text(artifact.text("path"));
+                                        let bytes = artifact
+                                            .fields
+                                            .get("size_bytes")
+                                            .and_then(Value::as_u64)
+                                            .unwrap_or_default();
+                                        ui.label(
+                                            RichText::new(
+                                                turn_ids
+                                                    .iter()
+                                                    .position(|id| id == artifact.text("turn_id"))
+                                                    .map_or_else(
+                                                        || format!("{bytes} bytes"),
+                                                        |index| {
+                                                            format!(
+                                                                "Turn {} · {bytes} bytes",
+                                                                index + 1
+                                                            )
+                                                        },
                                                     ),
-                                                )
-                                            });
-                                            if response.clicked() {
-                                                self.submit(
-                                                    Task::Download {
-                                                        path: artifact_path(
-                                                            &session_id,
-                                                            &artifact.id,
-                                                        ),
-                                                        filename: artifact.text("path").into(),
-                                                    },
-                                                    Pending::Download,
-                                                    ui.ctx(),
-                                                );
-                                                ui.close();
-                                            }
-                                        });
+                                            )
+                                            .small()
+                                            .color(theme::MUTED),
+                                        );
                                     });
-                                }
+                                    let response = ui.button("Save");
+                                    response.widget_info(|| {
+                                        egui::WidgetInfo::labeled(
+                                            egui::Role::Button,
+                                            true,
+                                            format!(
+                                                "Save {}",
+                                                crate::api::safe_filename(artifact.text("path"))
+                                            ),
+                                        )
+                                    });
+                                    if response.clicked() {
+                                        self.submit(
+                                            Task::Download {
+                                                path: artifact_path(&session_id, &artifact.id),
+                                                filename: artifact.text("path").into(),
+                                            },
+                                            Pending::Download,
+                                            ui.ctx(),
+                                        );
+                                        ui.close();
+                                    }
+                                });
                             });
+                        }
                     });
+            });
+            trigger.widget_info(|| {
+                egui::WidgetInfo::labeled(
+                    egui::Role::Button,
+                    trigger.enabled(),
+                    format!("Files ({})", artifacts.len()),
+                )
+            });
+            trigger.clone().on_hover_text("Files");
             if escape && popup.is_some() {
                 trigger.request_focus();
             }
@@ -3311,7 +3394,7 @@ impl ConsoleApp {
                     .label(label)
                     .on_hover_text(format!("Environment ID: {id}"));
                 response.context_menu(|ui| {
-                    if ui.button("Copy environment ID").clicked() {
+                    if icons::button(ui, Icon::Copy, "Copy environment ID").clicked() {
                         ui.ctx().copy_text(id.clone());
                         ui.close();
                     }
@@ -3326,7 +3409,7 @@ impl ConsoleApp {
                 let command = format!("rat-things environments connect {id}");
                 ui.horizontal_wrapped(|ui| {
                     ui.code(&command);
-                    if ui.small_button("Copy connect command").clicked() {
+                    if icons::button(ui, Icon::Copy, "Copy connect command").clicked() {
                         ui.ctx().copy_text(command);
                     }
                 });
@@ -3403,6 +3486,10 @@ impl ConsoleApp {
             .entry((session_id.to_owned(), body.clone()))
             .or_insert_with(|| uuid::Uuid::new_v4().to_string())
             .clone();
+        let contribution = sent_message.is_some();
+        if contribution {
+            self.collaboration.submissions.remove(session_id);
+        }
         self.mutation_pending = self.submit(
             Task::Mutation {
                 path,
@@ -3419,6 +3506,16 @@ impl ConsoleApp {
             }),
             ctx,
         );
+        if contribution && let Some(request) = self.mutation_pending {
+            self.collaboration.submissions.insert(
+                session_id.into(),
+                ContributionReceipt {
+                    request,
+                    kind: ContributionKind::Message,
+                    outcome: SaveOutcome::Saving,
+                },
+            );
+        }
     }
 
     fn suspend_session_editor(&mut self) {
@@ -4539,6 +4636,12 @@ fn form_error(collection: Collection, secret: bool, value: &Value) -> Option<Str
                 .is_none_or(|text| text.trim().is_empty())
         })
         .map(|(_, label)| format!("Enter a {} to continue.", label.to_lowercase()))
+}
+
+fn workspace_conversation_width(available: f32, preferred: Option<f32>) -> f32 {
+    preferred
+        .unwrap_or((available - 18.0) * 0.4)
+        .clamp(360.0, (available - 18.0 - 420.0).min(780.0))
 }
 
 fn transcript_item_summary(value: &str) -> String {

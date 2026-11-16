@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CodexAppServerExecution, CodexAppServerRequest } from '../../src/runner/codex-app-server.js';
+import { sessionAgent } from '../../src/core/session-planning.js';
+import { SESSION_PLAN_TOOL_NAME } from '../../src/domain/session-plan.js';
 
 const runServer = vi.hoisted(() => vi.fn<(request: CodexAppServerRequest) => Promise<CodexAppServerExecution>>());
 vi.mock('../../src/runner/codex-app-server.js', () => ({ runCodexAppServer: runServer }));
@@ -71,6 +73,26 @@ describe('agent launch effects', () => {
     expect(result).not.toBe(completed);
     expect(result.events).toBe(completed.events);
     expect(completed).not.toHaveProperty('exitCode');
+  });
+
+  it('forwards only the host-admitted reserved Plan tool through session control', async () => {
+    const agent = sessionAgent({ model: 'fixture' }, 'agent-1', 100);
+    const session = { sessionId: 'session-1', turnId: 'turn-1', agent, environment: { type: 'none' as const }, input: [], planTool: true as const };
+    const response = { success: true, output: 'plan saved' };
+    const onServerRequest = vi.fn(() => response);
+    runServer.mockResolvedValue(execution());
+    await new CodexDriver().execute({ version: '1', prompt: 'work' }, '/workspace', 1_000, undefined, { session, onServerRequest });
+    const admittedRequest = runServer.mock.calls[0]![0].onServerRequest!;
+    const request = { requestId: 'plan-rpc', method: 'item/tool/call', params: { threadId: 'root', turnId: 'native-1', callId: 'plan-call', tool: SESSION_PLAN_TOOL_NAME, arguments: {} } };
+    expect(admittedRequest(request)).toBe(response);
+    expect(onServerRequest).toHaveBeenCalledExactlyOnceWith(request);
+
+    const { planTool: _admittedPlan, ...unadmittedControl } = session;
+    const unadmittedCallback = vi.fn();
+    await new CodexDriver().execute({ version: '1', prompt: 'work' }, '/workspace', 1_000, undefined, { session: unadmittedControl, onServerRequest: unadmittedCallback });
+    const unadmittedRequest = runServer.mock.calls[1]![0].onServerRequest!;
+    await expect(Promise.resolve().then(() => unadmittedRequest(request))).rejects.toThrow('outside its declared function tools');
+    expect(unadmittedCallback).not.toHaveBeenCalled();
   });
 
   it('propagates the exact process failure without discarding its partial execution', async () => {

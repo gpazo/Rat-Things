@@ -31,9 +31,12 @@ struct PlanHistoryRead {
 pub(super) struct ArtifactWorkspace {
     pub(super) narrow_pane: NarrowSessionPane,
     pub(super) workspace_expanded: bool,
+    pub(super) conversation_width: Option<f32>,
     pub(super) selected: Option<String>,
     pub(super) generation: u64,
     pub(super) pending: Option<u64>,
+    settled_action: Option<(u64, Option<String>)>,
+    feedback_confirmation: Option<FeedbackConfirmation>,
     texture: Option<egui::TextureHandle>,
     text: Option<String>,
     frame: Option<Value>,
@@ -60,6 +63,7 @@ pub(super) struct ArtifactWorkspace {
     plan_history: PlanHistoryRead,
     submission_keys: HashMap<String, String>,
     zoom_level: u8,
+    actual_size: bool,
 }
 impl ArtifactWorkspace {
     pub(super) fn plan_selected(&self) -> bool {
@@ -92,7 +96,26 @@ pub(super) enum ArtifactOperation {
     },
     ThreadAction {
         submission: String,
+        confirmation: FeedbackConfirmation,
     },
+}
+
+#[derive(Clone)]
+pub(super) struct FeedbackConfirmation {
+    session: String,
+    source: Value,
+    resolved: bool,
+}
+
+impl FeedbackConfirmation {
+    fn visible(&self, session: &str, browser: bool, selected: Option<&str>) -> bool {
+        self.session == session
+            && if browser {
+                self.source["kind"] == "browser"
+            } else {
+                self.source["kind"] == "artifact" && self.source["id"].as_str() == selected
+            }
+    }
 }
 
 fn fence_artifact_view(state: &mut ArtifactWorkspace) {
@@ -100,7 +123,59 @@ fn fence_artifact_view(state: &mut ArtifactWorkspace) {
     state.pending = None;
 }
 
+/// Project saved versions into file tabs without changing the selected version.
+fn artifact_tabs<'a>(artifacts: &'a [Resource], selected: Option<&str>) -> Vec<&'a Resource> {
+    let mut tabs: Vec<&Resource> = Vec::new();
+    for artifact in artifacts {
+        let path = artifact.text("path");
+        let slot = tabs
+            .iter()
+            .position(|current| !path.is_empty() && current.text("path") == path);
+        if let Some(index) = slot {
+            let current = tabs[index];
+            let created = |item: &Resource| {
+                item.fields
+                    .get("created_at")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0)
+            };
+            if selected == Some(artifact.id.as_str())
+                || (selected != Some(current.id.as_str()) && created(artifact) >= created(current))
+            {
+                tabs[index] = artifact;
+            }
+        } else {
+            tabs.push(artifact);
+        }
+    }
+    tabs
+}
+
 impl ConsoleApp {
+    /// The latest settled user-directed operation, keyed independently of its resource.
+    pub fn workspace_action_result(&self) -> Option<(u64, Option<String>)> {
+        self.artifact_workspace.settled_action.clone()
+    }
+
+    /// A user-directed workspace operation is pending, excluding routine frame polling.
+    pub fn workspace_action_pending(&self) -> bool {
+        self.artifact_workspace.pending.is_some_and(|id| {
+            self.pending
+                .get(&id)
+                .is_some_and(|request| match &request.operation {
+                    Pending::Artifact {
+                        operation:
+                            ArtifactOperation::Frame {
+                                submission: None, ..
+                            },
+                        ..
+                    } => self.artifact_workspace.frame.is_none(),
+                    Pending::Artifact { .. } => true,
+                    _ => false,
+                })
+        })
+    }
+
     fn cancel_anchor_selection(&mut self) {
         let capture_pending = self.artifact_workspace.pending.is_some_and(|request_id| {
             self.pending.get(&request_id).is_some_and(|request| {
@@ -126,17 +201,37 @@ impl ConsoleApp {
 
     pub(super) fn receive_artifact(
         &mut self,
+        request: u64,
         operation: ArtifactOperation,
         result: Result<Data, String>,
         ctx: &egui::Context,
     ) {
-        self.artifact_workspace.pending = None;
+        if self.artifact_workspace.pending != Some(request) {
+            return;
+        }
+        if let ArtifactOperation::Feedback { session, .. } = &operation {
+            self.collaboration
+                .settle_contribution(session, request, &result);
+        }
+        let reports_outcome = !matches!(
+            &operation,
+            ArtifactOperation::Frame {
+                submission: None,
+                ..
+            }
+        ) || self.artifact_workspace.frame.is_none();
+        if let Some(request) = self.artifact_workspace.pending.take()
+            && reports_outcome
+        {
+            self.artifact_workspace.settled_action =
+                Some((request, result.as_ref().err().cloned()));
+        }
         self.artifact_workspace.next_frame = Some(Instant::now() + Duration::from_millis(500));
         if result.is_ok() {
             let submission = match &operation {
                 ArtifactOperation::Frame { submission, .. } => submission.as_ref(),
                 ArtifactOperation::Feedback { submission, .. } => Some(submission),
-                ArtifactOperation::ThreadAction { submission } => Some(submission),
+                ArtifactOperation::ThreadAction { submission, .. } => Some(submission),
                 _ => None,
             };
             if let Some(submission) = submission {
@@ -222,7 +317,8 @@ impl ConsoleApp {
                         self.next_refresh = Instant::now();
                     }
                     self.artifact_workspace.anchor = None;
-                } else if matches!(&operation, ArtifactOperation::ThreadAction { .. }) {
+                } else if let ArtifactOperation::ThreadAction { confirmation, .. } = operation {
+                    self.artifact_workspace.feedback_confirmation = Some(confirmation);
                     self.next_refresh = Instant::now();
                 }
             }
@@ -241,17 +337,45 @@ impl ConsoleApp {
     }
 
     fn artifact_request(&mut self, task: Task, operation: ArtifactOperation, ctx: &egui::Context) {
+        if matches!(
+            &operation,
+            ArtifactOperation::Feedback { .. } | ArtifactOperation::ThreadAction { .. }
+        ) && self.artifact_workspace.pending.is_some()
+            && self.artifact_mutation_ready()
+        {
+            // A routine frame read must not consume a feedback contribution.
+            fence_artifact_view(&mut self.artifact_workspace);
+        }
         if self.artifact_workspace.pending.is_some() {
             return;
         }
         self.artifact_workspace.error = None;
         self.artifact_workspace.preview_failed = false;
+        let contribution = match &operation {
+            ArtifactOperation::Feedback { session, .. } => Some(session.clone()),
+            _ => None,
+        };
+        if let Some(session) = &contribution {
+            self.collaboration.submissions.remove(session);
+        }
         let pending = Pending::Artifact {
             session_generation: self.selection_generation,
             generation: self.artifact_workspace.generation,
             operation,
         };
         self.artifact_workspace.pending = self.submit(task, pending, ctx);
+        if let Some(session) = contribution
+            && let Some(request) = self.artifact_workspace.pending
+        {
+            self.collaboration.submissions.insert(
+                session,
+                ContributionReceipt {
+                    request,
+                    kind: ContributionKind::Feedback,
+                    outcome: SaveOutcome::Saving,
+                },
+            );
+        }
     }
 
     fn select_artifact(&mut self, id: String, session: &str, ctx: &egui::Context) {
@@ -262,6 +386,7 @@ impl ConsoleApp {
         state.selected = Some(id.clone());
         fence_artifact_view(state);
         state.zoom_level = 0;
+        state.actual_size = false;
         state.texture = None;
         state.text = None;
         state.frame = None;
@@ -339,6 +464,26 @@ impl ConsoleApp {
             }
             Err(error) => self.artifact_workspace.plan_history.error = Some(error),
         }
+    }
+
+    pub(super) fn artifact_mutation_ready(&self) -> bool {
+        self.artifact_workspace.pending.is_none() || self.browser_controls_ready()
+    }
+
+    fn browser_controls_ready(&self) -> bool {
+        self.artifact_workspace.frame.is_some()
+            && self.artifact_workspace.pending.is_none_or(|id| {
+                matches!(
+                    self.pending.get(&id).map(|request| &request.operation),
+                    Some(Pending::Artifact {
+                        operation: ArtifactOperation::Frame {
+                            submission: None,
+                            ..
+                        },
+                        ..
+                    })
+                )
+            })
     }
 
     fn browser_request(&mut self, session: &str, operation: Option<Value>, ctx: &egui::Context) {
@@ -440,13 +585,17 @@ impl ConsoleApp {
                 self.select_artifact("browser".into(), &session, ui.ctx());
                 self.artifact_workspace.reading_capture = None;
             }
-            for artifact in &snapshot.artifacts {
+            for artifact in artifact_tabs(
+                &snapshot.artifacts,
+                self.artifact_workspace.selected.as_deref(),
+            ) {
                 let label = crate::api::safe_filename(artifact.text("path"));
                 if ui
                     .selectable_label(
                         self.artifact_workspace.selected.as_ref() == Some(&artifact.id),
                         label,
                     )
+                    .on_hover_text(artifact.text("path"))
                     .clicked()
                 {
                     self.select_artifact(artifact.id.clone(), &session, ui.ctx());
@@ -463,7 +612,7 @@ impl ConsoleApp {
                 self.artifact_workspace.selected = Some(PLAN_TAB_ID.into());
                 self.artifact_workspace.selected_plan_item = None;
             }
-            if expandable && ui.button("Expand workspace").clicked() {
+            if expandable && icons::button(ui, Icon::Expand, "Expand workspace").clicked() {
                 self.artifact_workspace.workspace_expanded = true;
                 self.artifact_workspace.narrow_pane = NarrowSessionPane::Workspace;
             }
@@ -517,7 +666,14 @@ impl ConsoleApp {
                     .small()
                     .color(theme::MUTED),
                 );
-                if ui.button("Return to live").clicked() {
+                if let Some(frame) = &self.artifact_workspace.captured_frame {
+                    ui.label(
+                        RichText::new(browser_size_label(frame))
+                            .small()
+                            .color(theme::MUTED),
+                    );
+                }
+                if icons::object_button(ui, Icon::Back, "Live", "Return to live").clicked() {
                     self.artifact_workspace.reading_capture = None;
                     self.artifact_workspace.reading_url = None;
                     self.artifact_workspace.capture = None;
@@ -531,12 +687,12 @@ impl ConsoleApp {
                 }
             });
         }
+        self.artifact_controls(ui, &session, browser);
         let preview_viewport_width = ui.available_width();
         egui::ScrollArea::vertical()
             .id_salt(("shared-workspace", &session))
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                self.artifact_controls(ui, &session, browser);
                 self.artifact_preview(ui, &session, &threads, browser, preview_viewport_width);
                 if browser {
                     self.artifact_feedback_list(ui, &session, &threads, true);
@@ -654,12 +810,12 @@ impl ConsoleApp {
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if history_view {
-                    if ui.button("Current Plan").clicked() {
+                    if icons::object_button(ui, Icon::Back, "Plan", "Current Plan").clicked() {
                         self.artifact_workspace.show_plan_history = false;
                         self.artifact_workspace.selected_plan_revision = None;
                         self.artifact_workspace.selected_plan_item = None;
                     }
-                } else if ui.button("History").clicked() {
+                } else if icons::button(ui, Icon::History, "History").clicked() {
                     self.artifact_workspace.show_plan_history = true;
                     if !self.artifact_workspace.plan_history.loaded
                         && self.artifact_workspace.plan_history.pending.is_none()
@@ -670,7 +826,7 @@ impl ConsoleApp {
             });
         });
         ui.label(
-            RichText::new("The agent maintains this Plan. Follow up in the conversation.")
+            RichText::new("Updated by the agent")
                 .small()
                 .color(theme::MUTED),
         );
@@ -689,49 +845,68 @@ impl ConsoleApp {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 for item in &revision.items {
-                    let selected = self.artifact_workspace.selected_plan_item.as_deref()
-                        == Some(item.id.as_str());
-                    let stroke = if selected {
-                        theme::ACCENT
-                    } else {
-                        theme::BORDER
-                    };
-                    egui::Frame::new()
-                        .fill(if selected {
-                            theme::CARD
-                        } else {
-                            theme::BACKGROUND
-                        })
-                        .stroke(egui::Stroke::new(1.0, stroke))
-                        .corner_radius(7)
-                        .inner_margin(10)
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.colored_label(plan_state_color(item.state), "●");
-                                ui.label(
-                                    RichText::new(item.state.label())
-                                        .small()
-                                        .color(theme::MUTED),
-                                );
-                                if ui
-                                    .add(
-                                        egui::Label::new(&item.text)
-                                            .wrap()
-                                            .sense(egui::Sense::click()),
-                                    )
-                                    .clicked()
-                                {
-                                    self.artifact_workspace.selected_plan_item =
-                                        Some(item.id.clone());
-                                }
-                            });
-                        });
+                    self.plan_item_row(ui, snapshot, item);
                     ui.add_space(6.0);
                 }
-                if let Some(item) = revision.items.iter().find(|item| {
-                    self.artifact_workspace.selected_plan_item.as_deref() == Some(item.id.as_str())
-                }) {
-                    self.plan_item_detail(ui, snapshot, item);
+            });
+    }
+
+    fn plan_item_row(
+        &mut self,
+        ui: &mut Ui,
+        snapshot: &SessionSnapshot,
+        item: &crate::model::SessionPlanItem,
+    ) {
+        let selected =
+            self.artifact_workspace.selected_plan_item.as_deref() == Some(item.id.as_str());
+        egui::Frame::new()
+            .fill(if selected {
+                theme::SURFACE
+            } else {
+                theme::BACKGROUND
+            })
+            .corner_radius(7)
+            .show(ui, |ui| {
+                let icon = if selected {
+                    Icon::ChevronDown
+                } else {
+                    Icon::ChevronRight
+                };
+                let mut title = icons::text(icon, &item.text);
+                if !selected {
+                    let format = egui::TextFormat {
+                        font_id: theme::medium(11.0),
+                        color: plan_state_color(item.state),
+                        ..Default::default()
+                    };
+                    title.append("\n", 0.0, format.clone());
+                    title.append(item.state.label(), 24.0, format);
+                }
+                let row = ui.add_sized(
+                    egui::vec2(ui.available_width(), if selected { 36.0 } else { 48.0 }),
+                    egui::Button::new(title).wrap().frame(false).right_text(""),
+                );
+                row.widget_info(|| {
+                    egui::WidgetInfo::selected(egui::Role::Button, true, selected, &item.text)
+                });
+                if row.clicked() {
+                    self.artifact_workspace.selected_plan_item = if selected {
+                        None
+                    } else {
+                        Some(item.id.clone())
+                    };
+                }
+                if self.artifact_workspace.selected_plan_item.as_deref() == Some(item.id.as_str()) {
+                    egui::Frame::new()
+                        .inner_margin(egui::Margin {
+                            left: 36,
+                            right: 12,
+                            top: 2,
+                            bottom: 12,
+                        })
+                        .show(ui, |ui| {
+                            self.plan_item_detail(ui, snapshot, item);
+                        });
                 }
             });
     }
@@ -742,111 +917,143 @@ impl ConsoleApp {
         snapshot: &SessionSnapshot,
         item: &crate::model::SessionPlanItem,
     ) {
-        ui.add_space(8.0);
-        egui::Frame::new()
-            .fill(theme::SURFACE)
-            .stroke(egui::Stroke::new(1.0, theme::BORDER))
-            .corner_radius(7)
-            .inner_margin(12)
-            .show(ui, |ui| {
-                ui.label(RichText::new(&item.text).font(theme::semibold(14.0)));
-                ui.horizontal(|ui| {
-                    ui.colored_label(plan_state_color(item.state), "●");
-                    let state = match item.state {
-                        crate::model::SessionPlanState::Addressed => "Agent addressed",
-                        crate::model::SessionPlanState::Deferred => "Agent deferred",
-                        _ => item.state.label(),
-                    };
-                    ui.label(RichText::new(state).small().color(theme::MUTED));
-                });
-                if let Some(reason) = &item.reason
-                    && !reason.trim().is_empty()
-                {
-                    ui.label(reason);
+        ui.vertical(|ui| {
+            let state = match item.state {
+                crate::model::SessionPlanState::Addressed => "Agent addressed",
+                crate::model::SessionPlanState::Deferred => "Agent deferred",
+                _ => item.state.label(),
+            };
+            ui.label(RichText::new(state).small().color(theme::MUTED));
+            if let Some(reason) = &item.reason
+                && !reason.trim().is_empty()
+            {
+                ui.label(reason);
+            }
+            if !item.source_refs.is_empty() {
+                ui.add_space(6.0);
+                ui.label(RichText::new("Sources").small().color(theme::MUTED));
+                for source in &item.source_refs {
+                    let label = snapshot
+                        .actor_labels
+                        .get(&source.message_id)
+                        .map(String::as_str)
+                        .unwrap_or("Conversation message");
+                    let excerpt = snapshot
+                        .items
+                        .iter()
+                        .find(|message| message.id == source.message_id)
+                        .map(message_text)
+                        .map(|text| text.split_whitespace().collect::<Vec<_>>().join(" "))
+                        .filter(|text| !text.is_empty())
+                        .map(|text| text.chars().take(56).collect::<String>());
+                    let source_label = excerpt
+                        .map(|excerpt| format!("{label} · “{excerpt}”"))
+                        .unwrap_or_else(|| label.to_owned());
+                    let color = snapshot
+                        .actor_colors
+                        .get(&source.message_id)
+                        .map(|color| theme::participant_color(color))
+                        .unwrap_or(theme::MUTED);
+                    let accessible = format!("{source_label} · open message");
+                    let mut text = egui::text::LayoutJob::default();
+                    text.append(
+                        label,
+                        0.0,
+                        egui::TextFormat {
+                            font_id: theme::medium(12.0),
+                            color,
+                            ..Default::default()
+                        },
+                    );
+                    if let Some(excerpt) = source_label.strip_prefix(&format!("{label} · ")) {
+                        text.append(
+                            &format!("\n{excerpt}"),
+                            0.0,
+                            egui::TextFormat {
+                                font_id: egui::FontId::proportional(13.0),
+                                color: theme::TEXT,
+                                ..Default::default()
+                            },
+                        );
+                    }
+                    let source_button = ui.add_sized(
+                        egui::vec2(ui.available_width(), 0.0),
+                        egui::Button::new(text).wrap().right_text(
+                            RichText::new(Icon::Forward.glyph())
+                                .font(icons::font(18.0))
+                                .color(theme::MUTED),
+                        ),
+                    );
+
+                    source_button.widget_info(|| {
+                        egui::WidgetInfo::labeled(
+                            egui::Role::Button,
+                            source_button.enabled(),
+                            &accessible,
+                        )
+                    });
+                    if source_button.on_hover_text("Show message").clicked() {
+                        self.collaboration.scroll_target = Some(source.message_id.clone());
+                        self.artifact_workspace.narrow_pane = NarrowSessionPane::Conversation;
+                        self.artifact_workspace.workspace_expanded = false;
+                    }
                 }
-                if !item.source_refs.is_empty() {
-                    ui.add_space(6.0);
-                    ui.label(RichText::new("Sources").small().color(theme::MUTED));
-                    for source in &item.source_refs {
-                        let label = snapshot
-                            .actor_labels
-                            .get(&source.message_id)
-                            .map(String::as_str)
-                            .unwrap_or("Conversation message");
-                        let excerpt = snapshot
-                            .items
-                            .iter()
-                            .find(|message| message.id == source.message_id)
-                            .map(message_text)
-                            .map(|text| text.split_whitespace().collect::<Vec<_>>().join(" "))
-                            .filter(|text| !text.is_empty())
-                            .map(|text| text.chars().take(56).collect::<String>());
-                        let source_label = excerpt
-                            .map(|excerpt| format!("{label} · “{excerpt}” · open message"))
-                            .unwrap_or_else(|| format!("{label} · open message"));
-                        let color = snapshot
-                            .actor_colors
-                            .get(&source.message_id)
-                            .map(|color| theme::participant_color(color))
-                            .unwrap_or(theme::MUTED);
-                        if ui
-                            .small_button(RichText::new(source_label).color(color))
+            }
+            if !item.result_links.is_empty() {
+                ui.add_space(6.0);
+                ui.label(RichText::new("Result").small().color(theme::MUTED));
+                for link in &item.result_links {
+                    match link {
+                        crate::model::PlanResultLink::Artifact { artifact_id, .. } => {
+                            let title = snapshot
+                                .artifacts
+                                .iter()
+                                .find(|artifact| artifact.id == *artifact_id)
+                                .map(|artifact| crate::api::safe_filename(artifact.text("path")))
+                                .unwrap_or_else(|| "Saved artifact".into());
+                            if icons::object_button(
+                                ui,
+                                Icon::File,
+                                &title,
+                                &format!("Open {title}"),
+                            )
                             .clicked()
-                        {
-                            self.collaboration.scroll_target = Some(source.message_id.clone());
-                            self.artifact_workspace.narrow_pane = NarrowSessionPane::Conversation;
-                            self.artifact_workspace.workspace_expanded = false;
-                        }
-                    }
-                }
-                if !item.result_links.is_empty() {
-                    ui.add_space(6.0);
-                    ui.label(RichText::new("Result").small().color(theme::MUTED));
-                    for link in &item.result_links {
-                        match link {
-                            crate::model::PlanResultLink::Artifact { artifact_id, .. } => {
-                                let title = snapshot
-                                    .artifacts
-                                    .iter()
-                                    .find(|artifact| artifact.id == *artifact_id)
-                                    .map(|artifact| {
-                                        crate::api::safe_filename(artifact.text("path"))
-                                    })
-                                    .unwrap_or_else(|| "Saved artifact".into());
-                                if ui.small_button(format!("Open {title}")).clicked() {
-                                    self.artifact_workspace.selected_plan_item = None;
-                                    self.artifact_workspace.narrow_pane =
-                                        NarrowSessionPane::Workspace;
-                                    self.select_artifact(
-                                        artifact_id.clone(),
-                                        &snapshot.session.id,
-                                        ui.ctx(),
-                                    );
-                                }
+                            {
+                                self.artifact_workspace.selected_plan_item = None;
+                                self.artifact_workspace.narrow_pane = NarrowSessionPane::Workspace;
+                                self.select_artifact(
+                                    artifact_id.clone(),
+                                    &snapshot.session.id,
+                                    ui.ctx(),
+                                );
                             }
-                            crate::model::PlanResultLink::Activity { item_id, .. } => {
-                                if ui.small_button("Open activity").clicked() {
-                                    self.collaboration.scroll_target = Some(item_id.clone());
-                                    self.artifact_workspace.narrow_pane =
-                                        NarrowSessionPane::Conversation;
-                                    self.artifact_workspace.workspace_expanded = false;
-                                }
+                        }
+                        crate::model::PlanResultLink::Activity { item_id, .. } => {
+                            if icons::button(ui, Icon::Comment, "Open activity").clicked() {
+                                self.collaboration.scroll_target = Some(item_id.clone());
+                                self.artifact_workspace.narrow_pane =
+                                    NarrowSessionPane::Conversation;
+                                self.artifact_workspace.workspace_expanded = false;
                             }
                         }
                     }
                 }
-                ui.add_space(8.0);
-                if self.can_contribute() && ui.button("Follow up in conversation").clicked() {
-                    let session = snapshot.session.id.clone();
-                    let draft = self.messages.entry(session.clone()).or_default();
-                    if draft.is_empty() {
-                        *draft = format!("Following up on Plan item “{}”", item.text);
-                    }
-                    self.collaboration.focus_composer = true;
-                    self.artifact_workspace.narrow_pane = NarrowSessionPane::Conversation;
-                    self.artifact_workspace.workspace_expanded = false;
+            }
+            ui.add_space(8.0);
+            if self.can_contribute()
+                && icons::object_button(ui, Icon::Reply, "Reply", "Follow up in conversation")
+                    .clicked()
+            {
+                let session = snapshot.session.id.clone();
+                let draft = self.messages.entry(session.clone()).or_default();
+                if draft.is_empty() {
+                    *draft = format!("Following up on Plan item “{}”", item.text);
                 }
-            });
+                self.collaboration.focus_composer = true;
+                self.artifact_workspace.narrow_pane = NarrowSessionPane::Conversation;
+                self.artifact_workspace.workspace_expanded = false;
+            }
+        });
     }
 
     fn plan_history_view(&mut self, ui: &mut Ui, snapshot: &SessionSnapshot) {
@@ -865,7 +1072,8 @@ impl ConsoleApp {
         let mut retry = false;
         if let Some(error) = error.as_deref() {
             ui.colored_label(theme::ERROR, error);
-            retry = pending.is_none() && ui.button("Retry history").clicked();
+            retry =
+                pending.is_none() && icons::button(ui, Icon::Refresh, "Retry history").clicked();
         }
         if !loaded && pending.is_none() && error.is_none() {
             ui.label(
@@ -934,90 +1142,55 @@ impl ConsoleApp {
                 );
             }
             for item in &revision.items {
-                ui.horizontal(|ui| {
-                    ui.colored_label(plan_state_color(item.state), "●");
-                    if ui
-                        .add(
-                            egui::Label::new(&item.text)
-                                .wrap()
-                                .sense(egui::Sense::click()),
-                        )
-                        .clicked()
-                    {
-                        self.artifact_workspace.selected_plan_item = Some(item.id.clone());
-                    }
-                    ui.label(
-                        RichText::new(item.state.label())
-                            .small()
-                            .color(theme::MUTED),
-                    );
-                });
-            }
-            if let Some(item) = revision.items.iter().find(|item| {
-                self.artifact_workspace.selected_plan_item.as_deref() == Some(item.id.as_str())
-            }) {
-                self.plan_item_detail(ui, snapshot, item);
+                self.plan_item_row(ui, snapshot, item);
             }
         }
     }
 
     fn artifact_controls(&mut self, ui: &mut Ui, session: &str, browser: bool) {
         let reading_capture = self.artifact_workspace.reading_capture.is_some();
-        if self.artifact_workspace.texture.is_some() {
-            let zoom_level =
-                usize::from(self.artifact_workspace.zoom_level).min(IMAGE_ZOOM_LEVELS.len() - 1);
-            ui.horizontal_wrapped(|ui| {
-                if ui
-                    .add_enabled(zoom_level > 0, egui::Button::new("Zoom out").small())
-                    .clicked()
-                {
-                    self.artifact_workspace.zoom_level =
-                        self.artifact_workspace.zoom_level.saturating_sub(1);
-                }
-                ui.label(match zoom_level {
-                    0 => "Fit",
-                    1 => "1.25×",
-                    2 => "1.5×",
-                    _ => "2×",
-                });
-                if ui
-                    .add_enabled(
-                        zoom_level + 1 < IMAGE_ZOOM_LEVELS.len(),
-                        egui::Button::new("Zoom in").small(),
-                    )
-                    .clicked()
-                {
-                    self.artifact_workspace.zoom_level = self
-                        .artifact_workspace
-                        .zoom_level
-                        .saturating_add(1)
-                        .min((IMAGE_ZOOM_LEVELS.len() - 1) as u8);
-                }
-                if zoom_level > 0 && ui.small_button("Reset zoom").clicked() {
-                    self.artifact_workspace.zoom_level = 0;
-                }
-            });
+        let contributor = self.can_contribute();
+        if self.artifact_workspace.annotating
+            && ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+        {
+            self.cancel_anchor_selection();
         }
         if browser && !reading_capture {
             ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
                 ui.add_enabled_ui(
-                    self.can_contribute()
+                    contributor
                         && !self.artifact_workspace.annotating
-                        && self.artifact_workspace.pending.is_none()
+                        && self.browser_controls_ready()
                         && self.artifact_workspace.frame.is_some(),
                     |ui| {
-                        if ui.small_button("←").on_hover_text("Back").clicked() {
+                        if icons::toolbar_button(ui, true, None, Icon::Back, "Back").clicked() {
                             self.browser_request(session, Some(json!({"action":"back"})), ui.ctx());
                         }
-                        if ui.small_button("↻").on_hover_text("Reload").clicked() {
+                        if icons::toolbar_button(ui, true, None, Icon::Refresh, "Reload").clicked()
+                        {
                             self.browser_request(
                                 session,
                                 Some(json!({"action":"reload"})),
                                 ui.ctx(),
                             );
                         }
-                        ui.text_edit_singleline(&mut self.artifact_workspace.url);
-                        if ui.button("Go").clicked() {
+                        let address = ui.add_sized(
+                            egui::vec2((ui.available_width() - 38.0).max(40.0), 30.0),
+                            egui::TextEdit::singleline(&mut self.artifact_workspace.url),
+                        );
+                        address.widget_info(|| {
+                            egui::WidgetInfo::labeled(
+                                egui::Role::TextInput,
+                                address.enabled(),
+                                "Address",
+                            )
+                        });
+                        let navigate = address.lost_focus()
+                            && ui.input(|input| input.key_pressed(egui::Key::Enter));
+                        if icons::toolbar_button(ui, true, None, Icon::Forward, "Go").clicked()
+                            || navigate
+                        {
                             self.browser_request(
                                 session,
                                 Some(
@@ -1029,28 +1202,27 @@ impl ConsoleApp {
                     },
                 );
             });
-            if let Some(frame) = &self.artifact_workspace.frame {
-                ui.label(
-                    RichText::new(string(frame, "url"))
-                        .small()
-                        .color(theme::MUTED),
-                );
-            }
         }
-        if self.can_contribute() && self.artifact_workspace.reading_capture.is_none() {
-            ui.horizontal_wrapped(|ui| {
-                if self.artifact_workspace.annotating {
-                    if ui.button("Cancel selection").clicked() {
-                        self.cancel_anchor_selection();
-                    }
-                } else if ui
-                    .add_enabled(
-                        !browser || self.artifact_workspace.frame.is_some(),
-                        egui::Button::new("Annotate"),
-                    )
-                    .clicked()
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            if contributor && !reading_capture {
+                let selecting = self.artifact_workspace.annotating;
+                let text_mode = self.artifact_workspace.selecting_text;
+                let ready = !browser || self.artifact_workspace.frame.is_some();
+                if icons::toolbar_button(
+                    ui,
+                    ready,
+                    Some(selecting && !text_mode),
+                    Icon::Annotate,
+                    "Annotate",
+                )
+                .clicked()
                 {
-                    self.start_anchor_selection(session, browser, false, ui.ctx());
+                    if selecting {
+                        self.cancel_anchor_selection();
+                    } else {
+                        self.start_anchor_selection(session, browser, false, ui.ctx());
+                    }
                 }
                 let can_select_text = if browser {
                     self.artifact_workspace
@@ -1064,40 +1236,232 @@ impl ConsoleApp {
                         .as_ref()
                         .is_some_and(|text| !text.is_empty())
                 };
-                if !self.artifact_workspace.annotating
-                    && can_select_text
-                    && ui.button("Select text").clicked()
+                if can_select_text
+                    && icons::toolbar_button(
+                        ui,
+                        !selecting || text_mode,
+                        Some(selecting && text_mode),
+                        Icon::SelectText,
+                        "Select text",
+                    )
+                    .clicked()
                 {
-                    self.start_anchor_selection(session, browser, true, ui.ctx());
+                    if selecting {
+                        self.cancel_anchor_selection();
+                    } else {
+                        self.start_anchor_selection(session, browser, true, ui.ctx());
+                    }
                 }
                 if !browser
-                    && !self.artifact_workspace.annotating
+                    && !selecting
                     && self.artifact_workspace.texture.is_none()
                     && self.artifact_workspace.text.is_none()
-                    && ui.button("Attach whole file").clicked()
+                    && icons::toolbar_button(ui, true, None, Icon::Attach, "Attach whole file")
+                        .clicked()
                 {
                     self.artifact_workspace.captured_source = Some(self.artifact_source(session));
                     self.set_captured_context(session, CapturedAnchor::Item);
                 }
-                if self.artifact_workspace.annotating {
-                    let guidance = if browser && self.artifact_workspace.captured_source.is_none() {
-                        "Capturing page…"
-                    } else if self.artifact_workspace.selecting_text {
-                        "Select text below, then attach it."
-                    } else {
-                        "Click an element or drag a region."
-                    };
-                    ui.label(RichText::new(guidance).small().color(theme::MUTED));
+                if selecting {
+                    if icons::toolbar_button(ui, true, None, Icon::Close, "Cancel selection")
+                        .clicked()
+                    {
+                        self.cancel_anchor_selection();
+                    }
+                } else if browser {
+                    icons::menu(ui, Icon::Keyboard, "Browser controls", |ui| {
+                        self.browser_input_controls(ui, session);
+                    });
+                    for (icon, label, delta) in [
+                        (Icon::Up, "Scroll up", -500),
+                        (Icon::Down, "Scroll down", 500),
+                    ] {
+                        if icons::toolbar_button(
+                            ui,
+                            self.browser_controls_ready(),
+                            None,
+                            icon,
+                            label,
+                        )
+                        .clicked()
+                        {
+                            self.browser_request(
+                                session,
+                                Some(json!({"action":"scroll","x":0.5,"y":0.5,"delta_y":delta})),
+                                ui.ctx(),
+                            );
+                        }
+                    }
+                }
+            }
+            if browser && !reading_capture && !self.artifact_workspace.annotating {
+                let dimensions =
+                    self.artifact_workspace.frame.as_ref().and_then(|frame| {
+                        Some((frame["width"].as_u64()?, frame["height"].as_u64()?))
+                    });
+                ui.separator();
+                for (icon, label, width, height) in [
+                    (Icon::Desktop, "Desktop viewport", 1280, 800),
+                    (Icon::Phone, "Phone viewport", 390, 844),
+                ] {
+                    if icons::toolbar_button(
+                        ui,
+                        contributor && self.browser_controls_ready() && dimensions.is_some(),
+                        Some(dimensions == Some((width, height))),
+                        icon,
+                        label,
+                    )
+                    .on_hover_text(format!(
+                        "{label} · {width} × {height} · Shared with everyone"
+                    ))
+                    .clicked()
+                        && dimensions != Some((width, height))
+                    {
+                        self.browser_request(
+                            session,
+                            Some(json!({"action":"resize","width":width,"height":height})),
+                            ui.ctx(),
+                        );
+                    }
+                }
+            }
+            if self.artifact_workspace.texture.is_some() {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    self.artifact_zoom_controls(ui);
+                });
+            }
+        });
+        if browser
+            && !reading_capture
+            && let Some(frame) = &self.artifact_workspace.frame
+        {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(
+                    RichText::new(browser_view_label(frame))
+                        .small()
+                        .color(theme::MUTED),
+                );
+                if let Some(action) = browser_action_label(frame) {
+                    ui.label(RichText::new(action).small().color(theme::MUTED));
                 }
             });
         }
-        if browser && self.artifact_workspace.reading_capture.is_none() {
-            ui.ctx().request_repaint_after(Duration::from_millis(500));
+        if self.artifact_workspace.annotating {
+            let guidance = if browser && self.artifact_workspace.captured_source.is_none() {
+                "Capturing page…"
+            } else if self.artifact_workspace.selecting_text {
+                "Select text to quote."
+            } else {
+                "Click an element or drag a region."
+            };
+            ui.label(RichText::new(guidance).small().color(theme::MUTED));
         }
-        if browser && self.artifact_workspace.reading_capture.is_some() {
+        if browser {
             ui.ctx().request_repaint_after(Duration::from_millis(500));
         }
         self.artifact_status(ui, session, browser);
+        ui.add_space(6.0);
+    }
+
+    fn artifact_zoom_controls(&mut self, ui: &mut Ui) {
+        let zoom = usize::from(self.artifact_workspace.zoom_level).min(IMAGE_ZOOM_LEVELS.len() - 1);
+        if icons::toolbar_button(
+            ui,
+            zoom > 0 || self.artifact_workspace.actual_size,
+            None,
+            Icon::Fit,
+            "Reset zoom",
+        )
+        .clicked()
+        {
+            self.artifact_workspace.zoom_level = 0;
+            self.artifact_workspace.actual_size = false;
+        }
+        let actual = ui
+            .selectable_label(self.artifact_workspace.actual_size, "1:1")
+            .on_hover_text("Actual size · one page pixel per screen point");
+        actual.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "Actual size"));
+        if actual.clicked() {
+            self.artifact_workspace.actual_size = !self.artifact_workspace.actual_size;
+            self.artifact_workspace.zoom_level = 0;
+        }
+        if icons::toolbar_button(
+            ui,
+            zoom + 1 < IMAGE_ZOOM_LEVELS.len(),
+            None,
+            Icon::ZoomIn,
+            "Zoom in",
+        )
+        .clicked()
+        {
+            self.artifact_workspace.zoom_level = (zoom + 1) as u8;
+        }
+        ui.add_sized(
+            egui::vec2(38.0, 30.0),
+            egui::Label::new(
+                RichText::new(if self.artifact_workspace.actual_size {
+                    ["100%", "125%", "150%", "200%"][zoom]
+                } else {
+                    ["Fit", "1.25×", "1.5×", "2×"][zoom]
+                })
+                .small()
+                .color(theme::MUTED),
+            ),
+        );
+        if icons::toolbar_button(ui, zoom > 0, None, Icon::ZoomOut, "Zoom out").clicked() {
+            self.artifact_workspace.zoom_level = (zoom - 1) as u8;
+        }
+    }
+
+    fn browser_input_controls(&mut self, ui: &mut Ui, session: &str) {
+        ui.set_width(280.0);
+        ui.label(RichText::new("Browser controls").font(theme::semibold(13.0)));
+        ui.label(
+            RichText::new("Select a field on the page, then type.")
+                .small()
+                .color(theme::MUTED),
+        );
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            let input = ui.add_sized(
+                egui::vec2(216.0, 30.0),
+                egui::TextEdit::singleline(&mut self.artifact_workspace.browser_text)
+                    .hint_text("Text to enter…"),
+            );
+            input.widget_info(|| {
+                egui::WidgetInfo::labeled(egui::Role::TextInput, true, "Browser text")
+            });
+            if ui
+                .add_enabled(
+                    self.browser_controls_ready()
+                        && !self.artifact_workspace.browser_text.is_empty(),
+                    egui::Button::new("Type"),
+                )
+                .clicked()
+            {
+                let text = self.artifact_workspace.browser_text.clone();
+                self.browser_request(
+                    session,
+                    Some(json!({"action":"type","text":text})),
+                    ui.ctx(),
+                );
+            }
+        });
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            for key in ["Enter", "Tab", "Backspace"] {
+                if ui
+                    .add_enabled(self.browser_controls_ready(), egui::Button::new(key))
+                    .clicked()
+                {
+                    self.browser_request(
+                        session,
+                        Some(json!({"action":"key","key":key})),
+                        ui.ctx(),
+                    );
+                }
+            }
+        });
     }
 
     fn start_anchor_selection(
@@ -1391,7 +1755,7 @@ impl ConsoleApp {
             ui.colored_label(theme::ERROR, error);
             if self.artifact_workspace.pending.is_none()
                 && self.artifact_workspace.preview_failed
-                && ui.button("Retry preview").clicked()
+                && icons::button(ui, Icon::Refresh, "Retry preview").clicked()
             {
                 let path = if browser {
                     self.artifact_workspace
@@ -1418,7 +1782,19 @@ impl ConsoleApp {
             .pending
             .is_some_and(|id| self.loading_is_slow(Some(id)))
         {
-            ui.spinner();
+            ui.horizontal(|ui| {
+                ui.spinner();
+                let label = if self.artifact_workspace.texture.is_none()
+                    && self.artifact_workspace.text.is_none()
+                {
+                    "Loading preview…"
+                } else if browser && self.workspace_action_pending() {
+                    "Updating browser…"
+                } else {
+                    "Refreshing preview…"
+                };
+                ui.label(RichText::new(label).small().color(theme::MUTED));
+            });
         }
     }
 
@@ -1432,12 +1808,20 @@ impl ConsoleApp {
     ) {
         if let Some(texture) = self.artifact_workspace.texture.clone() {
             let size = texture.size_vec2();
-            let max_height = (ui.available_height() * 0.56).clamp(180.0, 420.0);
+            let viewport_width = viewport_width
+                .min(ui.available_width())
+                .min(ui.clip_rect().width());
+            let max_height = (ui.available_height() - 96.0).clamp(180.0, 720.0);
             let zoom = IMAGE_ZOOM_LEVELS
                 .get(usize::from(self.artifact_workspace.zoom_level))
                 .copied()
                 .unwrap_or(1.0);
-            let scale = (viewport_width / size.x).min(max_height / size.y).min(1.0) * zoom;
+            let scale = preview_scale(
+                size,
+                viewport_width,
+                max_height,
+                self.artifact_workspace.actual_size,
+            ) * zoom;
             let image_size = size * scale;
             let image_output = egui::ScrollArea::horizontal()
                 .id_salt((
@@ -1445,7 +1829,7 @@ impl ConsoleApp {
                     session,
                     self.artifact_workspace.selected.as_deref(),
                 ))
-                .auto_shrink([true, false])
+                .auto_shrink([true, true])
                 .show(ui, |ui| {
                     ui.set_width(image_size.x);
                     ui.add(
@@ -1547,11 +1931,11 @@ impl ConsoleApp {
                     ui.ctx(),
                 );
             }
-            let visible_capture = self
-                .artifact_workspace
-                .reading_capture
-                .as_deref()
-                .or(self.artifact_workspace.capture.as_deref());
+            let visible_capture = visible_browser_capture(
+                self.artifact_workspace.reading_capture.as_deref(),
+                self.artifact_workspace.annotating,
+                self.artifact_workspace.capture.as_deref(),
+            );
             let current_capture_threads = threads
                 .iter()
                 .enumerate()
@@ -1630,63 +2014,6 @@ impl ConsoleApp {
                     .color(theme::MUTED),
             );
         }
-
-        if browser
-            && self.artifact_workspace.reading_capture.is_none()
-            && !self.artifact_workspace.annotating
-            && self.can_contribute()
-        {
-            ui.horizontal_wrapped(|ui| {
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.artifact_workspace.browser_text)
-                        .hint_text("Type into the focused field"),
-                );
-                if ui
-                    .add_enabled(
-                        self.artifact_workspace.pending.is_none(),
-                        egui::Button::new("Type"),
-                    )
-                    .clicked()
-                {
-                    let text = self.artifact_workspace.browser_text.clone();
-                    self.browser_request(
-                        session,
-                        Some(json!({"action":"type","text":text})),
-                        ui.ctx(),
-                    );
-                }
-                for key in ["Enter", "Tab", "Backspace"] {
-                    if ui
-                        .add_enabled(
-                            self.artifact_workspace.pending.is_none(),
-                            egui::Button::new(key).small(),
-                        )
-                        .clicked()
-                    {
-                        self.browser_request(
-                            session,
-                            Some(json!({"action":"key","key":key})),
-                            ui.ctx(),
-                        );
-                    }
-                }
-                for (label, delta) in [("Scroll up", -500), ("Scroll down", 500)] {
-                    if ui
-                        .add_enabled(
-                            self.artifact_workspace.pending.is_none(),
-                            egui::Button::new(label).small(),
-                        )
-                        .clicked()
-                    {
-                        self.browser_request(
-                            session,
-                            Some(json!({"action":"scroll","x":0.5,"y":0.5,"delta_y":delta})),
-                            ui.ctx(),
-                        );
-                    }
-                }
-            });
-        }
     }
 
     fn select_text_anchor(&mut self, ui: &mut Ui, session: &str, source: String) {
@@ -1708,13 +2035,8 @@ impl ConsoleApp {
             selected_text_anchor(&source, range.start.0..range.end.0)
         });
         ui.horizontal(|ui| {
-            ui.label(
-                RichText::new("Text selection uses the saved source.")
-                    .small()
-                    .color(theme::MUTED),
-            );
             if let Some(anchor) = anchor
-                && ui.button("Attach selected text").clicked()
+                && icons::button(ui, Icon::Attach, "Attach selected text").clicked()
             {
                 self.set_captured_context(session, anchor);
             }
@@ -1743,13 +2065,73 @@ impl ConsoleApp {
             );
             ui.checkbox(&mut self.artifact_workspace.show_resolved, "Resolved");
         });
+        let pending_confirmation = self
+            .artifact_workspace
+            .pending
+            .and_then(|id| self.pending.get(&id))
+            .and_then(|request| match &request.operation {
+                Pending::Artifact {
+                    operation: ArtifactOperation::ThreadAction { confirmation, .. },
+                    ..
+                } => Some(confirmation.clone()),
+                _ => None,
+            });
+        let saving = pending_confirmation.is_some();
+        if let Some(confirmation) = pending_confirmation
+            .as_ref()
+            .or(self.artifact_workspace.feedback_confirmation.as_ref())
+            .filter(|confirmation| {
+                confirmation.visible(
+                    session,
+                    browser,
+                    self.artifact_workspace.selected.as_deref(),
+                )
+            })
+            .cloned()
+        {
+            ui.horizontal(|ui| {
+                confirmation_label(
+                    ui,
+                    match (saving, confirmation.resolved) {
+                        (true, true) => "Resolving…",
+                        (true, false) => "Reopening…",
+                        (false, true) => "Feedback resolved",
+                        (false, false) => "Feedback reopened",
+                    },
+                    theme::TEXT,
+                );
+                if !saving && confirmation.resolved && !self.artifact_workspace.show_resolved {
+                    let show = ui
+                        .small_button("Show resolved")
+                        .on_hover_text("Show resolved feedback");
+                    show.widget_info(|| {
+                        egui::WidgetInfo::labeled(
+                            egui::Role::Button,
+                            true,
+                            "Show resolved feedback",
+                        )
+                    });
+                    if show.clicked() {
+                        self.artifact_workspace.show_resolved = true;
+                        self.artifact_workspace.feedback_filter = FeedbackFilter::Everyone;
+                    }
+                }
+                if !saving
+                    && icons::button(ui, Icon::Close, "Dismiss feedback confirmation").clicked()
+                {
+                    self.artifact_workspace.feedback_confirmation = None;
+                }
+            });
+        }
         if threads.is_empty() {
             ui.label(
                 RichText::new(
                     if self.artifact_workspace.feedback_filter == FeedbackFilter::Mine {
                         "No feedback from you on this source."
+                    } else if self.artifact_workspace.show_resolved {
+                        "No feedback on this source."
                     } else {
-                        "No feedback on this source yet."
+                        "No open feedback."
                     },
                 )
                 .small()
@@ -1793,13 +2175,13 @@ impl ConsoleApp {
                             .color(theme::MUTED),
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.small_button("Open source").clicked() {
+                            if icons::button(ui, Icon::Image, "Open source").clicked() {
                                 self.open_annotation(session, thread, ui.ctx());
                             }
                             if self.can_contribute()
                                 && ui
                                     .add_enabled(
-                                        self.artifact_workspace.pending.is_none(),
+                                        self.artifact_mutation_ready(),
                                         egui::Button::new(if thread["resolved"] == true {
                                             "Reopen"
                                         } else {
@@ -1814,7 +2196,13 @@ impl ConsoleApp {
                                 } else {
                                     "resolve"
                                 };
-                                self.send_thread_action(session, &id, action, ui.ctx());
+                                self.send_thread_action(
+                                    session,
+                                    &id,
+                                    &thread["target"],
+                                    action,
+                                    ui.ctx(),
+                                );
                             }
                         });
                     });
@@ -1845,9 +2233,16 @@ impl ConsoleApp {
         &mut self,
         session: &str,
         thread: &str,
+        source: &Value,
         action: &str,
         ctx: &egui::Context,
     ) {
+        self.artifact_workspace.feedback_confirmation = None;
+        let confirmation = FeedbackConfirmation {
+            session: session.into(),
+            source: source.clone(),
+            resolved: action == "resolve",
+        };
         let text = if action == "resolve" {
             "Resolved this feedback."
         } else {
@@ -1873,7 +2268,10 @@ impl ConsoleApp {
                 idempotency_key: Some(key),
                 secret: false,
             },
-            ArtifactOperation::ThreadAction { submission },
+            ArtifactOperation::ThreadAction {
+                submission,
+                confirmation,
+            },
             ctx,
         );
     }
@@ -2136,6 +2534,59 @@ fn selected_text_anchor(
     })
 }
 
+fn preview_scale(size: egui::Vec2, width: f32, height: f32, actual: bool) -> f32 {
+    if actual {
+        1.0
+    } else {
+        (width / size.x).min(height / size.y).min(1.0)
+    }
+}
+
+fn browser_view_label(frame: &Value) -> String {
+    format!("Shared · {}", browser_size_label(frame))
+}
+
+fn browser_size_label(frame: &Value) -> String {
+    let width = frame["width"].as_u64().unwrap_or_default();
+    let height = frame["height"].as_u64().unwrap_or_default();
+    let mode = match (width, height) {
+        (390, 844) => "Phone",
+        (1280, 800) => "Desktop",
+        _ => "Browser",
+    };
+    format!("{mode} · {width} × {height}")
+}
+
+fn browser_action_label(frame: &Value) -> Option<String> {
+    let last = &frame["last_action"];
+    if last["epoch"] != frame["epoch"] || last["revision"] != frame["revision"] {
+        return None;
+    }
+    let name = last["actor"]["label"].as_str()?;
+    let verb = match last["action"].as_str()? {
+        "resize" => "resized",
+        "navigate" | "back" | "forward" => "navigated",
+        "click" => "clicked",
+        "scroll" => "scrolled",
+        "reload" => "reloaded",
+        "type" | "key" => "typed",
+        _ => return None,
+    };
+    Some(format!(
+        "{} {verb}",
+        name.chars().take(40).collect::<String>()
+    ))
+}
+
+fn visible_browser_capture<'a>(
+    reading_capture: Option<&'a str>,
+    annotating: bool,
+    captured: Option<&'a str>,
+) -> Option<&'a str> {
+    // Retaining a draft's capture does not mean the live image still depicts it.
+    reading_capture.or_else(|| annotating.then_some(captured).flatten())
+}
+
 fn capture_has_moved(
     capture: Option<&Value>,
     live: Option<&Value>,
@@ -2161,6 +2612,66 @@ fn workspace_submission_key(session: &str, body: &str) -> String {
 #[cfg(test)]
 mod captured_context_tests {
     use super::*;
+
+    #[test]
+    fn actual_size_ignores_fit_bounds_and_attribution_requires_the_current_revision() {
+        let size = egui::vec2(390.0, 844.0);
+        assert_eq!(preview_scale(size, 600.0, 422.0, false), 0.5);
+        assert_eq!(preview_scale(size, 300.0, 422.0, true), 1.0);
+        let mut frame = json!({"width":390,"height":844,"epoch":"e","revision":2,
+            "last_action":{"epoch":"e","revision":2,"actor":{"label":"Maya"},"action":"resize"}});
+        assert_eq!(browser_view_label(&frame), "Shared · Phone · 390 × 844");
+        assert_eq!(
+            browser_action_label(&frame).as_deref(),
+            Some("Maya resized")
+        );
+        frame["revision"] = json!(3);
+        assert_eq!(browser_action_label(&frame), None);
+    }
+
+    #[test]
+    fn browser_pins_only_overlay_the_capture_being_viewed() {
+        assert_eq!(visible_browser_capture(None, false, Some("phone")), None);
+        assert_eq!(
+            visible_browser_capture(None, true, Some("phone")),
+            Some("phone")
+        );
+        assert_eq!(
+            visible_browser_capture(Some("saved"), false, Some("phone")),
+            Some("saved")
+        );
+        assert_eq!(visible_browser_capture(None, true, None), None);
+    }
+
+    #[test]
+    fn file_tabs_group_versions_and_preserve_the_selected_source() {
+        let artifact = |id: &str, path: &str, time: u64| {
+            serde_json::from_value::<Resource>(json!({
+                "id":id,"object":"agent.session.artifact","path":path,"created_at":time
+            }))
+            .unwrap()
+        };
+        let files = vec![
+            artifact("new", "/a/direction.md", 20),
+            artifact("old", "/a/direction.md", 10),
+            artifact("other", "/b/direction.md", 5),
+        ];
+        assert_eq!(
+            artifact_tabs(&files, None)
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            ["new", "other"]
+        );
+        assert_eq!(
+            artifact_tabs(&files, Some("old"))
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            ["old", "other"]
+        );
+        assert_eq!(files.len(), 3, "All versions remain available in Files");
+    }
 
     #[test]
     fn published_element_pins_and_outlines_use_the_saved_bounds_without_a_live_frame() {

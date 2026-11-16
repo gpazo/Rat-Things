@@ -10,6 +10,8 @@ impl ConsoleApp {
             area.max - egui::vec2(gutter, 0.0),
         );
         ui.scope_builder(egui::UiBuilder::new().max_rect(column), |ui| {
+        ui.set_clip_rect(ui.clip_rect().intersect(column));
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
         let session_id = snapshot.session.id.clone();
         let active = snapshot.turn_active();
         egui::Panel::bottom("composer").show_separator_line(false).resizable(false).min_size(0.0).frame(egui::Frame::NONE).show(ui, |ui| {
@@ -25,35 +27,19 @@ impl ConsoleApp {
             if self.can_contribute() { egui::Frame::new().fill(theme::SURFACE).stroke(egui::Stroke::new(1.0, theme::BORDER)).corner_radius(8).inner_margin(12).show(ui, |ui| {
                 self.reply_composer(ui, &session_id);
                 if let Some(context) = self.collaboration.contexts.get(&session_id).cloned() {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label(
-                            RichText::new(context.label())
-                                .small()
-                                .color(theme::MUTED),
-                        );
-                        let source_tooltip = context
-                            .source
-                            .version
-                            .as_deref()
-                            .map(|version| format!("Open captured source · {version}"))
-                            .unwrap_or_else(|| "Open captured source".to_owned());
-                        if ui
-                            .small_button("Open captured source")
-                            .on_hover_text(source_tooltip)
-                            .clicked()
-                        {
+                    ui.horizontal(|ui| {
+                        let source_icon = match context.source.kind {
+                            CapturedSourceKind::Browser => Icon::Image,
+                            CapturedSourceKind::Artifact => Icon::File,
+                        };
+                        let width = (ui.available_width() - 38.0).max(30.0);
+                        let attachment = ui.allocate_ui_with_layout(egui::vec2(width, 30.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            ui.push_id((&context.id, &context.source.version), |ui| icons::object_button(ui, source_icon, &context.label(), &format!("View attachment · {}", context.label()))).inner
+                        }).inner;
+                        if attachment.clicked() {
                             self.open_captured_context(&session_id, &context, ui.ctx());
                         }
-                        let remove = ui
-                            .small_button("×")
-                            .on_hover_text("Remove context");
-                        remove.widget_info(|| {
-                            egui::WidgetInfo::labeled(
-                                egui::Role::Button,
-                                true,
-                                "Remove context",
-                            )
-                        });
+                        let remove = icons::toolbar_button(ui, true, None, Icon::Close, "Remove attachment");
                         if remove.clicked() {
                             self.collaboration.contexts.remove(&session_id);
                         }
@@ -67,16 +53,17 @@ impl ConsoleApp {
                 response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::TextInput, true, "Message"));
                 let shortcut = response.has_focus() && ui.input(|input| input.modifiers.command && input.key_pressed(egui::Key::Enter));
                 let message = message.clone();
+                if response.changed() { self.collaboration.editing_contribution(&session_id); }
                 if response.changed() && response.has_focus() && !message.is_empty() { self.collaboration.last_edit = Some((session_id.clone(), Instant::now())); }
                 if !response.has_focus() || message.is_empty() { self.collaboration.last_edit = None; }
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("⌘ / Ctrl + Enter").small().color(theme::MUTED));
+                    self.contribution_status(ui, &session_id, &message);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let label = if active { "Steer" } else { "Send" };
                         let has_context = self.collaboration.contexts.contains_key(&session_id);
                         let enabled = self.mutation_pending.is_none()
-                            && (!has_context || self.artifact_workspace.pending.is_none())
+                            && (!has_context || self.artifact_mutation_ready())
                             && !message.trim().is_empty();
                         if ui.add_enabled(enabled, theme::primary_button(label)).clicked() || (enabled && shortcut) {
                             if has_context {
@@ -142,16 +129,22 @@ impl ConsoleApp {
             .turn()
             .is_some_and(|turn| turn.text("status") == "failed");
         ui.horizontal_wrapped(|ui| {
-            if active {
+            let read_error = self.read_status.get(ReadScope::Activity);
+            if active && read_error.is_none() {
                 ui.add(egui::Spinner::new().size(12.0).color(theme::ACCENT));
             }
-            ui.label(RichText::new(label).small().color(if failed {
-                theme::ERROR
-            } else if active {
-                theme::ACCENT
+            if let Some(error) = read_error {
+                confirmation_label(ui, ReadScope::Activity.label(), theme::ERROR)
+                    .on_hover_text(error);
             } else {
-                theme::MUTED
-            }));
+                ui.label(RichText::new(label).small().color(if failed {
+                    theme::ERROR
+                } else if active {
+                    theme::ACCENT
+                } else {
+                    theme::MUTED
+                }));
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if snapshot
                     .items
@@ -182,12 +175,13 @@ impl ConsoleApp {
                 }
                 if self.can_control()
                     && active
-                    && ui
-                        .add_enabled(
-                            self.mutation_pending.is_none(),
-                            egui::Button::new("Cancel turn").small(),
-                        )
-                        .clicked()
+                    && icons::button_enabled(
+                        ui,
+                        self.mutation_pending.is_none(),
+                        Icon::Stop,
+                        "Cancel turn",
+                    )
+                    .clicked()
                 {
                     self.send_events(
                         &snapshot.session.id,
@@ -246,13 +240,23 @@ impl ConsoleApp {
                 kind
             };
             ui.add_space(4.0);
-            egui::CollapsingHeader::new(
+            let heading = egui::WidgetText::from(
                 RichText::new(transcript_item_summary(&title))
                     .small()
                     .color(theme::MUTED),
             )
-            .id_salt(&item.id)
-            .show(ui, |ui| json_view(ui, &item.value()));
+            .into_galley(
+                ui,
+                Some(egui::TextWrapMode::Truncate),
+                (ui.available_width() - ui.spacing().indent - 2.0 * ui.spacing().button_padding.x)
+                    .max(1.0),
+                egui::TextStyle::Small,
+            );
+            egui::CollapsingHeader::new(heading)
+                .id_salt(&item.id)
+                .show(ui, |ui| json_view(ui, &item.value()))
+                .header_response
+                .on_hover_text(&title);
             ui.add_space(4.0);
             return;
         }
@@ -311,8 +315,13 @@ impl ConsoleApp {
                                             egui::Layout::right_to_left(egui::Align::Center),
                                             |ui| {
                                                 if self.can_contribute()
-                                                    && quiet_message_action(ui, "Reply", hovered)
-                                                        .clicked()
+                                                    && quiet_message_action(
+                                                        ui,
+                                                        Icon::Reply,
+                                                        "Reply",
+                                                        hovered,
+                                                    )
+                                                    .clicked()
                                                     && let Some(session) = &self.selected_id
                                                 {
                                                     self.collaboration.focus_composer = true;
@@ -329,23 +338,12 @@ impl ConsoleApp {
                                                         },
                                                     );
                                                 }
-                                                let copy = ui.add(
-                                                    egui::Button::new(
-                                                        RichText::new("Copy message")
-                                                            .small()
-                                                            .color(Color32::TRANSPARENT),
-                                                    )
-                                                    .frame(false),
+                                                let copy = quiet_message_action(
+                                                    ui,
+                                                    Icon::Copy,
+                                                    "Copy message",
+                                                    hovered,
                                                 );
-                                                if hovered || copy.has_focus() || copy.hovered() {
-                                                    ui.painter().text(
-                                                        copy.rect.center(),
-                                                        egui::Align2::CENTER_CENTER,
-                                                        "Copy message",
-                                                        egui::FontId::proportional(11.0),
-                                                        theme::MUTED,
-                                                    );
-                                                }
                                                 if copy.clicked() {
                                                     let text = item
                                                         .fields
@@ -440,12 +438,17 @@ impl ConsoleApp {
                                             .unwrap_or_else(|| "source".into());
                                         let source_link =
                                             json!({"thread_id":thread_id,"target":target});
-                                        if ui
-                                            .small_button(format!(
-                                                "Source · {title} · {anchor_label}"
-                                            ))
-                                            .on_hover_text("Open the captured annotation source")
-                                            .clicked()
+                                        if icons::object_button(
+                                            ui,
+                                            if target["kind"] == "browser" {
+                                                Icon::Image
+                                            } else {
+                                                Icon::File
+                                            },
+                                            title,
+                                            &format!("View annotation · {title} · {anchor_label}"),
+                                        )
+                                        .clicked()
                                             && let Some(session) = self.selected_id.clone()
                                         {
                                             self.open_workspace_source(
@@ -487,7 +490,10 @@ impl ConsoleApp {
                                                     });
                                                 }
                                                 "input_text" => {
-                                                    ui.label(string(part, "text"));
+                                                    ui.add(
+                                                        egui::Label::new(string(part, "text"))
+                                                            .wrap(),
+                                                    );
                                                 }
                                                 "input_image" => {
                                                     ui.label(
@@ -573,20 +579,33 @@ fn author_badge(ui: &mut Ui, label: &str, color: Color32, agent: bool) {
     response.on_hover_text(label);
 }
 
-fn quiet_message_action(ui: &mut Ui, label: &str, row_hovered: bool) -> egui::Response {
-    let response = ui.add(
-        egui::Button::new(RichText::new(label).small().color(Color32::TRANSPARENT)).frame(false),
-    );
+fn quiet_message_action(ui: &mut Ui, icon: Icon, label: &str, row_hovered: bool) -> egui::Response {
+    let response = ui
+        .scope(|ui| {
+            ui.spacing_mut().button_padding = egui::vec2(6.0, 6.0);
+            ui.add(
+                egui::Button::new(
+                    RichText::new(icon.glyph())
+                        .font(icons::font(18.0))
+                        .color(Color32::TRANSPARENT),
+                )
+                .min_size(egui::vec2(30.0, 30.0))
+                .frame(false),
+            )
+        })
+        .inner;
+    response
+        .widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, response.enabled(), label));
     if row_hovered || response.hovered() || response.has_focus() {
         ui.painter().text(
             response.rect.center(),
             egui::Align2::CENTER_CENTER,
-            label,
-            egui::FontId::proportional(11.0),
+            icon.glyph(),
+            icons::font(18.0),
             theme::MUTED,
         );
     }
-    response
+    response.on_hover_text(label)
 }
 
 #[cfg(test)]

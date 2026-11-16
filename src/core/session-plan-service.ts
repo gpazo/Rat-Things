@@ -171,8 +171,11 @@ export class SessionPlanService {
     } catch (error) {
       const winner = await this.store.get<SessionPlanCall>(input.ownerId, CALL_COLLECTION, id).catch(() => undefined);
       if (winner) return replay(winner.value, digest);
-      if (!plan && conflict(error)) return output;
       if (!conflict(error)) throw error;
+      // Invalid or stale tool output is still a response to this exact call.
+      // If its observation fence lost a race, do not return an uncommitted
+      // response: a later retry must re-evaluate against fresh host context.
+      if (!plan) throw error;
 
       // A competing Plan write won after this call read the previous head.
       // Preserve the function-call identity with a deterministic stale result.

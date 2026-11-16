@@ -127,6 +127,7 @@ pub(crate) enum Data {
     Resource(Resource),
     Snapshot(SessionSnapshot),
     ActivityIdle,
+    ActivityConnected,
     TypingFrame(Value),
     ActivityFrame(SessionSnapshot),
     Authority {
@@ -892,6 +893,9 @@ impl Api {
                 response.status()
             ));
         }
+        if !emit(Ok(Data::ActivityConnected)) {
+            return Ok(Data::ActivityIdle);
+        }
         let mut stream = BufReader::new(response);
         let mut data = String::new();
         while !cancel.load(Ordering::Acquire) {
@@ -1022,11 +1026,11 @@ impl Api {
 
 fn request_error(error: reqwest::Error) -> String {
     if error.is_timeout() {
-        "The request timed out. Your draft is preserved.".into()
+        "The request timed out.".into()
     } else if error.is_connect() {
         "The local signer is unavailable. Restart the console to reconnect.".into()
     } else {
-        "The request could not be completed. Your draft is preserved.".into()
+        "The request could not be completed.".into()
     }
 }
 

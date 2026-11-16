@@ -4,6 +4,7 @@ import { SESSION_PLAN_TOOL_NAME, type SessionPlan } from '../domain/session-plan
 import type { SessionRuntimeState } from './session-runtime-planning.js';
 import { capturedWorkspaceAnchor, projectWorkspaceFeedback, projectWorkspaceMessage, projectWorkspaceTarget, workspaceAnchor, workspaceFeedbackContext, workspaceThreads, type WorkspaceFeedback, type WorkspaceTarget } from './session-workspace-planning.js';
 import { SharedBrowserFrames } from './shared-browser-frames.js';
+import { browserView, browserViewKey, type BrowserActionReceipt, type BrowserView } from './shared-browser-activity.js';
 import { browserCommand, requireSharedBrowser, sharedBrowserGranted, type BrowserFrame } from '../domain/shared-browser.js';
 import { participantKey, collaborationRecord, requireContribution, type MessageReply } from './session-collaboration-planning.js';
 import { feedbackCollection, feedbackDigest, feedbackWindow, planFeedbackBatch, type SessionFeedback, type FeedbackEvent } from './session-feedback-planning.js';
@@ -56,7 +57,7 @@ export class SessionService {
   private readonly clock: AgentsClock;
   private readonly ids: AgentsIds;
   private readonly activityPolling = new SessionActivityPolling();
-  private readonly browserFrames = new SharedBrowserFrames();
+  private readonly browserFrames = new SharedBrowserFrames<BrowserView>();
   private readonly plans: SessionPlanService;
   public readonly collaboration: SessionCollaborationService;
   private readonly typingPolling = new SessionActivityPolling<Awaited<ReturnType<SessionCollaborationService['presence']>>>();
@@ -776,17 +777,21 @@ export class SessionService {
     return Buffer.concat(chunks);
   }
 
-  public async browserFrame(owner: string, id: string, caller?: SessionCaller): Promise<BrowserFrame> {
+  public async browserFrame(owner: string, id: string, caller?: SessionCaller): Promise<BrowserView> {
     await validateSessionCaller(caller);
     const { value } = await this.required(owner, id);
     requireSharedBrowser(value.session.agent.tools, value.session.environment);
     if (!this.options.execution.browser) throw new AgentsApiError(503, 'The shared browser runtime is unavailable.', 'browser_unavailable');
-    const frame = await this.browserFrames.read(JSON.stringify([owner, id]), () => this.options.execution.browser!(owner, value.session, { command_id: this.ids.next('frame'), operation: { action: 'snapshot' } }));
+    const frame = await this.browserFrames.read(JSON.stringify([owner, id]), async () => {
+      const frame = await this.options.execution.browser!(owner, value.session, { command_id: this.ids.next('frame'), operation: { action: 'snapshot' } });
+      const receipt = await this.options.store.get<BrowserActionReceipt>(owner, `session_browser_views:${id}`, browserViewKey(frame));
+      return browserView(frame, receipt && (receipt.expiresAt ?? Infinity) > this.clock.now() ? receipt.value : undefined);
+    });
     await validateSessionCaller(caller);
     return frame;
   }
 
-  public async browserAction(owner: string, id: string, raw: unknown, caller: SessionCaller, key?: string): Promise<BrowserFrame> {
+  public async browserAction(owner: string, id: string, raw: unknown, caller: SessionCaller, key?: string): Promise<BrowserView> {
     requireContribution(caller.permissions);
     if (!key || key.length > 256) invalid('Keep an Idempotency-Key for this browser action.');
     const input = collaborationRecord(raw, ['operation', 'epoch', 'revision']);
@@ -813,7 +818,22 @@ export class SessionService {
     try {
       const frame = await this.options.execution.browser(owner, resource.value.session, command);
       await validateSessionCaller(caller);
-      return frame;
+      if (command.operation.action === 'snapshot' || command.operation.action === 'capture'
+        || frame.epoch !== command.epoch || frame.revision !== command.revision! + 1) return browserView(frame);
+      const receipt: BrowserActionReceipt = { epoch: frame.epoch, revision: frame.revision,
+        actor: { id: caller.actor.id, label: caller.actor.label ?? caller.actor.id }, action: command.operation.action };
+      const collection = `session_browser_views:${id}`; const receiptId = browserViewKey(frame);
+      const previous = await this.options.store.get<BrowserActionReceipt>(owner, collection, receiptId);
+      if (!previous) {
+        try { await this.options.store.commit([{ resource: { ownerId: owner, collection, id: receiptId, createdAt: this.clock.now(),
+          expiresAt: this.clock.now() + 3600, revision: 1, value: receipt }, expectedRevision: 0 }], caller.observations); }
+        catch (error) {
+          if (!(error instanceof AgentsApiError) || error.code !== 'conflict' || !await this.options.store.get(owner, collection, receiptId)) throw error;
+        }
+      }
+      await validateSessionCaller(caller);
+      const saved = await this.options.store.get<BrowserActionReceipt>(owner, collection, receiptId);
+      return browserView(frame, saved?.value);
     } finally { this.browserFrames.invalidate(JSON.stringify([owner, id])); }
   }
 

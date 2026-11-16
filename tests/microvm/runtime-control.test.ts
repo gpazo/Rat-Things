@@ -273,8 +273,9 @@ it('routes a response through the installed runner controller and waits for its 
   });
   expect((await respond('pi_call_unknown')).status).toBe(409);
 
+  expect((await post(`/agent-runtime/v1/runs/${runId}/requests/codex-request-1/respond`, { result: { success: true, output: 'plan' } })).status).toBe(409);
   const codexRequest = bridge.hooks.onServerRequest?.({
-    requestId: 'codex-request-1', method: 'item/tool/call', params: { tool: 'lookup' },
+    requestId: 'codex-request-1', method: 'item/tool/call', params: { tool: 'rat_things_plan_update', arguments: { expected_revision: 0, items: [] } },
   });
   const codexResult = { success: true, output: 'codex-result' };
   expect((await post(`/agent-runtime/v1/runs/${runId}/requests/codex-request-1/respond`, { result: codexResult })).status).toBe(202);

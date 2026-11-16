@@ -411,9 +411,11 @@ artifact, or the agent's Plan. In a narrow window, switch between
 composer, so you can follow the work while reading the conversation.
 See [Session Plans](session-plan.md) for statuses, source links and revision history.
 
-Use **Expand workspace** for more room, then **Back to conversation** to return
-to the discussion. Image zoom and scrolling change only your view. They do not
-navigate the shared browser or change the source attached to a draft.
+Drag the divider to give the work or conversation more room. Focus the divider
+and use the arrow keys to resize with the keyboard; double-click to reset it.
+Use **Expand workspace** for a full-width view, then **Back to conversation** to
+return to the discussion. Image zoom and panning change only your view and keep
+the source attached to your draft unchanged.
 
 Choose **Annotate**, then select an element on a captured browser page, drag an
 image region, or select text. The selected context appears in the ordinary message
@@ -426,11 +428,29 @@ returning to the live browser, or another participant navigating does not retarg
 your draft. Open its context chip to revisit the original source. A reply to a
 message can also carry artifact context; both are saved with the same contribution.
 
+The composer shows **Sending message…** or **Sending feedback…**, then **Last
+message sent** or **Last feedback sent** when the service confirms the contribution.
+This receipt refers to your last submission to the chat, not an autosaved draft or
+an acknowledgment from the agent. Follow the agent's progress and Plan to see how
+it is being handled. If confirmation fails, your draft and attachment remain;
+check the conversation before retrying because the service may have accepted the
+message even if its response was lost. Starting a new draft clears the receipt.
+
+If live updates are interrupted, **Updates paused · Reconnecting…** replaces the
+progress label while the console reconnects. The current conversation and draft
+stay visible. The notice clears when updates reconnect; it does not change the
+status of a message submission. Other read errors appear beside the affected list
+or details and clear when that view successfully refreshes.
+
 Published feedback appears in the conversation with its author and source link.
 Open that link to see the original artifact or browser capture. Participant colors
 identify authors in chat and annotation markers. The feedback list lets you find
 comments when markers overlap. Resolving a discussion does not mark Plan work
 addressed; the agent controls Plan status.
+After a successful resolve, **Feedback resolved** stays visible even when the
+Resolved filter hides the discussion. Choose **Show resolved** to reveal it and
+use **Reopen** if more discussion is needed. The confirmation can be dismissed;
+it is separate from the agent's Plan status.
 
 Feedback reaches the agent with its author, immutable artifact version and selected
 context. Image and browser feedback includes the referenced image. A newer output
@@ -470,6 +490,20 @@ one ordered queue. If someone changes the browser before your action arrives,
 refresh and try again against the current view. The browser uses the Session's
 existing network policy; a browser grant does not add network destinations.
 
+Use the phone or desktop icons to switch the shared page between **390 × 844**
+and **1280 × 800**. Everyone sees the new viewport. These controls change the
+page's layout size; they do not emulate a phone's operating system or touch input.
+Zoom and Fit affect only your view. The up/down controls scroll the shared page;
+keyboard controls send text and keys to its focused field. Tooltips identify each
+icon. Viewers can follow viewport changes but cannot make them.
+
+The shared-size label shows the current page dimensions. A collaborator's action
+appears only after it succeeds and while the browser still has that resulting
+revision. It is not an ownership indicator: a later agent action or browser
+generation can remove it. Choose **1:1** for actual-size inspection, with local
+scrolling when the image exceeds the pane; **Fit** returns to an overview. This
+helps distinguish small page text from a scaled-down preview.
+
 To preview generated web content, the agent can navigate to
 `https://rat-artifacts.invalid/index.html` after writing
 `/workspace/outputs/index.html`. This address serves files from that worker's
@@ -482,9 +516,11 @@ capture while other participants continue browsing. **Return to live** rejoins t
 current page without changing the context attached to your draft. Captures attached
 to published feedback remain part of the Session's durable history even if the
 browser later navigates or its worker stops. Element locations belong to one
-capture; they are not selectors that follow a changing page.
+capture; they are not selectors that follow a changing page. Pins appear on the
+saved capture. Feedback remains listed while you follow the live browser; open
+its source to see the original location.
 
-The initial browser supports one page, a fixed viewport and periodically refreshed
+The browser supports one page, a resizable viewport and periodically refreshed
 images. Pop-up tabs, downloads, file uploads, WebGL and WebSocket applications are not
 supported. A replaced worker starts a new browser generation; old actions cannot
 be replayed into it. Captured feedback survives, but live forms and JavaScript
@@ -549,7 +585,11 @@ capture-local `id`, bounded `text` and normalized `x`, `y`, `width` and `height`
 A frame includes at most 256 visible element regions. Use a region or whole-page
 annotation when the desired element is absent. A browser action supplies `epoch`,
 `revision` and `operation`, with an `Idempotency-Key`. Operations include `navigate`, `click`,
-`type`, `key`, `scroll`, `back`, `forward` and `reload`. Coordinates are normalized
+`type`, `key`, `scroll`, `back`, `forward`, `reload` and `resize`. For example,
+`{"action":"resize","width":390,"height":844}` changes the shared viewport.
+Width must be an integer from 320 to 1920; height from 240 to 1440. Resize uses
+the same revision fence as navigation and leaves saved captures unchanged.
+Coordinates are normalized
 to the displayed viewport. Do not automatically replay rejected actions against a
 newer revision. Authorized frame reads can share capture work within a server
 process; permission checks are performed for each request.

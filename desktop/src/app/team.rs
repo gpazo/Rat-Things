@@ -723,7 +723,7 @@ impl ConsoleApp {
             if ui
                 .add_enabled(
                     self.team.pending.is_none() && !self.team.endpoint.trim().is_empty(),
-                    egui::Button::new("Find team sign-in"),
+                    egui::Button::new("Find team"),
                 )
                 .clicked()
             {
@@ -777,10 +777,7 @@ impl ConsoleApp {
                     ui.hyperlink_to("Open team sign-in", url);
                 }
                 if ui
-                    .add_enabled(
-                        self.team.pending.is_none(),
-                        egui::Button::new("Cancel team sign-in"),
-                    )
+                    .add_enabled(self.team.pending.is_none(), egui::Button::new("Cancel"))
                     .clicked()
                 {
                     self.team_request(
@@ -816,7 +813,7 @@ impl ConsoleApp {
                         self.team.pending.is_none()
                             && self.team.login.is_none()
                             && !self.team.invite.trim().is_empty(),
-                        egui::Button::new("Join with invite link"),
+                        egui::Button::new("Join with invite"),
                     )
                     .clicked()
             {
@@ -870,10 +867,7 @@ impl ConsoleApp {
                     ui.add_space(8.0);
                 }
                 if ui
-                    .add_enabled(
-                        self.team.pending.is_none(),
-                        egui::Button::new("Cancel invite"),
-                    )
+                    .add_enabled(self.team.pending.is_none(), egui::Button::new("Cancel"))
                     .clicked()
                 {
                     self.team.invite_flow = InviteFlow::Idle;
@@ -924,7 +918,7 @@ impl ConsoleApp {
                             && !self.team.issuer.is_empty()
                             && !self.team.subject.is_empty()
                             && !self.team.grant_role.is_empty(),
-                        egui::Button::new("Grant space role"),
+                        egui::Button::new("Grant access"),
                     )
                     .clicked()
                 {
@@ -939,12 +933,13 @@ impl ConsoleApp {
                 );
                 self.invite_controls(ui, &space, ctx);
             }
-            if ui
-                .add_enabled(
-                    self.team.pending.is_none(),
-                    egui::Button::new("Refresh team accounts"),
-                )
-                .clicked()
+            if icons::button_enabled(
+                ui,
+                self.team.pending.is_none(),
+                Icon::Refresh,
+                "Refresh accounts",
+            )
+            .clicked()
             {
                 self.team.loaded = false;
                 self.team.bindings = None;
@@ -962,7 +957,7 @@ impl ConsoleApp {
                 .unwrap_or("Team account");
             ui.horizontal_wrapped(|ui| {
                 if ui.add_enabled(self.team.pending.is_none(),egui::Button::new(format!("{name} · spaces"))).clicked() { self.team_request(TeamOperation::Spaces(id.clone()),Method::GET,format!("/api/v1/team/connections/{}/spaces",path_segment(&id)),None,ctx); }
-                if !share && ui.button("Copy verified identity").clicked() { ctx.copy_text(json!({"issuer":identity["issuer"],"subject":identity["subject"]}).to_string()); }
+                if !share && icons::button(ui, Icon::Copy, "Copy verified identity").clicked() { ctx.copy_text(json!({"issuer":identity["issuer"],"subject":identity["subject"]}).to_string()); }
                 if !share && ui.add_enabled(self.team.pending.is_none(),egui::Button::new("Reconnect")).clicked() { self.team_request(TeamOperation::Login,Method::POST,"/api/v1/team/login".into(),Some(json!({"endpoint":connection["endpoint"],"provider_id":connection["provider"]["id"],"connection_id":id})),ctx); }
                 if !share && ui.add_enabled(self.team.pending.is_none(),egui::Button::new("Sign out")).clicked() { self.team_request(TeamOperation::Logout,Method::POST,format!("/api/v1/team/connections/{}/logout",path_segment(&id)),Some(json!({})),ctx); }
             });
@@ -995,7 +990,7 @@ impl ConsoleApp {
                 && ui
                     .add_enabled(
                         can_switch && self.team.pending.is_none(),
-                        theme::primary_button("Open team space"),
+                        theme::primary_button("Open space"),
                     )
                     .clicked()
             {
@@ -1127,7 +1122,7 @@ impl ConsoleApp {
         }
         if let Some((role, link)) = self.team.invite_link.clone() {
             ui.label(RichText::new(&link).monospace().small());
-            if ui.button("Copy invite link").clicked() {
+            if icons::button(ui, Icon::Copy, "Copy invite link").clicked() {
                 ctx.copy_text(link);
                 self.notice = Some("Invite link copied.".into());
             }
@@ -1429,7 +1424,12 @@ mod tests {
             ui.state().snapshot.as_ref().unwrap().items[0].fields["content"][0]["text"],
             "Saved shared message"
         );
-        assert!(ui.state().error.is_some());
+        assert!(ui.state().read_status.get(ReadScope::Activity).is_some());
+        assert!(ui.state().error.is_none());
+        assert!(
+            ui.query_by_label("Updates paused · Reconnecting…")
+                .is_some()
+        );
     }
 
     #[test]
@@ -1627,10 +1627,10 @@ mod tests {
         );
         let mut ui = invite_controls_harness(app);
         assert!(ui.query_by_label("Join as work-account").is_some());
-        ui.get_by_label("Cancel invite").click();
+        ui.get_by_label("Cancel").click();
         ui.run_steps(2);
         assert!(ui.query_by_label("Join as work-account").is_none());
-        assert!(ui.query_by_label("Join with invite link").is_some());
+        assert!(ui.query_by_label("Join with invite").is_some());
         assert_eq!(
             ui.state().team.invite,
             "https://team.example/v1/rat/invites#rti_secret"
@@ -1656,7 +1656,7 @@ mod tests {
             Some("https://other.example/v1/rat/invites#rti_new")
         );
         assert!(ui.query_by_label("Sign in to team").is_none());
-        assert!(ui.query_by_label("Join with invite link").is_some());
+        assert!(ui.query_by_label("Join with invite").is_some());
     }
     #[test]
     fn cancelling_invite_sign_in_does_not_reuse_the_invite_for_a_new_sign_in() {

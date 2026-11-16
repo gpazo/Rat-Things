@@ -51,6 +51,12 @@ After a service restart, it resumes unfinished model work and retains completed
 function results. An interrupted model request can be retried. Cloud Pi continues
 to use the deployment's separately configured Bedrock catalog.
 
+In managed Codex Sessions, files under `/workspace/outputs/` become saved artifacts.
+Plan result links refer to the exact saved version, so later edits to a workspace
+file do not change earlier results. Saved artifacts use the local profile’s
+encrypted storage and survive a service restart. Deleting the Session removes
+its local saved artifact bytes.
+
 ## Give your Session a Linux workspace
 
 The first local worker supports **Apple silicon Macs** with Docker Desktop, Colima,

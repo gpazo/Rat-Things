@@ -98,17 +98,12 @@ impl CapturedContext {
             CapturedSourceKind::Browser => self.source.title.clone(),
             CapturedSourceKind::Artifact => crate::api::safe_filename(&self.source.title),
         };
-        let (kind, detail) = match &self.anchor {
-            CapturedAnchor::Item => ("File", source),
-            CapturedAnchor::Point { .. } => ("Page point", source),
-            CapturedAnchor::Region { .. } => ("Image region", source),
-            CapturedAnchor::Text { quote, .. } => (
-                "Selected text",
-                format!("“{}”", quote.chars().take(52).collect::<String>()),
-            ),
-            CapturedAnchor::BrowserElement { .. } => ("Page selection", source),
-        };
-        format!("{kind} · {detail}")
+        match &self.anchor {
+            CapturedAnchor::Text { quote, .. } => {
+                format!("“{}”", quote.chars().take(52).collect::<String>())
+            }
+            _ => source,
+        }
     }
 }
 
@@ -122,6 +117,7 @@ pub(super) struct CollaborationUi {
     pub replies: HashMap<String, ReplyDraft>,
     pub contexts: HashMap<String, CapturedContext>,
     pub feedback_errors: HashMap<String, String>,
+    pub submissions: HashMap<String, ContributionReceipt>,
     pub remote: Vec<RemoteTypist>,
     pub scroll_target: Option<String>,
     pub focus_composer: bool,
@@ -138,6 +134,7 @@ impl Default for CollaborationUi {
             replies: HashMap::new(),
             contexts: HashMap::new(),
             feedback_errors: HashMap::new(),
+            submissions: HashMap::new(),
             remote: Vec::new(),
             scroll_target: None,
             focus_composer: false,
@@ -308,10 +305,7 @@ impl ConsoleApp {
                         .small()
                         .color(reply.color),
                 );
-                let cancel = ui.small_button("×").on_hover_text("Cancel reply");
-                cancel.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::Role::Button, true, "Cancel reply")
-                });
+                let cancel = icons::button(ui, Icon::Close, "Cancel reply");
                 if cancel.clicked() {
                     self.collaboration.replies.remove(session);
                 }

@@ -208,7 +208,7 @@ fn idle_downgrade_removes_vault_content_and_reloads_allowed_sessions() {
     assert!(ui.state().team.bindings.is_none());
     assert!(!ui.state().pending.contains_key(&998));
     assert!(!ui.state().pending.contains_key(&999));
-    assert!(ui.query_by_label("Grant space role").is_none());
+    assert!(ui.query_by_label("Grant access").is_none());
     let (request, release) = received.recv_timeout(Duration::from_secs(5)).unwrap();
     assert!(request.starts_with("GET /api/v1/agents/sessions?"));
     release
@@ -358,10 +358,10 @@ fn only_managers_see_invite_link_controls() {
     let mut ui = harness(app);
     assert!(ui.query_by_label("Create invite link").is_some());
     assert!(ui.query_by_label("Revoke").is_some());
-    assert!(ui.query_by_label("Join with invite link").is_some());
+    assert!(ui.query_by_label("Join with invite").is_some());
     ui.state_mut().workspace.as_mut().unwrap()["role"] = "collaborator".into();
     ui.run_steps(2);
     assert!(ui.query_by_label("Create invite link").is_none());
     assert!(ui.query_by_label("Revoke").is_none());
-    assert!(ui.query_by_label("Join with invite link").is_some());
+    assert!(ui.query_by_label("Join with invite").is_some());
 }

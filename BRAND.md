@@ -53,7 +53,12 @@ never make a workspace switch sound like a completed migration.
 
 - Interface headings name the task or object: "New session", "Workspaces", "Instructions".
 - Supporting text explains a choice, consequence or recovery step; it does not restate the heading.
-- Buttons say exactly what happens: "Deploy your agent cloud", "Trace a Session", "New session".
+- Primary actions use short, concrete labels: "Share", "Sign in", "New session".
+- Familiar secondary actions use Phosphor regular icons in 30px targets, with tooltips, keyboard focus and descriptive accessible names. Use one icon family; never emoji or hand-drawn action glyphs.
+- Make the object the link: click the attached page, file name or quoted message. Avoid separate instructions such as "Open captured source".
+- Keep text on consequential actions and menus. Participant names, content, status and decision reasons stay visible.
+- Group navigation, annotation and view controls by purpose; keep toolbars fixed while content scrolls. Selection modes keep their position and show a pressed state, with Escape and a close action to leave the mode.
+- Expand Plan details beneath their item. Source excerpts keep participant-colored names, readable neutral text and an explicit navigation affordance. Do not repeat the selected title in a detached card.
 - Product nouns are capitalized as defined terms: Agent, Session, Turn, Item, Vault.
 
 ## Color

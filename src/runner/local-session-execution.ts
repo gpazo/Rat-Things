@@ -15,6 +15,10 @@ import type { LocalManagedEnvironment } from './local-managed-environment.js';
 import { developmentLocalCodexHost, localCodexArguments, localCodexClient, localCodexEnvironment, type LocalCodexHostProvider } from './local-codex.js';
 import { LocalRuntimeLifecycle } from '../adapters/local-runtime-lifecycle.js';
 import { sharedBrowserGranted } from '../domain/shared-browser.js';
+import { SessionArtifactCapture } from '../core/session-artifact-capture.js';
+import { LocalSessionArtifactStore } from './local-session-artifact-store.js';
+import type { SavedSessionArtifact } from '../core/session-ports.js';
+import type { SessionLaunch } from '../domain/session-execution.js';
 
 /** The host owns subscription inference; managed commands run in an isolated Linux worker. */
 export class LocalSessionExecution implements SessionExecution {
@@ -194,8 +198,21 @@ export class LocalSessionExecution implements SessionExecution {
     const state = await this.state(owner, session.id);
     return state ? runtimeSubagents(state) : [];
   }
-  public async artifacts() { return []; }
-  public async artifactContent(): Promise<ReadableStream<Uint8Array>> { throw new AgentsApiError(404, 'Artifact not found.', 'resource_not_found'); }
+  public async artifacts(owner: string, session: AgentSession, turnId: string): Promise<SavedSessionArtifact[]> {
+    await requireLocalExecution(this.options.store, owner, session.id);
+    await this.writes;
+    return (await this.state(owner, session.id))?.turns.find(binding => binding.turn.id === turnId)?.artifacts ?? [];
+  }
+  public async artifactContent(owner: string, session: AgentSession, artifact: SavedSessionArtifact): Promise<ReadableStream<Uint8Array>> {
+    await requireLocalExecution(this.options.store, owner, session.id);
+    await this.writes;
+    const saved = (await this.state(owner, session.id))?.turns.find(binding => binding.turn.id === artifact.artifact.turn_id)?.artifacts
+      ?.find(entry => entry.artifact.id === artifact.artifact.id && entry.content.bucket === artifact.content.bucket
+        && entry.content.key === artifact.content.key && entry.content.sha256 === artifact.content.sha256);
+    if (!saved || saved.artifact.session_id !== session.id) throw new AgentsApiError(404, 'Artifact not found.', 'resource_not_found');
+    const bytes = await new LocalSessionArtifactStore(this.options.store, owner, session.id).getBytes(saved.content);
+    return new ReadableStream({ start(controller) { controller.enqueue(bytes); controller.close(); } });
+  }
   public close(owner: string, session: AgentSession) {
     return this.lifecycle.run(session.id, () => this.closeSession(owner, session));
   }
@@ -208,6 +225,8 @@ export class LocalSessionExecution implements SessionExecution {
     finally { if (session.environment.type !== 'none') await this.options.managed?.close(owner, session); }
     if (this.runtimes.get(session.id) === pending) this.runtimes.delete(session.id);
     await this.writes;
+    const current = await this.options.store.get<SessionState>(owner, 'sessions', session.id);
+    if (current?.value.closing) await new LocalSessionArtifactStore(this.options.store, owner, session.id).deleteSession();
   }
   public shutdown() {
     this.closing = true;
@@ -263,12 +282,19 @@ export class LocalSessionExecution implements SessionExecution {
       ? await this.options.managed.launch(owner, session, base, history, planTool)
       : planSessionLaunch(base, { sessionId: session.id, turnId: '', agent: session.agent, environment: session.environment, input: [], history, ...(planTool ? { planTool } : {}) });
     const request = { ...base, ...launch, sandbox: 'read-only' as const, persistent: true };
+    const capture = session.environment.type === 'openai_hosted' && this.options.managed
+      ? new SessionArtifactCapture({ ownerId: owner, launch: { sessionId: session.id, turnId: '', agent: session.agent,
+        ...(planTool ? { planTool } : {}),
+        environment: session.environment, input: [] } satisfies SessionLaunch,
+        files: { execute: operation => this.options.managed!.files(owner, session.id, operation) },
+        artifacts: { putBytes: (key, bytes) => new LocalSessionArtifactStore(this.options.store, owner, session.id).putBytes(key, bytes) } })
+      : undefined;
     const runtime = new SessionRuntime({ sessionId: session.id, agentId: session.agent.id,
       ...(planTool ? { planTool } : {}),
       client: localCodexClient,
       request: this.options.request?.(request) ?? request, ...(sharedBrowserGranted(session.agent.tools) ? { lifetime: 'host-managed' as const } : { idleTimeoutMs: 30_000 }), ...(previous ? { previous } : {}),
       changed: snapshot => {
-        if (!this.cancellations.has(session.id)) void this.saveSnapshot(owner, session, snapshot).catch(() => runtime.close());
+        if (!this.cancellations.has(session.id)) void this.saveSnapshot(owner, session, snapshot, capture).catch(() => runtime.close());
       },
     });
     void runtime.finished.then(() => {
@@ -283,14 +309,24 @@ export class LocalSessionExecution implements SessionExecution {
     try { await runtime.initialize(); await this.writes; return runtime; }
     catch (error) { await runtime.close(); throw error; }
   }
-  private saveSnapshot(owner: string, session: AgentSession, snapshot: SessionRuntimeState) {
-    this.snapshots.set(session.id, snapshot);
-    this.writes = this.writes.then(async () => {
-      const current = await this.options.store.get(owner, 'local_runtime', session.id);
+  private saveSnapshot(owner: string, session: AgentSession, snapshot: SessionRuntimeState, capture?: SessionArtifactCapture) {
+    let captureFailed = false;
+    const write = this.writes.catch(() => {}).then(async () => {
+      const current = await this.options.store.get<SessionRuntimeState>(owner, 'local_runtime', session.id);
+      let persisted = snapshot;
+      if (capture) {
+        try {
+          const input = preservePublishedFinalTurns(snapshot, current?.value);
+          persisted = preservePublishedFinalTurns(await capture.capture(input), current?.value);
+        }
+        catch { captureFailed = true; persisted = artifactCaptureFailure(snapshot, current?.value, Math.floor(Date.now() / 1000)); }
+      }
       await this.options.store.put({ ownerId: owner, collection: 'local_runtime', id: session.id,
-        createdAt: current?.createdAt ?? session.created_at, revision: (current?.revision ?? 0) + 1, value: snapshot }, current?.revision ?? 0);
+        createdAt: current?.createdAt ?? session.created_at, revision: (current?.revision ?? 0) + 1, value: persisted }, current?.revision ?? 0);
+      this.snapshots.set(session.id, persisted);
     });
-    return this.writes;
+    this.writes = write;
+    return write.then(() => { if (captureFailed) throw new Error('Local Session output capture failed'); });
   }
   private async failAttempt(owner: string, turn: Turn, status: 'failed' | 'cancelled' = 'failed') {
     const current = await this.options.store.get<Turn>(owner, 'local_turn_attempts', turn.id);
@@ -306,6 +342,40 @@ export class LocalSessionExecution implements SessionExecution {
 type StoppedRecovery =
   | { kind: 'retain'; snapshot: SessionRuntimeState }
   | { kind: 'persist'; snapshot: SessionRuntimeState };
+
+function preservePublishedFinalTurns(snapshot: SessionRuntimeState, previous?: SessionRuntimeState): SessionRuntimeState {
+  const previousTurns = new Map(previous?.turns.map(binding => [binding.turn.id, binding]) ?? []);
+  return { ...snapshot, turns: snapshot.turns.map(binding => {
+    const saved = previousTurns.get(binding.turn.id);
+    return saved && saved.artifactsFinal && terminalTurn(saved.turn) ? retainFinalBinding(binding, saved) : binding;
+  }) };
+}
+
+function artifactCaptureFailure(snapshot: SessionRuntimeState, previous: SessionRuntimeState | undefined, now: number): SessionRuntimeState {
+  const previousTurns = new Map(previous?.turns.map(binding => [binding.turn.id, binding]) ?? []);
+  const retained = { ...snapshot, turns: snapshot.turns.map(binding => {
+    const saved = previousTurns.get(binding.turn.id);
+    if (saved && saved.artifactsFinal && terminalTurn(saved.turn)) return retainFinalBinding(binding, saved);
+    return saved ? { ...binding, ...(saved.artifacts ? { artifacts: saved.artifacts } : {}),
+      ...(saved.planArtifactCalls ? { planArtifactCalls: saved.planArtifactCalls } : {}), ...(saved.artifactsFinal ? { artifactsFinal: true } : {}) } : binding;
+  }) };
+  const failedTurns = new Set(retained.turns.filter(binding => terminalTurn(binding.turn) && !binding.artifactsFinal
+    && binding.turn.status === 'completed').map(binding => binding.turn.id));
+  return { ...retained,
+    requiredActions: retained.requiredActions.filter(action => action.type !== 'function_call' || !failedTurns.has(action.turn_id)),
+    turns: retained.turns.map(binding => {
+      if (!terminalTurn(binding.turn) || binding.artifactsFinal) return binding;
+      return { ...binding, artifactsFinal: true, ...(failedTurns.has(binding.turn.id) ? { turn: { ...binding.turn, status: 'failed' as const,
+        completed_at: binding.turn.completed_at ?? now, error: { code: 'connection_failed', message: 'Local Session outputs could not be saved.' } } } : {}) };
+    }),
+  };
+}
+
+function retainFinalBinding(binding: SessionRuntimeState['turns'][number], saved: SessionRuntimeState['turns'][number]): SessionRuntimeState['turns'][number] {
+  return { ...binding, turn: { ...binding.turn, status: saved.turn.status, completed_at: saved.turn.completed_at, error: saved.turn.error },
+    ...(saved.artifacts ? { artifacts: saved.artifacts } : {}), ...(saved.planArtifactCalls ? { planArtifactCalls: saved.planArtifactCalls } : {}),
+    ...(saved.artifactsFinal ? { artifactsFinal: true } : {}) };
+}
 
 function cancelledRuntime(snapshot: SessionRuntimeState, turnId: string, now: number): SessionRuntimeState {
   const stopped = stoppedSessionRuntime(snapshot, now);

@@ -10,7 +10,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "test-results/shared-workspace-demo"
-OUTPUT = ROOT / "artifacts/shared-workspace/demo"
+OUTPUT = ROOT / "artifacts/shared-workspace/feedback-demo"
 SIZE = (1920, 1080)
 FPS = 12
 BG, BORDER = "#111112", "#3e3e44"
@@ -57,7 +57,7 @@ def compose(shot, frame, number, total):
         mark = mark.convert("RGBA").resize((40, 40), Image.Resampling.LANCZOS)
         board.paste(mark, (64, 36), mark)
     text(draw, (116, 41), "Rat Things", 28, weight="SemiBold")
-    text(draw, (1402, 45), "Multiplayer shared workspace", 24, MUTED)
+    text(draw, (1402, 45), "Shared feedback and Plan", 24, MUTED)
     text(draw, (64, 115), shot["title"], 46, weight="SemiBold")
     text(draw, (64, 184), shot["subtitle"], 27, SECONDARY)
     layout = shot["layout"]
@@ -68,7 +68,7 @@ def compose(shot, frame, number, total):
         text(draw, (64, 500), "One page to review.\nOne place for everyone’s feedback.", 27, SECONDARY)
         for person in range(3):
             participant(draw, person, (64 + person * 225, 700), "")
-        text(draw, (64, 850), "Real local clients and browser.\nDemo identities and scripted agent replies.", 24, MUTED)
+        text(draw, (64, 850), "Real local clients and browser.\nDemo identities, scripted agent and result.", 24, MUTED)
         paste_capture(board, capture(frame, 1, shot["crop"]), (850, 280, 1006, 640))
         text(draw, (850, 936), "Concept page under review", 24, MUTED)
     elif layout == "rows":
@@ -93,7 +93,7 @@ def compose(shot, frame, number, total):
         text(draw, (64, 250), f"{name} · {role}  /  native console", 24, color, "Medium")
         paste_capture(board, capture(frame, person, shot["crop"]), (64, 303, 1792, 650))
 
-    text(draw, (64, 1019), "Local capture · Scripted agent replies · Edited timing · No audio", 23, MUTED)
+    text(draw, (64, 1019), "Local capture · Scripted agent and result · Edited timing · No audio", 23, MUTED)
     text(draw, (1734, 1019), f"{number:02} / {total:02}", 23, MUTED)
     draw.line((64, 990, 1856, 990), fill=BORDER)
     draw.line((64, 990, 64 + 1792 * number / total, 990), fill="#828fff", width=2)
@@ -120,10 +120,15 @@ def srt_time(seconds):
 
 
 def main():
+    global SOURCE, OUTPUT
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--preview", action="store_true", help="Render a review image per shot without encoding video")
+    parser.add_argument("--edit", type=Path, default=ROOT / "testing/shared-workspace/feedback-edit.json")
+    parser.add_argument("--source", type=Path, default=SOURCE)
+    parser.add_argument("--output", type=Path, default=OUTPUT)
     args = parser.parse_args()
-    edit = json.loads((ROOT / "testing/shared-workspace/share-edit.json").read_text())
+    SOURCE, OUTPUT = args.source, args.output
+    edit = json.loads(args.edit.read_text())
     manifest = (SOURCE / "frames.json").read_bytes()
     assert hashlib.sha256(manifest).hexdigest() == edit["source_manifest_sha256"], "Capture changed: review and retime share-edit.json first"
     metadata = json.loads(manifest)
@@ -141,7 +146,7 @@ def main():
             cache_frame, raw = None, None
             preview = compose(shot, selected[-1], index, len(shots))
             preview.save(review / f"{index:02}-{shot['id']}.jpg", quality=94)
-            if shot["id"] == "maya-pin":
+            if shot["id"] == "maya-pin" or shot.get("poster"):
                 preview.save(OUTPUT / "poster.png")
             for frame in set(selected):
                 for person in range(3) if shot["layout"] == "rows" else [shot.get("person", 1 if shot["layout"] == "opening" else 2)]:
@@ -169,7 +174,7 @@ def main():
         print(f"Review images: {review}")
         return
     (OUTPUT / "multiplayer-workspace.srt").write_text("\n".join(subtitles))
-    recording = {"source": "Actual ConsoleApp renders driven through native controls", "source_manifest_sha256": edit["source_manifest_sha256"], "fps": FPS, "duration_seconds": elapsed, "frames": round(elapsed * FPS), "model": "Deterministic local Responses fixture; no paid inference", "identity": "Three fixture identities on authenticated loopback connections; not OIDC login validation", "editing": "Crops, cuts and holds only. No UI text replaced. Resolve/reopen omitted; final excerpt crops the first of the fixture's repeated replies.", "timing": "Presentation timing is edited, not a latency measurement", "timeline": timeline, "source_images": {name: hashlib.sha256((SOURCE / name).read_bytes()).hexdigest() for name in sorted(used)}}
+    recording = {"source": "Actual ConsoleApp renders driven through native controls", "source_manifest_sha256": edit["source_manifest_sha256"], "fps": FPS, "duration_seconds": elapsed, "frames": round(elapsed * FPS), "model": "Deterministic local Responses fixture; no paid inference", "identity": "Three fixture identities on authenticated loopback connections; not OIDC login validation", "editing": "Crops, cuts and holds only. No UI text replaced.", "timing": "Presentation timing is edited, not a latency measurement", "timeline": timeline, "source_images": {name: hashlib.sha256((SOURCE / name).read_bytes()).hexdigest() for name in sorted(used)}}
     (OUTPUT / "recording.json").write_text(json.dumps(recording, indent=2) + "\n")
     print(f"Saved {OUTPUT / 'multiplayer-workspace.mp4'} ({elapsed:.1f}s)")
 

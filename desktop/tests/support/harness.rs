@@ -1,5 +1,8 @@
 use egui::{Key, Modifiers, accesskit::Role};
-use egui_kittest::{Harness, kittest::Queryable};
+use egui_kittest::{
+    Harness,
+    kittest::{NodeT, Queryable},
+};
 use rat_things_desktop::ConsoleApp;
 use serde_json::Value;
 use std::{
@@ -138,7 +141,8 @@ pub fn click(app: &mut App, label: &str) {
         click(app, "Actions");
     }
     until(app, label, |app| {
-        app.query_by_role_and_label(Role::Button, label).is_some()
+        app.query_by_role_and_label(Role::Button, label)
+            .is_some_and(|node| !node.accesskit_node().is_disabled())
     });
     app.get_by_role_and_label(Role::Button, label)
         .scroll_to_me();

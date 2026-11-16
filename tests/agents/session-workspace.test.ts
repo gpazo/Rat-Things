@@ -139,3 +139,27 @@ it('coalesces viewer frames, expires them, and does not cache failures', async (
   const failed = vi.fn().mockRejectedValueOnce(new Error('Offline')).mockResolvedValue(frame);
   await expect(cache.read('another', failed)).rejects.toThrow('Offline'); await cache.read('another', failed); expect(failed).toHaveBeenCalledTimes(2);
 });
+
+it('attributes only completed collaborator actions at the exact browser generation and revision', async () => {
+  const f = await fixture();
+  vi.mocked(f.execution.browser!).mockResolvedValue({ ...frame, revision: 2 });
+  const request = { epoch: frame.epoch, revision: 1, operation: { action: 'resize', width: 390, height: 844 } };
+  const result = await f.sessions.browserAction('operator', f.session.id, request, caller('Maya'), 'phone');
+  expect(result.last_action).toMatchObject({ actor: { label: 'Maya' }, action: 'resize', epoch: frame.epoch, revision: 2 });
+  const shared = await f.sessions.browserFrame('operator', f.session.id, caller('viewer', ['read']));
+  expect(shared.last_action).toEqual(result.last_action);
+  await f.sessions.browserAction('operator', f.session.id, request, caller('Maya'), 'phone');
+  expect((await f.store.list('operator', `session_browser_views:${f.session.id}`, {})).data).toHaveLength(1);
+  // An autonomous agent's next action has no collaborator attribution.
+  vi.mocked(f.execution.browser!).mockResolvedValue({ ...frame, revision: 3 });
+  expect((await f.sessions.browserFrame('operator', f.session.id, caller('viewer', ['read']))).last_action).toBeUndefined();
+});
+
+it('does not project failed intents or untrusted worker-provided actor claims', async () => {
+  const f = await fixture();
+  vi.mocked(f.execution.browser!).mockRejectedValueOnce(new Error('Action rejected'));
+  await expect(f.sessions.browserAction('operator', f.session.id, { epoch: frame.epoch, revision: 1, operation: { action: 'reload' } }, caller('Maya'), 'reload')).rejects.toThrow('Action rejected');
+  vi.mocked(f.execution.browser!).mockResolvedValue(Object.assign({}, frame, { last_action: { actor: { label: 'Forged' }, action: 'reload', epoch: frame.epoch, revision: 1 } }));
+  expect((await f.sessions.browserFrame('operator', f.session.id, caller('viewer', ['read']))).last_action).toBeUndefined();
+  expect((await f.store.list('operator', `session_browser_views:${f.session.id}`, {})).data).toHaveLength(0);
+});

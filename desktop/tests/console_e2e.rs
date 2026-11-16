@@ -90,7 +90,8 @@ impl Fixture {
         let text = response.text().unwrap();
         assert!(
             status.is_success(),
-            "Fixture control POST {path}: {status}: {text}"
+            "Fixture control POST {path}: {status}: {text}: {:?}",
+            self.upstream.diagnostics.lock().unwrap()
         );
         serde_json::from_str(&text).unwrap()
     }
@@ -184,6 +185,7 @@ struct HeldReplyFixture {
     url: String,
     release: Sender<()>,
     submissions: Receiver<Value>,
+    fail_activity: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     server: Option<thread::JoinHandle<()>>,
 }
@@ -198,13 +200,18 @@ impl HeldReplyFixture {
         let (release_tx, release_rx) = mpsc::channel();
         let release_rx = Arc::new(Mutex::new(release_rx));
         let (submission_tx, submissions) = mpsc::channel();
+        let fail_activity = Arc::new(AtomicBool::new(false));
+        let server_fail_activity = fail_activity.clone();
         let server = thread::spawn(move || {
             while !server_stop.load(Ordering::Acquire) {
                 match listener.accept() {
                     Ok((stream, _)) => {
                         let submissions = submission_tx.clone();
                         let release = release_rx.clone();
-                        thread::spawn(move || serve_held_reply(stream, submissions, release));
+                        let fail_activity = server_fail_activity.clone();
+                        thread::spawn(move || {
+                            serve_held_reply(stream, submissions, release, fail_activity)
+                        });
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                         thread::sleep(Duration::from_millis(5));
@@ -217,6 +224,7 @@ impl HeldReplyFixture {
             url,
             release: release_tx,
             submissions,
+            fail_activity,
             stop,
             server: Some(server),
         }
@@ -237,12 +245,22 @@ fn serve_held_reply(
     mut stream: TcpStream,
     submissions: Sender<Value>,
     release: Arc<Mutex<Receiver<()>>>,
+    fail_activity: Arc<AtomicBool>,
 ) {
     stream.set_nonblocking(false).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_secs(5)))
         .unwrap();
     let (path, body) = read_http_request(&mut stream);
+    if path.ends_with("/activity") && fail_activity.load(Ordering::Acquire) {
+        write_http_response(
+            &mut stream,
+            503,
+            "application/json",
+            r#"{"error":{"message":"The request timed out."}}"#,
+        );
+        return;
+    }
     let response = match path.split('?').next().unwrap_or(&path) {
         "/api/v1/agents/sessions" => {
             json!({"data":[{"id":"sess_shared","object":"agent.session","status":"idle","metadata":{"name":"Held reply"}}],"has_more":false})
@@ -261,12 +279,21 @@ fn serve_held_reply(
         "/api/v1/agents/sessions/sess_shared/runtime" => json!({"runtime":"codex"}),
         "/api/v1/rat/sessions/sess_shared/messages" => {
             let submitted: Value = serde_json::from_slice(&body).unwrap();
-            submissions.send(submitted).unwrap();
+            submissions.send(submitted.clone()).unwrap();
             let _ = release
                 .lock()
                 .unwrap()
                 .recv_timeout(Duration::from_secs(15));
-            write_http_response(&mut stream, 204, "", "");
+            if submitted["text"] == "Reject this message." {
+                write_http_response(
+                    &mut stream,
+                    503,
+                    "application/json",
+                    r#"{"error":{"message":"Save unavailable"}}"#,
+                );
+            } else {
+                write_http_response(&mut stream, 204, "", "");
+            }
             return;
         }
         _ => {
@@ -531,7 +558,9 @@ fn refresh_preserves_visible_content_drafts_and_selection() {
     f.screenshot(&mut app, "refresh-pending-1280x850.png");
     // Failure must preserve the old content too, and a later refresh recovers.
     f.control("/__test/reads", json!({"fail":true}));
-    visible(&mut app, "Dismiss error");
+    visible(&mut app, "Couldn’t update the list");
+    visible(&mut app, "Updates paused · Reconnecting…");
+    assert!(app.query_by_label("Dismiss error").is_none());
     assert_eq!(
         app.get_by_label("Message").value().as_deref(),
         Some("Keep my unsent draft")
@@ -539,7 +568,11 @@ fn refresh_preserves_visible_content_drafts_and_selection() {
     f.control("/__test/reads", json!({}));
     click(&mut app, "Refresh");
     until(&mut app, "refresh recovery", |app| {
-        app.query_by_label("Updating…").is_none() && app.query_by_label("Dismiss error").is_none()
+        app.query_by_label("Updating…").is_none()
+            && app.query_by_label("Couldn’t update the list").is_none()
+            && app
+                .query_by_label("Updates paused · Reconnecting…")
+                .is_none()
     });
     assert_eq!(
         app.get_by_label("Message").value().as_deref(),
@@ -628,9 +661,9 @@ fn sessions_archive_from_context_menu_and_restore_after_reopening() {
             "name":"Archive this","project":"preserved","external":"new value"
         }}),
     );
-    session_context_menu(&mut app, "Archive this", "Archive session");
+    session_context_menu(&mut app, "Archive this", "Archive");
     f.screenshot(&mut app, "session-archive-context-menu.png");
-    click(&mut app, "Archive session");
+    click(&mut app, "Archive");
     until(&mut app, "archived row hidden", |app| {
         app.query_by_role_and_label(Role::Button, "Archive this")
             .is_none()
@@ -653,8 +686,8 @@ fn sessions_archive_from_context_menu_and_restore_after_reopening() {
     );
     // Failure leaves the visible session in place and keeps its draft.
     f.control("/__test/reads", json!({"fail":true}));
-    session_context_menu(&mut app, "Keep open", "Archive session");
-    click(&mut app, "Archive session");
+    session_context_menu(&mut app, "Keep open", "Archive");
+    click(&mut app, "Archive");
     visible(&mut app, "Dismiss error");
     assert!(
         app.query_by_role_and_label(Role::Button, "Keep open")
@@ -678,8 +711,8 @@ fn sessions_archive_from_context_menu_and_restore_after_reopening() {
     click(&mut reopened, "Archive this");
     visible(&mut reopened, "Message");
     contains(&mut reopened, "Saved conversation history");
-    session_context_menu(&mut reopened, "Archive this", "Unarchive session");
-    click(&mut reopened, "Unarchive session");
+    session_context_menu(&mut reopened, "Archive this", "Restore");
+    click(&mut reopened, "Restore");
     until(
         &mut reopened,
         "unarchived row removed from archive",
@@ -1614,14 +1647,14 @@ fn session_workspace_search_pin_rename_undo_and_draft_navigation() {
     tick(&mut app);
 
     click(&mut app, "Actions");
-    click(&mut app, "Pin session");
+    click(&mut app, "Pin");
     until(&mut app, "persistent pin", |_| {
         f.get(&format!("/v1/agents/sessions/{id}"))["metadata"]["rat_things_pinned"] == "true"
     });
     click(&mut app, "Actions");
-    click(&mut app, "Rename session");
+    click(&mut app, "Rename");
     fill(&mut app, "Session name", "Workspace release review");
-    click(&mut app, "Save name");
+    click(&mut app, "Save");
     until(&mut app, "rename saved", |app| {
         app.query_by_label("Session name").is_none()
     });
@@ -1655,7 +1688,7 @@ fn session_workspace_search_pin_rename_undo_and_draft_navigation() {
 
     let composer_rect = app.get_by_label("Message").rect();
     click(&mut app, "Actions");
-    click(&mut app, "Archive session");
+    click(&mut app, "Archive");
     visible(&mut app, "Undo");
     click(&mut app, "Undo");
     until(&mut app, "renamed session row", |app| {
@@ -1701,7 +1734,7 @@ fn session_workspace_search_pin_rename_undo_and_draft_navigation() {
     visible(&mut reopened, "Pinned");
     click(&mut reopened, "Workspace release review");
     click(&mut reopened, "Actions");
-    visible(&mut reopened, "Unpin session");
+    visible(&mut reopened, "Unpin");
 }
 
 #[test]
@@ -2191,7 +2224,7 @@ fn chatgpt_sign_in_retries_one_flow_and_cancels_only_its_saved_id() {
             .all(|request| request["body"]["id"] == first_id
                 && request["body"].as_object().unwrap().len() == 1)
     );
-    click(&mut app, "Cancel sign-in");
+    click(&mut app, "Cancel");
     enabled(&mut app, "Sign in with ChatGPT");
     assert!(f.state()["loginFlow"].is_null());
     let cancelled = f.requests(&format!(
@@ -2205,7 +2238,7 @@ fn chatgpt_sign_in_retries_one_flow_and_cancels_only_its_saved_id() {
     assert_ne!(f.state()["loginFlow"]["id"], first_id);
     f.control(json!({"signed_in":true}));
     contains(&mut app, "ChatGPT connected · fixture@example.test");
-    assert!(app.query_by_label("Cancel sign-in").is_none());
+    assert!(app.query_by_label("Cancel").is_none());
 }
 
 #[test]
@@ -2263,7 +2296,7 @@ fn copy_posts(state: &Value) -> Vec<Value> {
 
 fn assert_copy_review_disabled(app: &App) {
     assert!(
-        app.get_by_role_and_label(Role::Button, "Review Session copy")
+        app.get_by_role_and_label(Role::Button, "Review copy")
             .accesskit_node()
             .is_disabled()
     );
@@ -2296,8 +2329,8 @@ fn native_copy_requires_a_destination_model_and_recovers_the_saved_review_after_
     assert_copy_review_disabled(&app);
     assert!(f.state()["copies"]["plans"].as_array().unwrap().is_empty());
     choose_model(&mut app, "fixture-fast");
-    enabled(&mut app, "Review Session copy");
-    click(&mut app, "Review Session copy");
+    enabled(&mut app, "Review copy");
+    click(&mut app, "Review copy");
     enabled(&mut app, "Copy to AWS");
     visible(&mut app, "Copy status: Ready");
     app.get_by_role_and_label(Role::Button, "Copy to AWS")
@@ -2371,13 +2404,13 @@ fn native_copy_requires_a_destination_model_and_recovers_the_saved_review_after_
     drop(app);
     f.copy_control(json!({"restart":true}));
     let mut reopened = f.app();
-    enabled(&mut reopened, "Open saved copy");
+    enabled(&mut reopened, "Open copy");
     assert!(
         reopened
             .query_by_role_and_label(Role::Button, "Retry transfer")
             .is_none()
     );
-    click(&mut reopened, "Open saved copy");
+    click(&mut reopened, "Open copy");
     enabled(&mut reopened, "Retry transfer");
     visible(&mut reopened, "AWS model: fixture-fast");
     visible(&mut reopened, "AWS region: us-west-2");
@@ -2391,7 +2424,7 @@ fn native_copy_requires_a_destination_model_and_recovers_the_saved_review_after_
     click(&mut reopened, "Retry transfer");
     visible(&mut reopened, "Copy status: Complete");
     reopened
-        .get_by_role_and_label(Role::Button, "Open cloud Session")
+        .get_by_role_and_label(Role::Button, "Open Session")
         .scroll_to_me();
     tick(&mut reopened);
     copy_screenshot(&mut reopened, "session-copy-complete-1280x850.png");
@@ -2455,9 +2488,9 @@ fn native_copy_controls_wait_for_a_workspace_switch_to_finish() {
         "Choose the model that will continue this Session in AWS.",
     );
     choose_model(&mut app, "fixture-fast");
-    click(&mut app, "Review Session copy");
+    click(&mut app, "Review copy");
     enabled(&mut app, "Copy to AWS");
-    enabled(&mut app, "Open saved copy");
+    enabled(&mut app, "Open copy");
     let before = f.state()["received"]
         .as_array()
         .unwrap()
@@ -2481,10 +2514,10 @@ fn native_copy_controls_wait_for_a_workspace_switch_to_finish() {
     visible(&mut app, "Connecting to your workspace…");
     for label in [
         "Copy to AWS",
-        "Review Session copy",
+        "Review copy",
         "Refresh models",
         "Reload saved copies",
-        "Open saved copy",
+        "Open copy",
     ] {
         assert!(
             app.get_by_role_and_label(Role::Button, label)
@@ -2542,8 +2575,8 @@ fn native_copy_ignores_old_models_and_keeps_polling_after_the_window_closes() {
         tick(&mut app);
     }
     visible(&mut app, "AWS model: fixture-model");
-    enabled(&mut app, "Review Session copy");
-    click(&mut app, "Review Session copy");
+    enabled(&mut app, "Review copy");
+    click(&mut app, "Review copy");
     enabled(&mut app, "Copy to AWS");
     let id = f.state()["copies"]["plans"][0]["id"]
         .as_str()
@@ -2657,6 +2690,8 @@ fn held_reply_completion_preserves_draft_after_retargeting() {
         .recv_timeout(Duration::from_secs(5))
         .expect("held reply request");
     assert_eq!(submitted["reply_to"], "msg_a");
+    visible(&mut app, "Sending message…");
+    assert!(app.query_by_label("Last message sent").is_none());
 
     let reply_actions = app
         .query_all_by_role_and_label(Role::Button, "Reply")
@@ -2688,6 +2723,120 @@ fn held_reply_completion_preserves_draft_after_retargeting() {
             .count()
             > message_b_before
     );
+    assert!(app.query_by_label("Last message sent").is_none());
+}
+
+#[test]
+fn refresh_failure_recovers_in_place_without_hiding_a_failed_send() {
+    let fixture = HeldReplyFixture::new();
+    let mut app = Harness::builder()
+        .with_size(Vec2::new(1280.0, 850.0))
+        .build_eframe(|_| ConsoleApp::new(fixture.url.clone(), "fixture".into()).unwrap());
+    click(&mut app, "Held reply");
+    fill(&mut app, "Message", "Reject this message.");
+    fixture.fail_activity.store(true, Ordering::Release);
+    visible(&mut app, "Updates paused · Reconnecting…");
+    assert!(app.query_by_label("Dismiss error").is_none());
+    assert!(app.query_by_label("Original message A").is_some());
+    assert_eq!(
+        app.get_by_label("Message").value().as_deref(),
+        Some("Reject this message.")
+    );
+    let output = Path::new(env!("CARGO_MANIFEST_DIR")).join("../test-results/native-console");
+    std::fs::create_dir_all(&output).unwrap();
+    app.remove_cursor();
+    app.render()
+        .unwrap()
+        .save(output.join("read-paused-1280x850.png"))
+        .unwrap();
+    app.set_size(Vec2::new(900.0, 650.0));
+    tick(&mut app);
+    app.render()
+        .unwrap()
+        .save(output.join("read-paused-900x650.png"))
+        .unwrap();
+    click(&mut app, "Send");
+    fixture
+        .submissions
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    fixture.release.send(()).unwrap();
+    visible(&mut app, "Last send not confirmed");
+    visible(&mut app, "Save unavailable");
+    fixture.fail_activity.store(false, Ordering::Release);
+    until(
+        &mut app,
+        "read recovery without dismissing send failure",
+        |app| {
+            app.query_by_label("Updates paused · Reconnecting…")
+                .is_none()
+        },
+    );
+    visible(&mut app, "Last send not confirmed");
+    visible(&mut app, "Save unavailable");
+    assert_eq!(
+        app.get_by_label("Message").value().as_deref(),
+        Some("Reject this message.")
+    );
+    click(&mut app, "Dismiss error");
+    assert!(app.query_by_label("Last send not confirmed").is_some());
+    app.render()
+        .unwrap()
+        .save(output.join("read-recovered-900x650.png"))
+        .unwrap();
+}
+
+#[test]
+fn message_save_confirmation_waits_for_ack_and_clears_for_a_new_draft() {
+    let fixture = HeldReplyFixture::new();
+    let mut app = Harness::builder()
+        .with_size(Vec2::new(1280.0, 850.0))
+        .build_eframe(|_| ConsoleApp::new(fixture.url.clone(), "fixture".into()).unwrap());
+    click(&mut app, "Held reply");
+    fill(&mut app, "Message", "Please review the menu.");
+    click(&mut app, "Send");
+    fixture
+        .submissions
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    visible(&mut app, "Sending message…");
+    assert!(app.query_by_label("Last message sent").is_none());
+    assert!(app.state().message_submission_pending());
+    fixture.release.send(()).unwrap();
+    visible(&mut app, "Last message sent");
+    assert!(!app.state().message_submission_pending());
+    assert_eq!(
+        app.get_by_label("Last message sent")
+            .accesskit_node()
+            .role(),
+        Role::Status
+    );
+    assert_eq!(app.get_by_label("Message").value().as_deref(), Some(""));
+    app.remove_cursor();
+    app.render()
+        .unwrap()
+        .save(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../test-results/native-console/message-saved-1280x850.png"),
+        )
+        .unwrap();
+    fill(&mut app, "Message", "A new unsent request.");
+    assert!(app.query_by_label("Last message sent").is_none());
+    assert!(app.state().message_submission_result().is_none());
+    fill(&mut app, "Message", "Reject this message.");
+    click(&mut app, "Send");
+    fixture
+        .submissions
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    fixture.release.send(()).unwrap();
+    visible(&mut app, "Last send not confirmed");
+    assert!(app.query_by_label("Last message sent").is_none());
+    assert_eq!(
+        app.get_by_label("Message").value().as_deref(),
+        Some("Reject this message.")
+    );
+    assert!(app.state().message_submission_result().unwrap().1.is_some());
 }
 
 #[test]
@@ -2721,7 +2870,16 @@ fn captured_source_context_uses_chat_send_and_reopens_the_saved_page_after_navig
     let id = session["id"].as_str().unwrap();
     let mut app = f.app();
     click(&mut app, "Shared browser review");
-    visible(&mut app, "https://rat-artifacts.invalid/direction.html");
+    until(&mut app, "browser address", |app| {
+        app.query_by_label("Address").is_some_and(|node| {
+            node.value().as_deref() == Some("https://rat-artifacts.invalid/direction.html")
+        })
+    });
+    visible(&mut app, "Feedback");
+    assert!(
+        app.get_by_label("Feedback").rect().max.y < 850.0,
+        "Fit preview must leave its feedback heading visible without scrolling"
+    );
     let original_message = f.get(&format!("/v1/rat/sessions/{id}/activity"))["items"][0]["id"]
         .as_str()
         .unwrap()
@@ -2762,20 +2920,21 @@ fn captured_source_context_uses_chat_send_and_reopens_the_saved_page_after_navig
         modifiers: Modifiers::NONE,
     });
     tick(&mut app);
-    visible(&mut app, "Page selection · Product direction");
+    visible(&mut app, "View attachment · Product direction");
     fill(
         &mut app,
         "Message",
         "Keep the original direction visible while we discuss it.",
     );
-    click(&mut app, "Remove context");
+    click(&mut app, "Remove attachment");
     assert_eq!(
         app.get_by_label("Message").value().as_deref(),
         Some("Keep the original direction visible while we discuss it."),
         "removing a capture leaves the ordinary chat draft intact"
     );
     assert!(
-        app.query_by_role_and_label(Role::Button, "Open captured source")
+        app.query_all_by_label_contains("View attachment · ")
+            .next()
             .is_none()
     );
 
@@ -2822,7 +2981,7 @@ fn captured_source_context_uses_chat_send_and_reopens_the_saved_page_after_navig
         .max_by(|a, b| a.rect().area().total_cmp(&b.rect().area()))
         .expect("captured browser image")
         .click();
-    visible(&mut app, "Page selection · Product direction");
+    visible(&mut app, "View attachment · Product direction");
     visible(&mut app, "Message");
     assert!(
         app.query_by_role_and_label(Role::Button, "Back to conversation")
@@ -2835,7 +2994,7 @@ fn captured_source_context_uses_chat_send_and_reopens_the_saved_page_after_navig
     );
     click(&mut app, "Expand workspace");
     click(&mut app, "Back to conversation");
-    visible(&mut app, "Page selection · Product direction");
+    visible(&mut app, "View attachment · Product direction");
     assert_eq!(
         app.get_by_label("Message").value().as_deref(),
         Some("Keep the original direction visible while we discuss it."),
@@ -2856,10 +3015,14 @@ fn captured_source_context_uses_chat_send_and_reopens_the_saved_page_after_navig
             "elements":[]
         }}),
     );
-    visible(&mut app, "https://rat-artifacts.invalid/new-page.html");
-    click(&mut app, "Open captured source");
+    until(&mut app, "browser address", |app| {
+        app.query_by_label("Address").is_some_and(|node| {
+            node.value().as_deref() == Some("https://rat-artifacts.invalid/new-page.html")
+        })
+    });
+    click(&mut app, "View attachment · Product direction");
     visible(&mut app, "Capture · live browser moved");
-    contains(&mut app, "Page selection · Product direction");
+    visible(&mut app, "View attachment · Product direction");
 
     f.screenshot(&mut app, "shared-browser-captured-context-1280x850.png");
     app.set_size(Vec2::new(900.0, 650.0));
@@ -2880,9 +3043,12 @@ fn captured_source_context_uses_chat_send_and_reopens_the_saved_page_after_navig
         Some("Keep the original direction visible while we discuss it.")
     );
     assert!(
-        app.query_by_role_and_label(Role::Button, "Open captured source")
+        app.query_all_by_label_contains("View attachment · ")
+            .next()
             .is_some()
     );
+    visible(&mut app, "Last send not confirmed");
+    assert!(app.query_by_label("Last feedback sent").is_none());
     f.screenshot(&mut app, "shared-browser-capture-retry-900x650.png");
 
     f.control("/__test/workspace-feedback", json!({"fail":false}));
@@ -2892,6 +3058,8 @@ fn captured_source_context_uses_chat_send_and_reopens_the_saved_page_after_navig
             .as_array()
             .is_some_and(|threads| threads.len() == 1)
     });
+    visible(&mut app, "Last feedback sent");
+    f.screenshot(&mut app, "feedback-saved-900x650.png");
     let feedback = f.state()["received"]
         .as_array()
         .unwrap()
@@ -2924,8 +3092,14 @@ fn captured_source_context_uses_chat_send_and_reopens_the_saved_page_after_navig
         .expect("one accepted receipt carries both reply and workspace context");
     assert_eq!(attributed["reply"]["message_id"], original_message);
 
-    contains(&mut app, "Source · Product direction · “Product direction”");
-    click(&mut app, "Source · Product direction · “Product direction”");
+    contains(
+        &mut app,
+        "View annotation · Product direction · “Product direction”",
+    );
+    click(
+        &mut app,
+        "View annotation · Product direction · “Product direction”",
+    );
     until(
         &mut app,
         "source link loads its original captured annotation",
@@ -2944,6 +3118,15 @@ fn captured_source_context_uses_chat_send_and_reopens_the_saved_page_after_navig
     );
     app.set_size(Vec2::new(1280.0, 850.0));
     tick(&mut app);
+    click(&mut app, "Actual size");
+    visible(&mut app, "100%");
+    let actual_image = app
+        .query_all_by_role(Role::Image)
+        .max_by(|a, b| a.rect().area().total_cmp(&b.rect().area()))
+        .unwrap()
+        .rect();
+    assert!((actual_image.width() - 1280.0).abs() < 1.0);
+    click(&mut app, "Reset zoom");
     click(&mut app, "Zoom in");
     visible(&mut app, "1.25×");
     click(&mut app, "Expand workspace");
@@ -2965,6 +3148,31 @@ fn captured_source_context_uses_chat_send_and_reopens_the_saved_page_after_navig
         &mut app,
         "shared-browser-capture-open-source-2x-900x650.png",
     );
+    click(&mut app, "Reset zoom");
+    app.set_size(Vec2::new(1280.0, 850.0));
+    click(&mut app, "Return to live");
+    f.control("/__test/workspace-feedback", json!({"hold":true}));
+    click(&mut app, "Resolve");
+    visible(&mut app, "Resolving…");
+    assert!(app.query_by_label("Feedback resolved").is_none());
+    f.screenshot(&mut app, "feedback-resolving-1280x850.png");
+    f.control("/__test/workspace-feedback", json!({"hold":false}));
+    visible(&mut app, "Feedback resolved");
+    visible(&mut app, "Show resolved feedback");
+    f.screenshot(&mut app, "feedback-resolved-1280x850.png");
+    click(&mut app, "Show resolved feedback");
+    visible(&mut app, "Reopen");
+    f.control("/__test/workspace-feedback", json!({"fail":true}));
+    click(&mut app, "Reopen");
+    contains(&mut app, "Workspace feedback could not be saved");
+    assert!(app.query_by_label("Feedback reopened").is_none());
+    visible(&mut app, "Reopen");
+    f.control("/__test/workspace-feedback", json!({"fail":false}));
+    click(&mut app, "Reopen");
+    visible(&mut app, "Feedback reopened");
+    visible(&mut app, "Resolve");
+    click(&mut app, "Dismiss feedback confirmation");
+    assert!(app.query_by_label("Feedback reopened").is_none());
 }
 
 #[test]
@@ -3009,14 +3217,18 @@ fn uncertain_workspace_send_keeps_its_idempotency_key_across_session_navigation(
     click(&mut app, "Retry browser conversation");
     app.set_size(Vec2::new(900.0, 650.0));
     click(&mut app, "Workspace");
-    visible(&mut app, "https://rat-artifacts.invalid/retry.html");
+    until(&mut app, "browser address", |app| {
+        app.query_by_label("Address").is_some_and(|node| {
+            node.value().as_deref() == Some("https://rat-artifacts.invalid/retry.html")
+        })
+    });
     click(&mut app, "Annotate");
     visible(&mut app, "Click an element or drag a region.");
     app.query_all_by_role(Role::Image)
         .max_by(|a, b| a.rect().area().total_cmp(&b.rect().area()))
         .expect("captured browser image")
         .click();
-    visible(&mut app, "Page selection · Retry direction");
+    visible(&mut app, "View attachment · Retry direction");
     visible(&mut app, "Message");
     fill(
         &mut app,
@@ -3051,7 +3263,9 @@ fn uncertain_workspace_send_keeps_its_idempotency_key_across_session_navigation(
         f.state()["workspaceFeedbackWaiting"] == 0
     });
     click(&mut app, "Retry browser conversation");
-    contains(&mut app, "Page selection · Retry direction");
+    assert!(!app.state().message_submission_pending());
+    assert!(app.query_by_label("Last feedback sent").is_none());
+    visible(&mut app, "View attachment · Retry direction");
     assert_eq!(
         app.get_by_label("Message").value().as_deref(),
         Some("Keep the captured direction in the retry.")
@@ -3129,7 +3343,32 @@ fn cancelling_page_capture_fences_a_late_capture_response() {
     }));
     let mut app = f.app();
     click(&mut app, "Cancel capture");
-    visible(&mut app, "https://rat-artifacts.invalid/cancel.html");
+    until(&mut app, "browser address", |app| {
+        app.query_by_label("Address").is_some_and(|node| {
+            node.value().as_deref() == Some("https://rat-artifacts.invalid/cancel.html")
+        })
+    });
+    app.set_size(Vec2::new(900.0, 650.0));
+    click(&mut app, "Workspace");
+    visible(&mut app, "Address");
+    visible(&mut app, "Go");
+    click(&mut app, "Browser controls");
+    visible(&mut app, "Browser text");
+    fill(&mut app, "Browser text", "Shared keyboard input");
+    f.screenshot(&mut app, "browser-controls-900x650.png");
+    click(&mut app, "Type");
+    until(&mut app, "browser input submitted", |_| {
+        f.state()["received"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|request| {
+                request["body"]["operation"]["action"] == "type"
+                    && request["body"]["operation"]["text"] == "Shared keyboard input"
+            })
+    });
+    app.key_press(Key::Escape);
+    app.set_size(Vec2::new(1280.0, 850.0));
     f.control("/__test/workspace", json!({"capture_hold":true}));
     click(&mut app, "Annotate");
     visible(&mut app, "Capturing page…");
@@ -3139,7 +3378,14 @@ fn cancelling_page_capture_fences_a_late_capture_response() {
             .unwrap_or_default()
             > 0
     });
-    click(&mut app, "Cancel selection");
+    visible(&mut app, "Cancel selection");
+    assert_eq!(
+        app.get_by_label("Annotate").accesskit_node().toggled(),
+        Some(egui::accesskit::Toggled::True)
+    );
+    f.screenshot(&mut app, "annotation-mode-1280x850.png");
+    app.key_press(Key::Escape);
+    app.run_steps(3);
     f.control("/__test/workspace", json!({"capture_hold":false}));
     until(&mut app, "late capture response completed", |_| {
         f.state()["browserCaptureCompleted"]
@@ -3150,7 +3396,8 @@ fn cancelling_page_capture_fences_a_late_capture_response() {
     visible(&mut app, "Annotate");
     assert!(app.query_by_label("Capturing page…").is_none());
     assert!(
-        app.query_by_role_and_label(Role::Button, "Open captured source")
+        app.query_all_by_label_contains("View attachment · ")
+            .next()
             .is_none()
     );
 }
@@ -3210,6 +3457,18 @@ fn plan_is_agent_owned_navigable_and_has_read_only_revision_history() {
     click(&mut app, "Plan");
     visible(&mut app, "Revision 2 · 1 of 3 addressed");
     visible(&mut app, "Clarify the product direction");
+    app.get_by_label("Clarify the product direction").focus();
+    app.run_steps(2);
+    app.key_press(Key::Enter);
+    visible(&mut app, "Agent addressed");
+    app.get_by_label("Clarify the product direction").focus();
+    app.run_steps(2);
+    app.key_press(Key::Enter);
+    app.run_steps(3);
+    assert!(
+        app.query_by_label("The revised direction is saved in report.txt.")
+            .is_none()
+    );
     app.get_by_label("Clarify the product direction").click();
     visible(&mut app, "Agent addressed");
     visible(&mut app, "The revised direction is saved in report.txt.");
@@ -3282,7 +3541,11 @@ fn explicit_browser_click_preempts_an_inflight_refresh_with_original_revision() 
     f.post("/v1/agents/sessions", json!({"agent":{"model":"fixture-model","tools":[{"type":"function","name":"rat_things_browser","description":"Use the shared browser.","parameters":{"type":"object","properties":{}}}]},"environment":{"type":"openai_hosted"},"input":"Review together.","metadata":{"name":"Click during refresh"}}));
     let mut app = f.app();
     click(&mut app, "Click during refresh");
-    visible(&mut app, "https://rat-artifacts.invalid/click.html");
+    until(&mut app, "browser address", |app| {
+        app.query_by_label("Address").is_some_and(|node| {
+            node.value().as_deref() == Some("https://rat-artifacts.invalid/click.html")
+        })
+    });
     f.control("/__test/workspace", json!({"hold":true}));
     until(&mut app, "held refresh", |_| {
         f.client
@@ -3295,11 +3558,24 @@ fn explicit_browser_click_preempts_an_inflight_refresh_with_original_revision() 
             .unwrap()
             > 0
     });
+    assert!(
+        !app.state().workspace_action_pending(),
+        "routine polling is not a pending user action"
+    );
+    assert!(
+        !app.get_by_label("Phone viewport")
+            .accesskit_node()
+            .is_disabled(),
+        "a background frame read must not disable explicit viewport actions"
+    );
     app.query_all_by_role(Role::Image)
         .max_by(|a, b| a.rect().area().total_cmp(&b.rect().area()))
         .unwrap()
         .click();
     tick(&mut app);
+    assert!(app.state().workspace_action_pending());
+    std::thread::sleep(Duration::from_millis(450));
+    f.screenshot(&mut app, "shared-browser-pending-action-1280x850.png");
     // The HTTP lane may serialize transport. The click must survive the held
     // read and retain its original frame when that lane becomes available.
     f.control("/__test/workspace", json!({"hold":false}));
@@ -3313,17 +3589,83 @@ fn explicit_browser_click_preempts_an_inflight_refresh_with_original_revision() 
             })
     });
     let state = f.state();
-    let click = state["received"]
+    let received_click = state["received"]
         .as_array()
         .unwrap()
         .iter()
         .find(|request| request["body"]["operation"]["action"] == "click")
         .unwrap();
-    assert_eq!(click["body"]["epoch"], "held-read");
-    assert_eq!(click["body"]["revision"], 7);
-    assert!((click["body"]["operation"]["x"].as_f64().unwrap() - 0.5).abs() < 0.01);
+    assert_eq!(received_click["body"]["epoch"], "held-read");
+    assert_eq!(received_click["body"]["revision"], 7);
+    assert!((received_click["body"]["operation"]["x"].as_f64().unwrap() - 0.5).abs() < 0.01);
     f.control("/__test/workspace", json!({"hold":false}));
     for _ in 0..5 {
         tick(&mut app);
     }
+    let previous = app.state().workspace_action_result().map(|r| r.0);
+    fill(&mut app, "Address", "not a URL");
+    click(&mut app, "Go");
+    until(
+        &mut app,
+        "rejected navigation settles with its own outcome",
+        |app| {
+            app.state()
+                .workspace_action_result()
+                .is_some_and(|r| Some(r.0) != previous && r.1.is_some())
+        },
+    );
+    assert!(!app.state().workspace_action_pending());
+    assert!(
+        app.state()
+            .workspace_action_result()
+            .unwrap()
+            .1
+            .unwrap()
+            .contains("HTTP")
+    );
+}
+
+#[test]
+fn long_activity_does_not_widen_the_conversation_past_the_workspace() {
+    use base64::Engine;
+    let f = Fixture::new();
+    let image = image::RgbImage::from_pixel(1280, 800, image::Rgb([37, 37, 39]));
+    let mut encoded = std::io::Cursor::new(Vec::new());
+    image
+        .write_to(&mut encoded, image::ImageFormat::Jpeg)
+        .unwrap();
+    f.control("/__test/workspace", json!({"frame":{"epoch":"review","revision":1,"frame_id":"e".repeat(64),"width":1280,"height":800,"image":base64::engine::general_purpose::STANDARD.encode(encoded.into_inner()),"url":"https://rat-artifacts.invalid/index.html","title":"Taco Cometa","text":"Restaurant review"}}));
+    f.post("/v1/agents/sessions", json!({"agent":{"model":"fixture-model","tools":[{"type":"function","name":"rat_things_browser","description":"Use the shared browser.","parameters":{"type":"object","properties":{}}}]},"environment":{"type":"openai_hosted"},"input":"Build a restaurant site together.","metadata":{"name":"Long activity review"}}));
+    let mut app = f.app();
+    click(&mut app, "Long activity review");
+    until(&mut app, "started Turn", |_| {
+        !f.state()["executionStarts"].as_array().unwrap().is_empty()
+    });
+    let prose = "The menu now includes clear vegetarian labels and sample prices. The visit section keeps fictional details beside their sample labels so everyone can review the same result.";
+    f.control("/__test/advance", json!({"mode":"complete","items":[
+        {"id":"wide-command","type":"command_execution","command":format!("node --inspect {}", "very-long-argument-with-no-breaks".repeat(12)),"status":"completed"},
+        {"id":"review-prose","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":prose}]}
+    ]}));
+    until(&mut app, "saved prose", |app| {
+        app.query_by_label_contains("The menu now").is_some()
+    });
+    let browser = app.get_by_role_and_label(Role::Button, "Browser").rect();
+    let text = app.query_by_label_contains("The menu now").unwrap().rect();
+    f.screenshot(&mut app, "taco-conversation-containment.png");
+    assert!(
+        text.right() < browser.left(),
+        "prose must wrap within the conversation: {text:?}, browser {browser:?}"
+    );
+    app.get_by_label("Resize workspace").focus();
+    app.key_press(Key::ArrowLeft);
+    tick(&mut app);
+    let narrowed = app.get_by_role_and_label(Role::Button, "Browser").rect();
+    assert!(narrowed.left() < browser.left() - 20.0);
+    let text = app.query_by_label_contains("The menu now").unwrap().rect();
+    assert!(text.right() < narrowed.left());
+    app.set_size(Vec2::new(1600.0, 950.0));
+    tick(&mut app);
+    visible(&mut app, "Message");
+    visible(&mut app, "Address");
+    f.screenshot(&mut app, "taco-resizable-workspace.png");
 }

@@ -451,9 +451,10 @@ describe('persistent native session runtime', () => {
     expect(f.runtime.snapshot().turns.find((binding) => binding.turn.id === 'root-two')?.turn.status).toBe('failed');
   });
 
-  it.each([false, true])('keeps an admitted Plan call pending for durable host resolution with generic callback=%s', async withCallback => {
-    const callback = vi.fn(() => { throw new Error('Generic callback must not resolve the Plan'); });
-    const f = fixture(undefined, 'openai', 'fixture', undefined, undefined, { admitted: true, ...(withCallback ? { callback } : {}) });
+  it('forwards an admitted Plan call through the trusted server-request callback and continues with its response', async () => {
+    const response = { success: true, contentItems: [{ type: 'inputText', text: '{"plan":{"revision":1,"items":[]}}' }] };
+    const callback = vi.fn(async () => response);
+    const f = fixture(undefined, 'openai', 'fixture', undefined, undefined, { admitted: true, callback });
     try {
       await f.runtime.initialize();
       await f.runtime.start(rootTurn('root-one'), message);
@@ -461,7 +462,20 @@ describe('persistent native session runtime', () => {
       f.emit(request);
       const pending = f.request(request);
       expect(f.runtime.snapshot().requiredActions).toMatchObject([{ type: 'function_call', name: 'rat_things_plan_update', turn_id: 'root-one', call_id: 'plan-call' }]);
-      expect(callback).not.toHaveBeenCalled();
+      expect(await pending).toEqual(response);
+      expect(callback).toHaveBeenCalledExactlyOnceWith(request);
+      expect(f.runtime.snapshot().requiredActions).toEqual([]);
+    } finally { await f.runtime.close(); }
+  });
+
+  it('keeps an admitted Plan call pending for private local host resolution without a server-request callback', async () => {
+    const f = fixture(undefined, 'openai', 'fixture', undefined, undefined, { admitted: true });
+    try {
+      await f.runtime.initialize();
+      await f.runtime.start(rootTurn('root-one'), message);
+      const request = { method: 'item/tool/call', requestId: 'plan-rpc', params: { threadId: 'root', turnId: 'native-1', callId: 'plan-call', tool: 'rat_things_plan_update', arguments: { expected_revision: 0, items: [] } } };
+      f.emit(request);
+      const pending = f.request(request);
       await f.runtime.toolResult({ type: 'agent.session.input.tool_result', turn_id: 'root-one', call_id: 'plan-call', success: true, output: '{"plan":{"revision":1,"items":[]}}' });
       expect(await pending).toEqual({ success: true, contentItems: [{ type: 'inputText', text: '{"plan":{"revision":1,"items":[]}}' }] });
       expect(f.runtime.snapshot().requiredActions).toEqual([]);

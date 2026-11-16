@@ -2,6 +2,7 @@ mod api;
 mod app;
 pub mod brand;
 mod environment_picker;
+mod icons;
 mod markdown;
 mod model;
 mod session_copy;

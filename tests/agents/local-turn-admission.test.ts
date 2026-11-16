@@ -52,6 +52,8 @@ async function services() {
     });
   const managed = new LocalManagedEnvironment({ store, environments, runtime: native.runtime, maxSessions: 2,
     hostCodex: developmentLocalCodexHost(native.directory, {}) });
+  // Artifact capture now reads terminal managed outputs through this port.
+  vi.spyOn(managed, 'files').mockResolvedValue([]);
   const execution = new LocalSessionExecution({ store, directory: native.directory, maxSessions: 2, managed, environment: {} });
   const sessions = new SessionService({ store, agents: new AgentService({ store }), execution });
   const create = async () => {

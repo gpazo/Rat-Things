@@ -377,7 +377,7 @@ const server = createServer((request, response) => void (async () => {
     return;
   }
   if (url.pathname === '/__test/advance') {
-    const { mode } = JSON.parse(body) as { mode: string };
+    const { mode, items } = JSON.parse(body) as { mode: string; items?: AgentSessionItem[] };
     for (const session of (await sessions.list(owner)).data) {
       await sessions.dispatch(owner, session.id);
       const turn = (await sessions.turns(owner, session.id)).data.find(row => row.subagent_id === null);
@@ -387,6 +387,7 @@ const server = createServer((request, response) => void (async () => {
         observations.set(turn.id, { turn: { ...current.turn, status: 'waiting' }, requiredActions: [{ type: 'function_call', name: 'lookup', arguments: { name: 'release' }, call_id: 'call-lookup', turn_id: turn.id }] });
       } else if (mode === 'complete') {
         output.set(turn.id, [{ id: `output-${turn.id}`, type: 'message', role: 'assistant', phase: 'final_answer', status: 'completed', turn_id: turn.id, content: [{ type: 'output_text', text: 'Review complete.\n\nThe **native console** restored this saved answer.\n\n```sh\nnpm run check\n```\n\n[Runbook](https://example.com/runbook)\n\n[Unsafe](javascript:alert%281%29) <img src="https://invalid.test/tracker">' }] }]);
+        if (items) output.set(turn.id, items.map(item => ({ ...item, turn_id: turn.id })));
         observations.set(turn.id, { turn: { ...current.turn, status: 'completed', completed_at: Math.floor(Date.now() / 1000) }, requiredActions: [] });
         await sessions.completeTurn(owner, session.id, turn.id);
       }

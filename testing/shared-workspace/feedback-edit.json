@@ -1,0 +1,174 @@
+{
+  "source_manifest_sha256": "9082828c0bec6936cfd107db98148573e6546358b73caec21d40f11855ebe1ab",
+  "shots": [
+    {
+      "id": "premise",
+      "seconds": 4,
+      "layout": "opening",
+      "frames": [
+        6,
+        8
+      ],
+      "crop": [
+        705,
+        238,
+        1248,
+        464
+      ],
+      "title": "Three teammates. One Session. One agent.",
+      "subtitle": "The brief: turn \u201cworks on my machine\u201d into shared evidence."
+    },
+    {
+      "id": "selection",
+      "seconds": 6,
+      "layout": "single",
+      "person": 0,
+      "frames": [
+        10,
+        22
+      ],
+      "hold_seconds": 2,
+      "crop": [
+        250,
+        239,
+        1257,
+        826
+      ],
+      "title": "Select the part you mean. Then write in chat.",
+      "subtitle": "Maya \u00b7 Designer: \u201cLead with shared evidence, not blame.\u201d"
+    },
+    {
+      "id": "typing",
+      "seconds": 4,
+      "layout": "rows",
+      "frames": [
+        19,
+        23
+      ],
+      "hold_seconds": 2,
+      "crop": [
+        254,
+        687,
+        689,
+        825
+      ],
+      "title": "Everyone sees who is about to contribute.",
+      "subtitle": "Three native clients. The same conversation."
+    },
+    {
+      "id": "engineering",
+      "seconds": 6,
+      "layout": "single",
+      "person": 1,
+      "frames": [
+        47,
+        47
+      ],
+      "hold_seconds": 4,
+      "crop": [
+        250,
+        355,
+        690,
+        485
+      ],
+      "title": "Engineering narrows the first release.",
+      "subtitle": "Eli: runtime versions and the failing command. Automatic repair can wait."
+    },
+    {
+      "id": "qa",
+      "seconds": 6,
+      "layout": "single",
+      "person": 2,
+      "frames": [
+        50,
+        66
+      ],
+      "hold_seconds": 2,
+      "crop": [
+        250,
+        239,
+        1257,
+        826
+      ],
+      "title": "QA brings an edge case into the same thread.",
+      "subtitle": "Sam selects a region: \u201cWhat happens offline?\u201d"
+    },
+    {
+      "id": "plan",
+      "seconds": 5,
+      "layout": "single",
+      "person": 2,
+      "frames": [
+        72,
+        74
+      ],
+      "hold_seconds": 3,
+      "crop": [
+        700,
+        125,
+        1258,
+        388
+      ],
+      "title": "The agent turns feedback into a visible Plan.",
+      "subtitle": "Two items addressed. One deferred. Nobody\u2019s feedback disappears.",
+      "poster": true
+    },
+    {
+      "id": "reason",
+      "seconds": 7,
+      "layout": "single",
+      "person": 2,
+      "frames": [
+        76,
+        78
+      ],
+      "hold_seconds": 5,
+      "crop": [
+        700,
+        315,
+        1258,
+        563
+      ],
+      "title": "Deferred comes with a reason.",
+      "subtitle": "The agent explains the boundary and links back to Sam\u2019s message."
+    },
+    {
+      "id": "source",
+      "seconds": 5,
+      "layout": "single",
+      "person": 0,
+      "frames": [
+        84,
+        86
+      ],
+      "hold_seconds": 3,
+      "crop": [
+        700,
+        195,
+        1258,
+        486
+      ],
+      "title": "Follow a decision back to its source.",
+      "subtitle": "Maya\u2019s exact contribution stays attached to the agent\u2019s decision."
+    },
+    {
+      "id": "result",
+      "seconds": 7,
+      "layout": "single",
+      "person": 0,
+      "frames": [
+        88,
+        94
+      ],
+      "hold_seconds": 4,
+      "crop": [
+        700,
+        128,
+        1253,
+        375
+      ],
+      "title": "Open the saved result. Keep working together.",
+      "subtitle": "The same Plan connects the conversation to the work it produced."
+    }
+  ]
+}

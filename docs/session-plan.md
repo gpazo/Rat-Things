@@ -28,6 +28,12 @@ Items marked `addressed`, `deferred` or `needs_discussion` include an explanatio
 These states record the agent's account; they do not independently prove that a
 change is correct or complete.
 
+The agent is instructed to keep independent requests and verification checks in
+separate items, preserving their IDs as work progresses. A completed edit should
+not mark an unfinished check as addressed. For addressed items, the explanation
+should say how that specific requirement was verified. Follow up in chat when
+an item combines work with different outcomes or overstates the evidence.
+
 ## Updates and references
 
 New Sessions admit the reserved `rat_things_plan_update` function before their

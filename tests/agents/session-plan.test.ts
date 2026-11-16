@@ -11,6 +11,7 @@ import { planSessionLaunch } from '../../src/runner/session-launch-planning.js';
 import { planCodexLaunch } from '../../src/runner/agent-planning.js';
 import { functionTools } from '../../src/runner/pi/functions.js';
 import { SESSION_PLAN_TOOL, SESSION_PLAN_TOOL_NAME } from '../../src/domain/session-plan.js';
+import { AgentsResourceConflictError } from '../../src/domain/agents-api-validation.js';
 
 const sha = 'a'.repeat(64);
 
@@ -101,6 +102,45 @@ it('replays a call across service restarts, rejects changed arguments, and leave
   expect(broken).toMatchObject({ error: { code: 'invalid_request' } });
   expect(await restarted.head('owner', 'sess_plan')).toMatchObject({ revision: 1, items: [{ id: 'item_1' }] });
   expect(await restarted.history('owner', 'sess_plan')).toMatchObject({ revisions: [{ revision: 1 }], head_revision: 1 });
+});
+
+it('does not return a validation error until its observation-fenced call receipt is durable', async () => {
+  class ObservationRaceStore extends MemoryAgentsStore {
+    private raced = false;
+    public override async commit(writes: Array<{ resource: import('../../src/core/agents-ports.js').AgentResource<unknown>; expectedRevision: number }>, observations: import('../../src/core/agents-ports.js').AgentObservation[] = []) {
+      const callWrite = writes.find(({ resource }) => resource.collection === 'session_plan_calls');
+      if (!this.raced && callWrite) {
+        this.raced = true;
+        const observed = observations.find(value => value.collection === 'session_observations');
+        if (observed) {
+          const current = await this.get(observed.ownerId, observed.collection, observed.id);
+          if (current) await this.put({ ...current, revision: current.revision + 1 }, current.revision);
+        }
+        throw new AgentsResourceConflictError();
+      }
+      return super.commit(writes, observations);
+    }
+  }
+
+  const store = new ObservationRaceStore();
+  await store.put({ ownerId: 'owner', id: 'sess_plan', collection: 'sessions', revision: 1, createdAt: 100, value: {} }, 0);
+  await store.put({ ownerId: 'owner', id: 'sess_plan', collection: 'session_observations', revision: 1, createdAt: 100, value: {} }, 0);
+  const service = new SessionPlanService(store, { now: () => 100 });
+  const args = { expected_revision: 0, items: [{ id: 'item_1', text: 'Revise the output', state: 'addressed', reason: 'Updated the saved output.', source_message_ids: ['message_1'],
+    result_links: [{ kind: 'artifact', artifact_id: 'missing', version_sha256: sha }] }] };
+  const base = { ownerId: 'owner', sessionId: 'sess_plan', turnId: 'turn_1', callId: 'call_raced', agentId: 'agent_1', rawArguments: args,
+    sessionRevision: 1, observationRevision: 1, sources: [{ id: 'receipt_1', message_ids: ['message_1'], status: 'accepted' as const }],
+    validArtifactVersions: new Set<string>(), validActivityItems: new Set<string>() };
+
+  await expect(service.resolveCall({ ...base, available: { artifacts: [], activity: [] } })).rejects.toMatchObject({ status: 409, code: 'conflict' });
+  expect((await store.list('owner', 'session_plan_calls', { limit: 10 })).data).toEqual([]);
+
+  const updatedAvailable = { artifacts: [{ kind: 'artifact' as const, artifact_id: 'new_context', version_sha256: sha, turn_id: 'turn_2' }], activity: [] };
+  const retry = await service.resolveCall({ ...base, observationRevision: 2, available: updatedAvailable });
+  expect(retry).toMatchObject({ error: { code: 'invalid_request' }, available_result_links: updatedAvailable });
+
+  const replay = await service.resolveCall({ ...base, observationRevision: 2, available: { artifacts: [], activity: [{ kind: 'activity', turn_id: 'turn_2', item_id: 'later_context' }] } });
+  expect(replay).toEqual(retry);
 });
 
 it('exports and imports a same-Session Plan history bundle with remapped receipts and separate storage revision', async () => {

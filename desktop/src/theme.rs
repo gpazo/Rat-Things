@@ -114,6 +114,7 @@ pub(crate) fn apply(ctx: &egui::Context) {
 
 fn apply_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
+    crate::icons::install(&mut fonts);
     for (name, bytes) in [
         (
             "Inter",
@@ -243,69 +244,19 @@ pub(crate) fn navigation_button(
         .stroke(Stroke::NONE),
     );
     response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, label));
-    let origin = egui::pos2(response.rect.left() + 10.0, response.rect.center().y - 7.0);
-    let stroke = Stroke::new(1.2, if selected { TEXT } else { MUTED });
-    let point = |x, y| origin + egui::vec2(x, y);
-    let line = |a: (f32, f32), b: (f32, f32)| {
-        ui.painter()
-            .line_segment([point(a.0, a.1), point(b.0, b.1)], stroke);
+    let glyph = match icon {
+        NavIcon::Conversation => crate::icons::Icon::Comment,
+        NavIcon::Agent => crate::icons::Icon::Agent,
+        NavIcon::Environment => crate::icons::Icon::Environment,
+        NavIcon::Vault => crate::icons::Icon::Vault,
     };
-    match icon {
-        NavIcon::Conversation => {
-            ui.painter().rect_stroke(
-                egui::Rect::from_min_max(point(0.0, 0.0), point(14.0, 10.0)),
-                2,
-                stroke,
-                egui::StrokeKind::Inside,
-            );
-            line((3.0, 10.0), (3.0, 14.0));
-            line((3.0, 14.0), (7.0, 10.0));
-        }
-        NavIcon::Agent => {
-            ui.painter().circle_stroke(point(7.0, 4.0), 3.0, stroke);
-            ui.painter().add(egui::Shape::line(
-                vec![
-                    point(1.0, 14.0),
-                    point(1.0, 12.0),
-                    point(4.0, 9.0),
-                    point(10.0, 9.0),
-                    point(13.0, 12.0),
-                    point(13.0, 14.0),
-                ],
-                stroke,
-            ));
-        }
-        NavIcon::Environment => {
-            ui.painter().rect_stroke(
-                egui::Rect::from_min_max(point(0.0, 1.0), point(14.0, 13.0)),
-                2,
-                stroke,
-                egui::StrokeKind::Inside,
-            );
-            line((0.0, 5.0), (14.0, 5.0));
-            line((4.0, 8.0), (6.0, 10.0));
-            line((6.0, 10.0), (4.0, 12.0));
-            line((8.0, 11.0), (11.0, 11.0));
-        }
-        NavIcon::Vault => {
-            ui.painter().rect_stroke(
-                egui::Rect::from_min_max(point(1.0, 5.0), point(13.0, 14.0)),
-                2,
-                stroke,
-                egui::StrokeKind::Inside,
-            );
-            ui.painter().add(egui::Shape::line(
-                vec![
-                    point(4.0, 5.0),
-                    point(4.0, 1.0),
-                    point(10.0, 1.0),
-                    point(10.0, 5.0),
-                ],
-                stroke,
-            ));
-            line((7.0, 8.0), (7.0, 11.0));
-        }
-    }
+    ui.painter().text(
+        egui::pos2(response.rect.left() + 18.0, response.rect.center().y),
+        egui::Align2::CENTER_CENTER,
+        glyph.glyph(),
+        crate::icons::font(18.0),
+        if selected { TEXT } else { MUTED },
+    );
     response
 }
 

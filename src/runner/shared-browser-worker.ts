@@ -84,7 +84,7 @@ export class SharedBrowserWorker {
         case 'scroll': await this.call('Input.dispatchMouseEvent', { type: 'mouseWheel', x: action.x * this.viewport.width, y: action.y * this.viewport.height, deltaX: 0, deltaY: action.delta_y }); break;
         case 'resize': {
           const viewport = { width: action.width, height: action.height };
-          await this.call('Emulation.setDeviceMetricsOverride', { ...viewport, deviceScaleFactor: 1, mobile: action.width <= 600 });
+          await this.call('Emulation.setDeviceMetricsOverride', { ...viewport, deviceScaleFactor: 1, mobile: false });
           this.viewport = viewport;
           break;
         }

@@ -9,6 +9,7 @@ import type {
 import { planCodexLaunch } from './agent-planning.js';
 import type { SessionLaunch } from '../domain/session-execution.js';
 import { planSessionLaunch } from './session-launch-planning.js';
+import { SESSION_PLAN_TOOL_NAME } from '../domain/session-plan.js';
 import { SessionRuntime } from './session-runtime.js';
 import type { SessionRuntimeState } from '../core/session-runtime-planning.js';
 import type { StartupTraceObserver } from './startup-observer.js';
@@ -81,7 +82,9 @@ export class CodexDriver implements AgentDriver {
       ...(signal ? { signal } : {}),
       ...(control?.onEvent ? { onEvent: control.onEvent } : {}),
       ...(control?.onServerRequest ? { onServerRequest: control.session ? (event) => {
-        const declared = control.session!.agent.tools.some((tool) => tool.type === 'function' && tool.name === event.params.tool);
+        const admittedPlan = control.session!.planTool === true
+          && event.params.namespace == null && event.params.tool === SESSION_PLAN_TOOL_NAME;
+        const declared = admittedPlan || control.session!.agent.tools.some((tool) => tool.type === 'function' && tool.name === event.params.tool);
         if (event.method !== 'item/tool/call' || !declared) throw new Error('The session requested a tool outside its declared function tools');
         return control.onServerRequest!(event);
       } : control.onServerRequest } : {}),

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
-import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Readable } from 'node:stream';
@@ -18,6 +18,7 @@ import { routeAgentsRequest } from '../../../src/lambdas/agents-router.js';
 import { activityStream } from '../../../src/lambdas/activity-stream.js';
 import { classifyDemoRoute } from '../demo-policy.js';
 import { cleanupAgentsLive, type LiveTurnUsage } from './cleanup.js';
+import { budgetDecision, type BudgetLimits, type BudgetPhase } from './budget.js';
 
 // Two AI participants share one local Session. Only participant authentication is
 // demo-only (loopback bearer tokens); services, SQLite, Codex, the Linux worker,
@@ -25,13 +26,33 @@ import { cleanupAgentsLive, type LiveTurnUsage } from './cleanup.js';
 assert.equal(process.env.RAT_AGENTS_LIVE, 'true');
 const directory = resolve(process.env.RAT_THINGS_LOCAL_DIR ?? join(homedir(), '.rat-things', 'multiplayer-demo'));
 const workspaceId = createHash('sha256').update(directory).digest('hex').slice(0, 16);
-const output = resolve('artifacts/shared-workspace/agents-live'); await mkdir(output, { recursive: true });
-const maxTurns = Number(process.env.RAT_AGENTS_LIVE_MAX_TURNS ?? 6);
-const maxMinutes = Number(process.env.RAT_AGENTS_LIVE_MAX_MINUTES ?? 45);
-const participants = [
+const output = resolve(process.env.RAT_AGENTS_LIVE_OUTPUT ?? 'artifacts/shared-workspace/agents-live'); await mkdir(output, { recursive: true });
+const scenario = process.env.RAT_AGENTS_LIVE_SCENARIO ? JSON.parse(await readFile(process.env.RAT_AGENTS_LIVE_SCENARIO, 'utf8')) as { participants: Array<{ name: string; label: string }>; instructions: string; maxObservedTokens: number; maxToolCalls: number; maxTurns?: number; maxActiveMinutes?: number; reviewMinutes?: number } : undefined;
+if (scenario) {
+  assert(scenario.participants.length >= 1 && scenario.participants.length <= 4);
+  assert(new Set(scenario.participants.map(p => p.name)).size === scenario.participants.length);
+  assert(scenario.participants.every(p => /^[a-z]+$/.test(p.name) && p.label.length <= 80));
+  assert(scenario.instructions.length > 0 && scenario.instructions.length <= 10_000);
+  assert(Number.isSafeInteger(scenario.maxObservedTokens) && scenario.maxObservedTokens > 0 && scenario.maxObservedTokens <= 2_000_000);
+  assert(Number.isSafeInteger(scenario.maxToolCalls) && scenario.maxToolCalls > 0 && scenario.maxToolCalls <= 200);
+  if (scenario.maxTurns !== undefined) assert(Number.isSafeInteger(scenario.maxTurns) && scenario.maxTurns > 0 && scenario.maxTurns <= 20);
+  if (scenario.maxActiveMinutes !== undefined) assert(Number.isFinite(scenario.maxActiveMinutes) && scenario.maxActiveMinutes > 0 && scenario.maxActiveMinutes <= 60);
+  if (scenario.reviewMinutes !== undefined) assert(Number.isFinite(scenario.reviewMinutes) && scenario.reviewMinutes > 0 && scenario.reviewMinutes <= 30);
+}
+const limits: BudgetLimits = {
+  maxTurns: scenario?.maxTurns ?? Number(process.env.RAT_AGENTS_LIVE_MAX_TURNS ?? 4),
+  maxObservedTokens: scenario?.maxObservedTokens ?? 1_200_000,
+  maxToolItems: scenario?.maxToolCalls ?? 120,
+  maxActiveMs: (scenario?.maxActiveMinutes ?? Number(process.env.RAT_AGENTS_LIVE_MAX_MINUTES ?? 35)) * 60_000,
+  reviewMs: (scenario?.reviewMinutes ?? Number(process.env.RAT_AGENTS_LIVE_REVIEW_MINUTES ?? 10)) * 60_000,
+};
+assert(Number.isSafeInteger(limits.maxTurns) && limits.maxTurns > 0 && limits.maxTurns <= 20);
+assert(Number.isFinite(limits.maxActiveMs) && limits.maxActiveMs > 0 && limits.maxActiveMs <= 60 * 60_000);
+assert(Number.isFinite(limits.reviewMs) && limits.reviewMs > 0 && limits.reviewMs <= 30 * 60_000);
+const participants = (scenario?.participants ?? [
   { name: 'claude', label: 'Claude · Claude Code' },
   { name: 'codex', label: 'Codex · Codex CLI' },
-].map(({ name, label }) => ({ name, token: randomUUID(), actor: { id: `agent-${name}`, kind: 'workload' as const, label, issuer: 'local-demo-fixture', subject: name }, permissions: rolePermissions('collaborator') }));
+]).map(({ name, label }) => ({ name, token: randomUUID(), actor: { id: `agent-${name}`, kind: 'workload' as const, label, issuer: 'local-demo-fixture', subject: name }, permissions: rolePermissions('collaborator') }));
 
 const services = createLocalServices({ directory });
 const account = await services.subscription.status();
@@ -42,16 +63,41 @@ const model = process.env.RAT_AGENTS_LIVE_MODEL;
 assert(model, `Set RAT_AGENTS_LIVE_MODEL to one of: ${catalog.data.map(entry => entry.id).join(', ')}`);
 assert(catalog.data.some(entry => entry.id === model), `Model ${model} is not in this subscription's catalog; no fallback is used.`);
 
-const instructions = [
+const instructions = scenario?.instructions ?? [
   'You are the shared agent in a multiplayer Rat Things Session on this computer.',
   'Two AI participants contribute: Claude (Claude Code) and Codex (Codex CLI). Each message names its sender.',
   'Address participants by name, weigh both views and make one concrete decision per reply. Keep replies under 120 words.',
   'Write deliverables to /workspace/outputs. /workspace/outputs/index.html is shown to everyone in the shared browser.',
 ].join(' ');
 const title = process.env.RAT_AGENTS_LIVE_TITLE ?? 'Claude + Codex make a demo';
-const placeholder = '<!doctype html><meta charset="utf-8"><title>Demo plan</title><body style="margin:0;background:#181819;color:#f7f8f8;font:22px system-ui;padding:64px"><h1 style="font-weight:600">Demo plan</h1><p style="color:#8a8f98">Waiting for Claude and Codex.</p>';
+const placeholder = '<!doctype html><meta charset="utf-8"><title>Demo plan</title><body style="margin:0;background:#181819;color:#f7f8f8;font:22px system-ui;padding:64px"><h1 style="font-weight:600">Demo plan</h1><p style="color:#8a8f98">Waiting for the team’s brief.</p>';
 
 let sessionId: string | undefined;
+const activeStartedAt = Date.now();
+let budgetPhase: BudgetPhase = 'active';
+let reviewStartedAt: number | undefined;
+let reviewReason: string | undefined;
+let cancellationStatus: 'not_needed' | 'requested' | 'failed' = 'not_needed';
+let cancellationError: string | undefined;
+let observedUsage = { turns: 0, observed_tokens: null as number | null, tool_items: 0, token_usage_pending: true };
+let artifactExport: { status: 'written'; path: string; artifact_id: string } | { status: 'unavailable' | 'failed'; detail: string } = { status: 'unavailable', detail: 'Session has not produced an HTML artifact.' };
+let monitor: NodeJS.Timeout | undefined;
+let monitoring = false;
+const enterReview = async (reason: string, activeTurnIds: readonly string[]) => {
+  if (budgetPhase === 'review') return;
+  budgetPhase = 'review';
+  reviewStartedAt = Date.now();
+  reviewReason = reason;
+  if (activeTurnIds.length === 0) return;
+  cancellationStatus = 'requested';
+  try {
+    await services.sessions.events(LOCAL_OWNER, sessionId!, { events: [{ type: 'agent.session.input.cancel' }] }, `agents-live-budget-${reason}-${sessionId}`);
+  } catch (error) {
+    cancellationStatus = 'failed';
+    cancellationError = error instanceof Error ? error.message : String(error);
+    console.error(`Could not cancel the active Turn after ${reason}: ${cancellationError}`);
+  }
+};
 const server = createServer((incoming, outgoing) => void (async () => {
   const abort = new AbortController(); outgoing.once('close', () => abort.abort());
   const person = participants.find(entry => incoming.headers.authorization === `Bearer ${entry.token}`);
@@ -62,12 +108,12 @@ const server = createServer((incoming, outgoing) => void (async () => {
   const headers = new Headers(); for (const [key, value] of Object.entries(incoming.headers)) if (typeof value === 'string') headers.set(key, value);
   const request = new Request(`http://127.0.0.1${path}${url.search}`, { method: incoming.method ?? 'GET', headers, signal: abort.signal, ...(chunks.length ? { body: Buffer.concat(chunks) } : {}) });
   const after = request.headers.get('last-event-id') ?? url.searchParams.get('after');
-  const space = { id: 'space_agents', name: 'Claude + Codex', role: 'collaborator', permissions: person.permissions };
+  const space = { id: 'space_agents', name: scenario ? 'Taco Cometa team' : 'Claude + Codex', role: 'collaborator', permissions: person.permissions };
   const route = classifyDemoRoute(request.method, path, sessionId ?? '');
   let response: Response;
   if (route.kind === 'deny') response = Response.json({ error: { message: 'Route is not available through this demo.', code: 'resource_not_found' } }, { status: 404 });
-  else if (route.kind === 'inference' && (await services.sessions.turns(LOCAL_OWNER, sessionId!)).data.length >= maxTurns) {
-    response = Response.json({ error: { message: `Demo Turn limit (${maxTurns}) reached.`, code: 'demo_budget' } }, { status: 429 });
+  else if (route.kind === 'inference' && (budgetPhase === 'review' || (await services.sessions.turns(LOCAL_OWNER, sessionId!)).data.length >= limits.maxTurns)) {
+    response = Response.json({ error: { message: budgetPhase === 'review' ? 'Simulation inference is paused for team review.' : `Demo Turn limit (${limits.maxTurns}) reached.`, code: 'demo_budget' } }, { status: 429 });
   } else if (path === '/v1/workspace') response = Response.json({ ...space, kind: 'team', connection_id: 'agents', space_id: space.id });
   else if (path === '/v1/rat/spaces') response = Response.json({ object: 'list', data: [space] });
   else if (path === '/v1/team/connections') response = Response.json({ data: [{ id: 'agents', identity: person.actor }] });
@@ -81,9 +127,10 @@ const server = createServer((incoming, outgoing) => void (async () => {
   if (response.body) await pipeline(Readable.fromWeb(response.body as import('node:stream/web').ReadableStream), outgoing); else outgoing.end();
 })().catch(error => { if (!outgoing.headersSent) { outgoing.writeHead(500); outgoing.end(JSON.stringify({ error: { message: String(error) } })); } else outgoing.destroy(); }));
 
-const connection = join(directory, 'agents-live.json');
+const connection = process.env.RAT_AGENTS_LIVE_CONNECTION ?? join(directory, 'agents-live.json');
 let closing: Promise<number> | undefined;
 const close = () => closing ??= (async () => {
+  if (monitor) clearInterval(monitor);
   const workerVolume = sessionId ? localWorkerNames(workspaceId, sessionId).volume : undefined;
   const stateVolume = workerVolume ? `${workerVolume}-state` : undefined;
   const result = await cleanupAgentsLive({
@@ -91,7 +138,17 @@ const close = () => closing ??= (async () => {
       server.closeAllConnections();
       if (server.listening) await new Promise<void>((resolveClose, rejectClose) => server.close(error => error ? rejectClose(error) : resolveClose()));
     },
-    readTurns: async (): Promise<LiveTurnUsage[]> => sessionId ? (await services.sessions.turns(LOCAL_OWNER, sessionId)).data : [],
+    readTurns: async (): Promise<LiveTurnUsage[]> => {
+      if (!sessionId) return [];
+      const activity = await services.sessions.activity(LOCAL_OWNER, sessionId, participants[0]);
+      await writeFile(join(output, 'activity.json'), JSON.stringify(activity, null, 2));
+      const turns = (await services.sessions.turns(LOCAL_OWNER, sessionId)).data;
+      const reportedUsage = activity.turns.some(turn => turn.usage != null);
+      observedUsage = { turns: turns.length, observed_tokens: reportedUsage ? activity.turns.reduce((sum, turn) => sum + (turn.usage?.total_tokens ?? 0), 0) : null,
+        tool_items: activity.items.filter(item => ['command_execution', 'mcp_call', 'function_call', 'tool_call'].includes(item.type)).length, token_usage_pending: activity.turns.some(turn => turn.usage == null) };
+      await exportLatestHtml();
+      return turns;
+    },
     closeServices: () => services.close(),
     removeConnectionFile: () => rm(connection, { force: true }),
     removeVolume: async name => { await promisify(execFile)('docker', ['volume', 'rm', name], { timeout: 30_000 }); },
@@ -105,6 +162,13 @@ const close = () => closing ??= (async () => {
       resources: cleanup.resources,
       usage_status: cleanup.usage.status,
       ...(cleanup.usage.status === 'failed' ? { usage_error: cleanup.usage.error } : {}),
+      budget: { phase: budgetPhase, reason: reviewReason ?? null, cancellation_status: cancellationStatus,
+        ...(cancellationError ? { cancellation_error: cancellationError } : {}),
+        active_elapsed_ms: Math.max(0, (reviewStartedAt ?? Date.now()) - activeStartedAt),
+        review_elapsed_ms: reviewStartedAt === undefined ? null : Math.max(0, Date.now() - reviewStartedAt),
+        limits: { max_turns: limits.maxTurns, max_observed_tokens: limits.maxObservedTokens, max_tool_items: limits.maxToolItems, max_active_ms: limits.maxActiveMs, review_ms: limits.reviewMs } },
+      artifact_export: artifactExport,
+      observed_usage: observedUsage,
       model,
       inference: 'ChatGPT subscription through Codex (not API-billed)',
       turns: cleanup.usage.status === 'read' ? cleanup.usage.turns.length : null,
@@ -115,14 +179,74 @@ const close = () => closing ??= (async () => {
   if (result.exitCode !== 0) console.error(`Demo cleanup incomplete: ${JSON.stringify(result.result.resources)}`);
   return result.exitCode;
 })();
+async function exportLatestHtml() {
+  try {
+    const artifacts = (await services.sessions.artifacts(LOCAL_OWNER, sessionId!, { limit: 100 })).data
+      .filter((artifact: { path: string }) => /\.html?$/i.test(artifact.path))
+      .sort((a: { created_at: number }, b: { created_at: number }) => b.created_at - a.created_at);
+    const artifact = artifacts[0];
+    if (!artifact) { artifactExport = { status: 'unavailable', detail: 'Session has no HTML artifact.' }; return; }
+    if (artifact.size_bytes > 1_048_576) { artifactExport = { status: 'failed', detail: 'Latest HTML artifact exceeds the 1 MiB export limit.' }; return; }
+    const stream = await services.sessions.artifactContent(LOCAL_OWNER, sessionId!, artifact.id);
+    const reader = stream.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    try {
+      while (true) {
+        const next = await reader.read();
+        if (next.done) break;
+        total += next.value.byteLength;
+        if (total > 1_048_576) { await reader.cancel(); artifactExport = { status: 'failed', detail: 'Latest HTML artifact exceeded the 1 MiB export limit while reading.' }; return; }
+        chunks.push(next.value);
+      }
+    } finally { reader.releaseLock(); }
+    const path = join(output, 'latest.html');
+    await writeFile(path, Buffer.concat(chunks));
+    artifactExport = { status: 'written', path, artifact_id: artifact.id };
+  } catch (error) {
+    artifactExport = { status: 'failed', detail: error instanceof Error ? error.message : String(error) };
+  }
+}
+if (scenario || limits.maxActiveMs > 0) {
+  monitor = setInterval(() => void (async () => {
+    if (!sessionId || closing || monitoring) return;
+    monitoring = true;
+    try {
+    const activity = await services.sessions.activity(LOCAL_OWNER, sessionId, participants[0]);
+    const tokens = activity.turns.reduce((sum, turn) => sum + (turn.usage?.total_tokens ?? 0), 0);
+    const calls = activity.items.filter(item => ['command_execution', 'mcp_call', 'function_call', 'tool_call'].includes(item.type)).length;
+    const turns = (await services.sessions.turns(LOCAL_OWNER, sessionId)).data;
+    const reportedUsage = activity.turns.some(turn => turn.usage != null);
+    observedUsage = { turns: turns.length, observed_tokens: reportedUsage ? tokens : null, tool_items: calls, token_usage_pending: activity.turns.some(turn => turn.usage == null) };
+    const activeTurnIds = turns.filter(turn => !['completed', 'failed', 'cancelled', 'declined'].includes(turn.status)).map(turn => turn.id);
+    const decision = budgetDecision(limits, {
+      phase: budgetPhase,
+      turns: turns.length,
+      ...(activity.turns.some(turn => turn.usage != null) ? { observedTokens: tokens } : {}),
+      toolItems: calls,
+      activeElapsedMs: Date.now() - activeStartedAt,
+      reviewElapsedMs: reviewStartedAt === undefined ? 0 : Date.now() - reviewStartedAt,
+      activeTurnIds,
+    });
+    if (decision.action === 'enter_review') {
+      console.error(`Simulation entering review mode: ${decision.reason}.`);
+      await enterReview(decision.reason, decision.cancelTurnIds);
+    } else if (decision.action === 'cleanup') {
+      console.error('Simulation review deadline reached; exporting evidence and cleaning up.');
+      process.exitCode = await close();
+      process.exit(process.exitCode);
+    }
+    } finally { monitoring = false; }
+  })().catch(error => console.error(String(error))), 2000);
+  monitor.unref();
+}
 process.stdin.resume(); process.stdin.on('end', () => { void close().then(code => process.exit(code)); });
 for (const signal of ['SIGTERM', 'SIGINT'] as const) process.once(signal, () => { void close().then(code => process.exit(code)); });
-setTimeout(() => { console.error(`Demo time limit (${maxMinutes} min) reached.`); void close().then(code => process.exit(code)); }, maxMinutes * 60_000).unref();
 
 try {
   const session = await services.sessions.create(LOCAL_OWNER, {
     metadata: { name: title },
-    agent: { model, instructions, multi_agent: { enabled: false }, tools: [sharedBrowserTool] },
+    agent: { model, instructions, reasoning: { effort: 'low' }, multi_agent: { enabled: false }, tools: [sharedBrowserTool] },
     environment: { type: 'openai_hosted', network: { access: 'disabled' }, files: [{ type: 'inline', path: '/workspace/outputs/index.html', data: Buffer.from(placeholder).toString('base64') }] },
   }, undefined, undefined, undefined, participants[0]);
   sessionId = session.id;
